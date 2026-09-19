@@ -6,6 +6,8 @@
   "description": "Fan site no oficial de UPMINA — live status, YouTube, Instagram, TikTok y comunidad de edits.",
   "scripts": {
     "dev": "vite",
+    "dev:frontend": "vite",
+    "dev:local": "node scripts/dev-local.mjs",
     "build": "tsc -b && vite build",
     "preview": "vite preview",
     "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",

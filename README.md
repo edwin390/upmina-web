@@ -62,12 +62,18 @@ Estética **goth/alt/neón** fiel a la identidad visual de la marca.
 git clone https://github.com/edwin390/upmina-web.git
 cd upmina-web
 npm install
-cp .env.example .env
-# Edita .env con tus credenciales
-npm run dev
+# Crea .env.local a partir de .env.example y completa tus credenciales
+npm run dev:local
 ```
 
-Abre http://localhost:3000 en el navegador.
+Abre http://localhost:3000 en el navegador. El comando `dev:local` usa Vercel para
+servir la aplicación y las funciones `/api` juntas. Para trabajar solo con Vite usa
+`npm run dev`.
+
+Para que las APIs funcionen localmente, `.env.local` debe contener valores reales
+para `TWITCH_CLIENT_ID`, `TWITCH_CLIENT_SECRET` y `TWITCH_CHANNEL`. Vercel no descarga
+secretos ocultos al ejecutar `vercel env pull`, por lo que esas variables deben
+completarse manualmente en el entorno local.
 
 ---
 
