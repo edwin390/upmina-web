@@ -13,6 +13,7 @@ export default function HeroVideo({ video }: HeroVideoProps) {
           src={`https://www.youtube.com/embed/${video.id}`}
           title={video.title}
           allowFullScreen
+          loading="lazy"
           className="h-full w-full"
         />
       </div>

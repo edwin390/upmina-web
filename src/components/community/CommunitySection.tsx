@@ -19,14 +19,12 @@ export default function CommunitySection() {
   }, []);
 
   return (
-    <section id="comunidad" className="mx-auto max-w-6xl px-4 py-16">
+    <section className="mx-auto max-w-6xl px-4 py-16">
       <h2 className="mb-6 font-display text-3xl tracking-wide">COMUNIDAD</h2>
 
       {userId ? (
         <div className="mb-10 max-w-xl">
-          <h3 className="mb-3 text-lg font-semibold text-text-primary">
-            Sube tu edit
-          </h3>
+          <h3 className="mb-3 text-lg font-semibold text-text-primary">Sube tu edit</h3>
           <UploadEditForm authorId={userId} />
         </div>
       ) : (

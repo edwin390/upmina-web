@@ -16,14 +16,12 @@ export default function YouTubeSection() {
   }, [selectedVideoId, videos, latest]);
 
   return (
-    <section id="youtube" className="mx-auto max-w-6xl px-4 py-16">
+    <section className="mx-auto max-w-6xl px-4 py-16">
       <h2 className="mb-6 font-display text-3xl tracking-wide">YOUTUBE</h2>
 
       {activeVideo && <HeroVideo video={activeVideo} />}
 
-      <h3 className="mb-4 mt-10 text-lg font-semibold text-text-primary">
-        Más videos
-      </h3>
+      <h3 className="mb-4 mt-10 text-lg font-semibold text-text-primary">Más videos</h3>
 
       {isLoading && <p className="text-text-muted">Cargando videos…</p>}
 
