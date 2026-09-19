@@ -7,6 +7,14 @@ export interface TwitchStatus {
   startedAt?: string;
 }
 
+export interface TwitchVideo {
+  id: string;
+  title: string;
+  thumbnailUrl: string;
+  createdAt: string;
+  duration: string;
+}
+
 export interface TwitchClip {
   id: string;
   title: string;

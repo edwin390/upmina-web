@@ -17,8 +17,8 @@ export default function LiveBadge({ isLive, viewerCount }: LiveBadgeProps) {
     >
       <span
         className={clsx(
-          "h-2 w-2 rounded-full",
-          isLive ? "animate-pulse bg-white" : "bg-text-muted",
+          "relative h-2 w-2 rounded-full",
+          isLive ? "live-ping bg-white" : "bg-text-muted",
         )}
       />
       {isLive ? "EN VIVO" : "OFFLINE"}

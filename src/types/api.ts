@@ -40,6 +40,15 @@ export interface TwitchStream {
   started_at: string;
 }
 
+export interface TwitchVideoApiItem {
+  id: string;
+  title: string;
+  thumbnail_url: string;
+  created_at: string;
+  duration: string;
+  type: "archive" | "highlight" | "upload";
+}
+
 export interface YouTubeThumbnail {
   url: string;
 }
