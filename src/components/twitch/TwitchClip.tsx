@@ -1,4 +1,5 @@
 import type { TwitchClip as TwitchClipType } from "@/types";
+import { formatRelativeDate } from "@/lib/format";
 
 interface TwitchClipProps {
   clip: TwitchClipType;
@@ -22,8 +23,20 @@ export default function TwitchClip({ clip }: TwitchClipProps) {
       <div className="p-3">
         <p className="line-clamp-2 text-sm font-medium text-text-primary">{clip.title}</p>
         <p className="mt-1 text-xs text-text-muted">
-          {clip.viewCount.toLocaleString("es")} vistas
+          {clip.creatorName} · {clip.viewCount.toLocaleString("es")}{" "}
+          {clip.viewCount === 1 ? "vista" : "vistas"} ·{" "}
+          {formatRelativeDate(clip.createdAt)}
         </p>
+        {/* Alternativa oficial si el iframe embebido no carga (p. ej.
+            bloqueadores de contenido) o el usuario prefiere abrir Twitch. */}
+        <a
+          href={clip.url}
+          target="_blank"
+          rel="noreferrer noopener"
+          className="mt-2 inline-block text-xs font-medium text-accent-primary hover:underline"
+        >
+          Ver en Twitch
+        </a>
       </div>
     </div>
   );

@@ -1,6 +1,11 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import type { TwitchStream } from "../src/types/api.js";
-import { getAppAccessToken, getTwitchClientId, TwitchApiError } from "./twitch.js";
+import { applyThumbnailSize } from "../src/lib/format.js";
+import {
+  fetchTwitchHelix,
+  getTwitchConfig,
+  TwitchApiError,
+} from "../src/lib/twitch-shared.js";
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== "GET") {
@@ -8,18 +13,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   try {
-    const token = await getAppAccessToken();
-    const clientId = getTwitchClientId();
-    const channel = process.env.TWITCH_CHANNEL?.trim() || "upminaa";
+    const { channel } = getTwitchConfig();
 
-    const streamRes = await fetch(
-      `https://api.twitch.tv/helix/streams?user_login=${encodeURIComponent(channel)}`,
-      {
-        headers: {
-          "Client-Id": clientId,
-          Authorization: `Bearer ${token}`,
-        },
-      },
+    const streamRes = await fetchTwitchHelix(
+      `streams?user_login=${encodeURIComponent(channel)}`,
     );
 
     if (!streamRes.ok) {
@@ -38,16 +35,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     res.setHeader("Cache-Control", "s-maxage=30, stale-while-revalidate=60");
 
     if (!stream) {
-      return res.status(200).json({ isLive: false });
+      return res.status(200).json({ isLive: false, channel });
     }
 
     return res.status(200).json({
       isLive: true,
+      channel,
       title: stream.title,
       viewerCount: stream.viewer_count,
-      thumbnailUrl: stream.thumbnail_url
-        .replace("{width}", "440")
-        .replace("{height}", "248"),
+      thumbnailUrl: applyThumbnailSize(stream.thumbnail_url, 440, 248),
       startedAt: stream.started_at,
     });
   } catch (err) {

@@ -1,11 +1,6 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import type { TwitchClipApiItem } from "../src/types/api.js";
-import {
-  getAppAccessToken,
-  getBroadcasterId,
-  getTwitchClientId,
-  TwitchApiError,
-} from "./twitch.js";
+import { getBroadcasterId, TwitchApiError } from "../src/lib/twitch-shared.js";
+import { getRecentClips } from "../src/lib/twitch-clips.js";
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== "GET") {
@@ -13,28 +8,19 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   try {
-    const token = await getAppAccessToken();
-    const broadcasterId = await getBroadcasterId(token);
-    const clientId = getTwitchClientId();
+    const broadcasterId = await getBroadcasterId();
 
-    const clipsRes = await fetch(
-      `https://api.twitch.tv/helix/clips?broadcaster_id=${broadcasterId}&first=12`,
-      {
-        headers: {
-          "Client-Id": clientId,
-          Authorization: `Bearer ${token}`,
-        },
-      },
-    );
-    if (!clipsRes.ok) throw new TwitchApiError("Twitch no pudo consultar los clips", 502);
-
-    const { data } = (await clipsRes.json()) as { data?: TwitchClipApiItem[] };
-    const clips = (data ?? []).map((clip) => ({
+    // Los 12 clips más recientes (createdAt DESC). Helix ordena por vistas, así
+    // que el orden se resuelve en getRecentClips; ver ese módulo.
+    const recentClips = await getRecentClips(broadcasterId);
+    const clips = recentClips.map((clip) => ({
       id: clip.id,
-      title: clip.title,
+      url: clip.url,
+      title: clip.title ?? "",
+      creatorName: clip.creator_name ?? "",
       embedUrl: `https://clips.twitch.tv/embed?clip=${clip.id}`,
-      thumbnailUrl: clip.thumbnail_url,
-      viewCount: clip.view_count,
+      thumbnailUrl: clip.thumbnail_url ?? "",
+      viewCount: clip.view_count ?? 0,
       createdAt: clip.created_at,
     }));
 

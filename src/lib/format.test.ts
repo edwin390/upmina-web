@@ -1,5 +1,66 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { parseIsoDuration, formatRelativeDate } from "./format";
+import {
+  parseIsoDuration,
+  parseTwitchDuration,
+  formatRelativeDate,
+  applyThumbnailSize,
+} from "./format";
+
+describe("applyThumbnailSize", () => {
+  it("sustituye {width}/{height} (formato de streams)", () => {
+    expect(applyThumbnailSize("https://x/{width}x{height}.jpg", 440, 248)).toBe(
+      "https://x/440x248.jpg",
+    );
+  });
+
+  it("sustituye %{width}/%{height} (formato de videos/VODs)", () => {
+    expect(applyThumbnailSize("https://x/%{width}x%{height}.jpg", 640, 360)).toBe(
+      "https://x/640x360.jpg",
+    );
+  });
+
+  it("devuelve undefined si el template es undefined (stream sin thumbnail_url)", () => {
+    expect(applyThumbnailSize(undefined, 440, 248)).toBeUndefined();
+  });
+
+  it("devuelve undefined si el template es null", () => {
+    expect(applyThumbnailSize(null, 440, 248)).toBeUndefined();
+  });
+
+  it("devuelve undefined si el template es una cadena vacía", () => {
+    expect(applyThumbnailSize("", 440, 248)).toBeUndefined();
+  });
+});
+
+describe("parseTwitchDuration", () => {
+  it("formatea horas, minutos y segundos como H:MM:SS (formato propio de Twitch)", () => {
+    expect(parseTwitchDuration("3h8m33s")).toBe("3:08:33");
+  });
+
+  it("formatea minutos y segundos como M:SS cuando no hay horas", () => {
+    expect(parseTwitchDuration("45m2s")).toBe("45:02");
+  });
+
+  it("formatea solo segundos con minutos en 0", () => {
+    expect(parseTwitchDuration("58s")).toBe("0:58");
+  });
+
+  it("maneja duraciones sin componente de segundos", () => {
+    expect(parseTwitchDuration("12m")).toBe("12:00");
+  });
+
+  it("maneja duraciones de solo horas, rellenando minutos y segundos", () => {
+    expect(parseTwitchDuration("2h")).toBe("2:00:00");
+  });
+
+  it("devuelve 0:00 ante una entrada que no matchea el formato de Twitch (p. ej. ISO 8601)", () => {
+    expect(parseTwitchDuration("PT1H2M3S")).toBe("0:00");
+  });
+
+  it("devuelve 0:00 ante una cadena vacía", () => {
+    expect(parseTwitchDuration("")).toBe("0:00");
+  });
+});
 
 describe("parseIsoDuration", () => {
   it("formatea horas, minutos y segundos como HH:MM:SS", () => {
@@ -74,27 +135,21 @@ describe("formatRelativeDate", () => {
     vi.useFakeTimers();
     vi.setSystemTime(NOW);
 
-    expect(formatRelativeDate(agoBySeconds(2 * 60 * 60 * 24 * 7))).toBe(
-      "hace 2 semanas",
-    );
+    expect(formatRelativeDate(agoBySeconds(2 * 60 * 60 * 24 * 7))).toBe("hace 2 semanas");
   });
 
   it("formatea meses", () => {
     vi.useFakeTimers();
     vi.setSystemTime(NOW);
 
-    expect(formatRelativeDate(agoBySeconds(2 * 60 * 60 * 24 * 30))).toBe(
-      "hace 2 meses",
-    );
+    expect(formatRelativeDate(agoBySeconds(2 * 60 * 60 * 24 * 30))).toBe("hace 2 meses");
   });
 
   it("formatea años", () => {
     vi.useFakeTimers();
     vi.setSystemTime(NOW);
 
-    expect(formatRelativeDate(agoBySeconds(2 * 60 * 60 * 24 * 365))).toBe(
-      "hace 2 años",
-    );
+    expect(formatRelativeDate(agoBySeconds(2 * 60 * 60 * 24 * 365))).toBe("hace 2 años");
   });
 
   it("acepta un string ISO además de un objeto Date", () => {

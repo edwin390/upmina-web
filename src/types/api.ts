@@ -27,7 +27,9 @@ export interface TwitchUser {
 
 export interface TwitchClipApiItem {
   id: string;
+  url: string;
   title: string;
+  creator_name: string;
   thumbnail_url: string;
   view_count: number;
   created_at: string;
@@ -36,14 +38,19 @@ export interface TwitchClipApiItem {
 export interface TwitchStream {
   title: string;
   viewer_count: number;
-  thumbnail_url: string;
+  // Twitch puede devolver este campo vacío o ausente (stream recién
+  // iniciado, thumbnail todavía generándose); nunca asumir que existe.
+  thumbnail_url?: string;
   started_at: string;
 }
 
 export interface TwitchVideoApiItem {
   id: string;
+  url: string;
   title: string;
-  thumbnail_url: string;
+  // Igual que en TwitchStream: puede faltar en VODs que aún se están
+  // procesando.
+  thumbnail_url?: string;
   created_at: string;
   duration: string;
   type: "archive" | "highlight" | "upload";

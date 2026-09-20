@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import clsx from "clsx";
 
 const NAV_LINKS = [
   { href: "#twitch", label: "Twitch" },
@@ -14,6 +15,7 @@ interface HeaderProps {
 
 export default function Header({ onLogoDoubleClick }: HeaderProps) {
   const [isScrolled, setIsScrolled] = useState(false);
+  const [isMenuOpen, setIsMenuOpen] = useState(false);
 
   useEffect(() => {
     const handleScroll = () => setIsScrolled(window.scrollY > 80);
@@ -21,6 +23,21 @@ export default function Header({ onLogoDoubleClick }: HeaderProps) {
     window.addEventListener("scroll", handleScroll, { passive: true });
     return () => window.removeEventListener("scroll", handleScroll);
   }, []);
+
+  // Si la ventana crece hasta el breakpoint de escritorio mientras el menú
+  // móvil está abierto (p. ej. al rotar una tablet), ciérralo: el <nav>
+  // de escritorio ya se muestra vía CSS y dejar ambos abiertos duplicaría
+  // los enlaces.
+  useEffect(() => {
+    if (!isMenuOpen) return;
+    const handleResize = () => {
+      if (window.innerWidth >= 768) setIsMenuOpen(false);
+    };
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, [isMenuOpen]);
+
+  const closeMenu = () => setIsMenuOpen(false);
 
   return (
     <header
@@ -53,15 +70,63 @@ export default function Header({ onLogoDoubleClick }: HeaderProps) {
           ))}
         </nav>
 
-        <a
-          href="https://twitch.tv/upminaa"
-          target="_blank"
-          rel="noreferrer noopener"
-          className="rounded-md bg-accent-primary px-4 py-2 text-sm font-semibold text-text-inverse shadow-glow-primary transition-transform duration-200 ease-bounce hover:scale-105 hover:bg-accent-secondary"
-        >
-          Ver en Twitch
-        </a>
+        <div className="flex items-center gap-2">
+          <a
+            href="https://twitch.tv/upminaa"
+            target="_blank"
+            rel="noreferrer noopener"
+            className="rounded-md bg-accent-primary px-4 py-2 text-sm font-semibold text-text-inverse shadow-glow-primary transition-transform duration-200 ease-bounce hover:scale-105 hover:bg-accent-secondary"
+          >
+            Ver en Twitch
+          </a>
+
+          <button
+            type="button"
+            onClick={() => setIsMenuOpen((open) => !open)}
+            aria-expanded={isMenuOpen}
+            aria-controls="mobile-nav"
+            aria-label={isMenuOpen ? "Cerrar menú" : "Abrir menú"}
+            className="inline-flex h-9 w-9 flex-col items-center justify-center gap-1.5 rounded-md text-text-primary transition-colors duration-200 ease-smooth hover:text-accent-primary md:hidden"
+          >
+            <span
+              className={clsx(
+                "h-0.5 w-5 rounded-full bg-current transition-transform duration-200 ease-smooth",
+                isMenuOpen && "translate-y-2 rotate-45",
+              )}
+            />
+            <span
+              className={clsx(
+                "h-0.5 w-5 rounded-full bg-current transition-opacity duration-200 ease-smooth",
+                isMenuOpen && "opacity-0",
+              )}
+            />
+            <span
+              className={clsx(
+                "h-0.5 w-5 rounded-full bg-current transition-transform duration-200 ease-smooth",
+                isMenuOpen && "-translate-y-2 -rotate-45",
+              )}
+            />
+          </button>
+        </div>
       </div>
+
+      {isMenuOpen && (
+        <nav
+          id="mobile-nav"
+          className="flex flex-col gap-1 border-t border-border-subtle/60 bg-bg-base/95 px-4 py-3 backdrop-blur-xl md:hidden"
+        >
+          {NAV_LINKS.map((link) => (
+            <a
+              key={link.href}
+              href={link.href}
+              onClick={closeMenu}
+              className="rounded-md px-3 py-2 text-sm text-text-secondary transition-colors duration-200 ease-smooth hover:bg-bg-elevated hover:text-accent-primary"
+            >
+              {link.label}
+            </a>
+          ))}
+        </nav>
+      )}
     </header>
   );
 }

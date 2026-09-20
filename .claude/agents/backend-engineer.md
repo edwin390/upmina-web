@@ -12,7 +12,7 @@ Build reliable server-side code. The backend is the set of Vercel Functions in `
 - Raw upstream API shapes go in `src/types/api.ts`; normalized client-facing types go in `src/types/index.ts`. Only import from `src/` what is safe outside Vite (types, `src/lib/format`).
 - Secrets are read only via `process.env` in `api/`. Never add a secret under a `VITE_*` name.
 - Follow the existing handler shape: reject non-GET with `405`, fetch upstream, normalize, set `Cache-Control: s-maxage=...` (match the TTL in `docs/ARCHITECTURE.md`), and on failure log with a `[function-name]` prefix and return a generic Spanish message. The status is `502` by default; the Twitch handlers use the status carried by `TwitchApiError` (e.g. `503` when credentials are missing).
-- Twitch handlers share `api/twitch.ts` (token cache, broadcaster lookup, `TwitchApiError`). Vercel exposes every file in `api/` as a route, so avoid adding more helper modules there.
+- Twitch handlers share `src/lib/twitch-shared.ts` (token cache with 401-triggered invalidation, broadcaster lookup, `TwitchApiError`), kept outside `api/` on purpose: Vercel exposes every file in `api/` as a route, and a shared module is not an endpoint. Don't add new helper modules directly under `api/`.
 - Changing a response shape means updating the matching hook in `src/hooks/` and the type in `src/types/index.ts`.
 
 ## Priorities

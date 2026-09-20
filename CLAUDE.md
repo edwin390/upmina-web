@@ -26,7 +26,7 @@ A husky pre-commit hook runs `lint-staged` (eslint --fix + prettier on staged `*
 **Serverless import rules (learned the hard way, see git history):**
 - Relative imports in `api/` must use explicit `.js` extensions (e.g. `../src/types/api.js`) because Vercel runs them as ESM.
 - Types shared with functions live in `src/types/api.ts` (raw upstream API shapes). Client-facing normalized types live in `src/types/index.ts`. Keep them separate; `api/` may import from `src/lib/format` and `src/types/api` only for things that are safe outside Vite.
-- Vercel deploys every file in `api/` as its own route. `api/twitch.ts` is a shared helper (token cache, broadcaster lookup, `TwitchApiError`) used by the other Twitch handlers, so it is also exposed as `/api/twitch`; avoid adding more helpers there.
+- Vercel deploys every file in `api/` as its own route, so shared backend logic must not live there. The Twitch helper (token cache with 401-triggered invalidation, broadcaster lookup, `TwitchApiError`) lives in `src/lib/twitch-shared.ts` and is imported by the three Twitch handlers; there is no `/api/twitch` route.
 
 **Data flow per integration:** component → hook in `src/hooks/use*.ts` (TanStack Query with per-resource `staleTime`, see `docs/ARCHITECTURE.md` cache table) → `fetch("/api/<name>")` → Vercel Function → external API → normalized JSON. Functions set `Cache-Control: s-maxage=...` for edge caching and answer with a generic Spanish error message on upstream failure: `502` by default, and the Twitch handlers use the status carried by `TwitchApiError` (e.g. `503` when credentials are missing). The Twitch handlers also reject non-GET with `405`.
 

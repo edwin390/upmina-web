@@ -25,16 +25,28 @@ Plan por fases desde el setup hasta el lanzamiento público.
 
 **Objetivo:** Módulo live y clips completos.
 
-- [ ] Registrar app en Twitch Developer Console
-- [ ] Implementar `api/twitch-status.ts`
-- [ ] Implementar `api/twitch-clips.ts`
-- [ ] Crear hook `useTwitchStatus`
-- [ ] Crear componente `<LiveBadge>`
-- [ ] Integrar `<TwitchPlayer>` cuando esté online
-- [ ] Crear `<ClipGrid>` con los últimos 6 clips
-- [ ] Manejo de errores y estado offline
+- [x] Registrar app en Twitch Developer Console (credenciales configuradas en el entorno
+      Development de Vercel; validado contra Twitch real el 2026-09-19. Pendiente el mismo
+      alta de variables en Preview/Production antes del despliegue público)
+- [x] Implementar `api/twitch-status.ts`
+- [x] Implementar `api/twitch-clips.ts`
+- [x] Crear hook `useTwitchStatus`
+- [x] Crear componente `<LiveBadge>` (con estado `loading`/`live`/`offline`/`error`)
+- [x] Integrar `<TwitchPlayer>` cuando esté online (con fallback al último VOD si está offline)
+- [x] Renderizar la grid de los 12 clips más recientes (ordenados por fecha, ver `docs/ARCHITECTURE.md`) directamente
+      en `<TwitchSection>`. Se descartó un `<ClipGrid>` separado: la sección ya es un único
+      `grid` responsive (3/2/1 columnas) sin lógica adicional que justifique extraer un
+      componente, y "12" reemplaza a los "6" originales de este roadmap porque así quedó
+      implementado desde el principio sin que afectara la UX.
+- [x] Manejo de errores y estado offline (mensajes distintos para "no configurado" vs.
+      "error temporal", ver `docs/FEATURES.md`)
 
 **Entregable:** Sección Twitch funcional con datos reales.
+
+**Validación real (Development, canal `upminaa`):** los tres endpoints responden 200 con datos
+de Twitch; estado OFFLINE con último VOD (miniatura, fecha, duración y enlace) y 12 clips
+reales renderizados con el embed oficial (`parent=localhost`). Pendiente: validación visual
+del estado EN VIVO cuando el canal transmita (solo cubierto por tests unitarios del mapeo).
 
 ---
 

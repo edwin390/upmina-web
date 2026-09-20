@@ -1,11 +1,22 @@
 import clsx from "clsx";
 
+export type LiveBadgeStatus = "loading" | "live" | "offline" | "error";
+
 interface LiveBadgeProps {
-  isLive: boolean;
+  status: LiveBadgeStatus;
   viewerCount?: number;
 }
 
-export default function LiveBadge({ isLive, viewerCount }: LiveBadgeProps) {
+const STATUS_LABEL: Record<LiveBadgeStatus, string> = {
+  loading: "Comprobando…",
+  live: "EN VIVO",
+  offline: "OFFLINE",
+  error: "SIN DATOS",
+};
+
+export default function LiveBadge({ status, viewerCount }: LiveBadgeProps) {
+  const isLive = status === "live";
+
   return (
     <div
       className={clsx(
@@ -16,12 +27,21 @@ export default function LiveBadge({ isLive, viewerCount }: LiveBadgeProps) {
       )}
     >
       <span
+        aria-hidden="true"
         className={clsx(
           "relative h-2 w-2 rounded-full",
-          isLive ? "live-ping bg-white" : "bg-text-muted",
+          isLive
+            ? "live-ping bg-white"
+            : status === "loading"
+              ? "animate-pulse bg-text-muted"
+              : "bg-text-muted",
         )}
       />
-      {isLive ? "EN VIVO" : "OFFLINE"}
+      {/* Solo el texto de estado se anuncia; el conteo de viewers cambia
+          cada refetch (60s) y no debe generar anuncios repetidos. */}
+      <span role="status" aria-live="polite">
+        {STATUS_LABEL[status]}
+      </span>
       {isLive && typeof viewerCount === "number" && (
         <span className="text-xs font-normal opacity-80">
           {viewerCount.toLocaleString("es")} viewers

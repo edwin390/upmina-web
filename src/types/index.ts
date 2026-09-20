@@ -1,6 +1,10 @@
 // ---------- Twitch ----------
 export interface TwitchStatus {
   isLive: boolean;
+  // Canal que el backend consultó realmente (viene de la env var
+  // TWITCH_CHANNEL). Es la única fuente de verdad: el frontend nunca debe
+  // hardcodear un nombre de canal en su lugar.
+  channel: string;
   title?: string;
   viewerCount?: number;
   thumbnailUrl?: string;
@@ -9,15 +13,24 @@ export interface TwitchStatus {
 
 export interface TwitchVideo {
   id: string;
+  // URL del VOD en twitch.tv, tal cual la devuelve Helix. Permite un enlace
+  // "Ver en Twitch" directo, además del reproductor embebido.
+  url: string;
   title: string;
-  thumbnailUrl: string;
+  // Puede faltar: Twitch no siempre devuelve thumbnail_url (ver
+  // src/types/api.ts, TwitchVideoApiItem).
+  thumbnailUrl?: string;
   createdAt: string;
   duration: string;
 }
 
 export interface TwitchClip {
   id: string;
+  // URL del clip en twitch.tv (fallback si el iframe de embed no carga, p.
+  // ej. por un bloqueador de contenido).
+  url: string;
   title: string;
+  creatorName: string;
   embedUrl: string;
   thumbnailUrl: string;
   viewCount: number;

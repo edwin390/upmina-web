@@ -71,9 +71,9 @@ servir la aplicación y las funciones `/api` juntas. Para trabajar solo con Vite
 `npm run dev`.
 
 Para que las APIs funcionen localmente, `.env.local` debe contener valores reales
-para `TWITCH_CLIENT_ID`, `TWITCH_CLIENT_SECRET` y `TWITCH_CHANNEL`. Vercel no descarga
-secretos ocultos al ejecutar `vercel env pull`, por lo que esas variables deben
-completarse manualmente en el entorno local.
+para `TWITCH_CLIENT_ID`, `TWITCH_CLIENT_SECRET` y `TWITCH_CHANNEL`. Si están definidas en
+el entorno Development de Vercel, `vercel env pull .env.local` las descarga; las variables
+marcadas como *Sensitive* no se descargan y deben completarse manualmente en `.env.local`.
 
 ---
 

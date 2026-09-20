@@ -18,15 +18,30 @@ Informar a los visitantes en tiempo real si UPMINA está transmitiendo en Twitch
 
 ### ⚙️ Comportamiento esperado
 1. Al cargar la página, se consulta el estado del canal.
-2. El banner cambia de color y texto:
-   - **ONLINE**: fondo rojo/neón, texto "EN VIVO", conteo de viewers.
-   - **OFFLINE**: fondo gris oscuro, texto "OFFLINE".
-3. Si está online, aparece un reproductor embebido.
-4. El estado se refresca cada 60 segundos.
+2. El banner (`<LiveBadge>`) tiene 4 estados visuales, nunca solo "en vivo u offline":
+   - **Cargando** ("Comprobando…"): mientras la primera consulta está en curso. No debe
+     mostrarse como "OFFLINE" antes de tener una respuesta real.
+   - **EN VIVO**: fondo rojo/neón, conteo de viewers.
+   - **OFFLINE**: fondo gris oscuro, consulta exitosa y el canal no está transmitiendo.
+   - **Sin datos**: la consulta falló (Twitch caído, sin credenciales); fondo gris oscuro,
+     texto distinto de "OFFLINE" para no dar una respuesta que no se pudo confirmar.
+3. Si está online, aparece un reproductor oficial de Twitch embebido
+   (`player.twitch.tv`) con el canal que devolvió el backend (nunca un canal
+   hardcodeado en el frontend), más un enlace "Ver en Twitch" como alternativa.
+4. Si está offline, se intenta mostrar el último VOD grabado como fallback:
+   reproductor embebido, título, fecha relativa, duración y enlace directo al
+   VOD en twitch.tv.
+5. Si la consulta tuvo éxito pero el canal nunca ha transmitido (no hay VOD),
+   se muestra un estado vacío explícito ("Todavía no hay contenido de Twitch
+   disponible."), distinto del estado de carga y del de error.
+6. El estado se refresca cada 60 segundos.
 
 ### 🔧 Implementación
-- Proxy en `api/twitch-status.ts`.
-- Hook `useTwitchStatus` con TanStack Query (`refetchInterval: 60000`).
+- Proxy en `api/twitch-status.ts` (usa `src/lib/twitch-shared.ts` para el token y el
+  broadcaster; ese archivo no es un endpoint, vive fuera de `api/` a propósito).
+- Hook `useTwitchStatus` con TanStack Query (`refetchInterval: 60000`). La respuesta incluye
+  `channel`: es la única fuente de verdad del canal (viene de `TWITCH_CHANNEL` en el
+  backend), tanto para el reproductor como para el enlace "Ver canal".
 - Componentes `<LiveBadge>` y `<TwitchPlayer>`.
 
 ---
@@ -37,9 +52,21 @@ Informar a los visitantes en tiempo real si UPMINA está transmitiendo en Twitch
 Mostrar los mejores o más recientes momentos de los directos.
 
 ### ⚙️ Comportamiento esperado
-1. Se obtienen los clips más recientes vía Twitch Helix API (`Get Clips`).
-2. Grid responsive (3/2/1 columnas).
-3. Cada clip es un iframe embebido de `clips.twitch.tv`.
+1. Se obtienen los 12 clips reales MÁS RECIENTES del canal vía Twitch Helix API
+   (`Get Clips`), ordenados por fecha de creación descendente (el más nuevo
+   primero); las vistas nunca deciden el orden. Si el canal tiene menos de 12,
+   se muestran solo los que existen (nunca se inventa contenido), y si no tiene
+   ninguno se muestra un estado vacío ("Todavía no hay clips disponibles.").
+   Cómo se obtienen y por qué: ver "Twitch" en `docs/ARCHITECTURE.md`.
+2. Grid responsive (3/2/1 columnas), renderizada directamente en `<TwitchSection>`.
+3. Cada clip es un iframe embebido de `clips.twitch.tv`, y muestra además
+   título, creador (`creator_name`), vistas (con singular "1 vista") y fecha relativa, más un enlace
+   "Ver en Twitch" directo al clip (`url` de Helix) como alternativa si el
+   embed no carga.
+4. Si Twitch no está configurado (sin credenciales), el mensaje dice explícitamente que
+   falta configuración. Si Twitch responde con un error temporal (caído, rate limit), el
+   mensaje es distinto y no menciona configuración, para no confundir un problema puntual
+   con uno de setup.
 
 ### 🔧 Implementación
 - Proxy en `api/twitch-clips.ts`.

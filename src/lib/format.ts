@@ -19,6 +19,45 @@ export function parseIsoDuration(iso: string): string {
 }
 
 /**
+ * Convierte la duración de un VOD de Twitch (formato propio de Twitch,
+ * p. ej. "3h8m33s" o "45m2s" o "58s" — NO es ISO 8601, a diferencia de
+ * YouTube) a formato legible HH:MM:SS o MM:SS.
+ */
+export function parseTwitchDuration(duration: string): string {
+  const match = duration.match(/^(?:(\d+)h)?(?:(\d+)m)?(?:(\d+)s)?$/);
+  if (!match || !duration) return "0:00";
+
+  const hours = Number(match[1] ?? 0);
+  const minutes = Number(match[2] ?? 0);
+  const seconds = Number(match[3] ?? 0);
+
+  const pad = (n: number) => String(n).padStart(2, "0");
+
+  if (hours > 0) {
+    return `${hours}:${pad(minutes)}:${pad(seconds)}`;
+  }
+  return `${minutes}:${pad(seconds)}`;
+}
+
+/**
+ * Sustituye los placeholders de tamaño de una URL de thumbnail de Twitch
+ * (`{width}`/`{height}` en streams, `%{width}`/`%{height}` en videos) por
+ * las dimensiones dadas. Twitch no siempre incluye `thumbnail_url` (streams
+ * recién iniciados, VODs todavía procesándose, etc.), así que esta función
+ * es explícita sobre esa posibilidad en vez de asumir que el campo existe.
+ */
+export function applyThumbnailSize(
+  template: string | undefined | null,
+  width: number,
+  height: number,
+): string | undefined {
+  if (!template) return undefined;
+  return template
+    .replace(/%?\{width\}/, String(width))
+    .replace(/%?\{height\}/, String(height));
+}
+
+/**
  * Devuelve una fecha relativa en español ("Hace 3 días").
  */
 export function formatRelativeDate(dateInput: string | Date): string {
