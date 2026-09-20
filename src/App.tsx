@@ -3,6 +3,8 @@ import { Navigate, Route, Routes } from "react-router-dom";
 import Header from "./components/layout/Header";
 import Footer from "./components/layout/Footer";
 import HomePage from "./pages/HomePage";
+import TermsPage from "./pages/TermsPage";
+import PrivacyPage from "./pages/PrivacyPage";
 import AmbientBackground from "./components/ui/AmbientBackground";
 import ScrollProgress from "./components/ui/ScrollProgress";
 import ScrollToTop from "./components/ui/ScrollToTop";
@@ -98,6 +100,8 @@ function App() {
             <Route path="/instagram" element={<InstagramSection />} />
             <Route path="/tiktok" element={<TikTokSection />} />
             <Route path="/comunidad" element={<CommunitySection />} />
+            <Route path="/terms" element={<TermsPage />} />
+            <Route path="/privacy" element={<PrivacyPage />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </Suspense>

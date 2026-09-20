@@ -1,3 +1,5 @@
+import { Link } from "react-router-dom";
+
 const SOCIAL_LINKS = [
   { href: "https://twitch.tv/upminaa", label: "Twitch" },
   { href: "https://www.youtube.com/@upminaa", label: "YouTube" },
@@ -31,6 +33,21 @@ export default function Footer() {
             </a>
           ))}
         </div>
+
+        <nav aria-label="Legal" className="-my-2 flex gap-x-5 text-text-muted">
+          <Link
+            to="/terms"
+            className="py-2 transition-colors duration-200 ease-smooth hover:text-accent-secondary"
+          >
+            Terms
+          </Link>
+          <Link
+            to="/privacy"
+            className="py-2 transition-colors duration-200 ease-smooth hover:text-accent-secondary"
+          >
+            Privacy
+          </Link>
+        </nav>
 
         <p className="max-w-2xl text-text-muted">
           UPMINA Web es un proyecto no oficial creado por fans. No está afiliado,
