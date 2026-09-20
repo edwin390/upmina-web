@@ -74,6 +74,7 @@ export interface YouTubeChannelResponse {
 
 export interface YouTubePlaylistResponse {
   items?: Array<{ snippet: YouTubeSnippet }>;
+  nextPageToken?: string;
 }
 
 export interface YouTubeVideoDetails {

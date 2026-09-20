@@ -2,10 +2,17 @@ import { useQuery } from "@tanstack/react-query";
 import type { YouTubeVideo } from "@/types";
 import { isDemoMode } from "@/lib/runtime";
 
-async function fetchYouTubeVideos(maxResults = 12): Promise<YouTubeVideo[]> {
+/** `videos` = solo videos normales, `shorts` = solo Shorts, sin valor = los más recientes sin clasificar. */
+export type YouTubeVideoType = "videos" | "shorts";
+
+async function fetchYouTubeVideos(
+  maxResults = 12,
+  type?: YouTubeVideoType,
+): Promise<YouTubeVideo[]> {
   if (isDemoMode) return [];
 
-  const res = await fetch(`/api/youtube-videos?maxResults=${maxResults}`);
+  const typeParam = type ? `&type=${type}` : "";
+  const res = await fetch(`/api/youtube-videos?maxResults=${maxResults}${typeParam}`);
   if (!res.ok) throw new Error("No se pudieron obtener los videos de YouTube");
   return res.json();
 }
@@ -18,10 +25,10 @@ async function fetchLatestYouTubeVideo(): Promise<YouTubeVideo | null> {
   return res.json();
 }
 
-export function useYouTubeVideos(maxResults = 12) {
+export function useYouTubeVideos(maxResults = 12, type?: YouTubeVideoType) {
   return useQuery({
-    queryKey: ["youtube", "videos", maxResults],
-    queryFn: () => fetchYouTubeVideos(maxResults),
+    queryKey: ["youtube", "videos", maxResults, type ?? "all"],
+    queryFn: () => fetchYouTubeVideos(maxResults, type),
     staleTime: 15 * 60_000,
   });
 }
