@@ -324,18 +324,53 @@ describe("getRecentClips", () => {
     expect(clipCalls).toBeLessThanOrEqual(MAX_HELIX_CALLS);
   });
 
-  it("ignora campos opcionales ausentes y descarta clips sin id o sin fecha válida", async () => {
+  it("descarta clips sin id o sin fecha válida", async () => {
     stubHelixCatalog([
       clip("ok", 0.1, 5),
       { ...clip("sin-fecha", 0.2, 5), created_at: undefined as unknown as string },
       { ...clip("fecha-rota", 0.2, 5), created_at: "no-es-una-fecha" },
       { ...clip("", 0.3, 5) },
-      { ...clip("sin-thumb", 0.4, 5), thumbnail_url: undefined as unknown as string },
     ]);
 
     const result = await getRecentClips("42", NOW);
 
-    expect(result.map((c) => c.id)).toEqual(["ok", "sin-thumb"]);
+    expect(result.map((c) => c.id)).toEqual(["ok"]);
+  });
+
+  it("descarta clips no reproducibles (thumbnail_url vacío, en blanco o ausente)", async () => {
+    stubHelixCatalog([
+      clip("valido", 0.1, 5),
+      { ...clip("vacio", 0.11, 5), thumbnail_url: "" },
+      { ...clip("blanco", 0.12, 5), thumbnail_url: "   " },
+      { ...clip("ausente", 0.13, 5), thumbnail_url: undefined as unknown as string },
+    ]);
+
+    const result = await getRecentClips("42", NOW);
+
+    expect(result.map((c) => c.id)).toEqual(["valido"]);
+  });
+
+  it("completa hasta 12 con clips válidos de ventanas más antiguas cuando la reciente trae inválidos", async () => {
+    // Ventana [0,3h]: 10 válidos + 2 rotos. Los 2 restantes salen de [3h,6h].
+    const catalog = [
+      ...Array.from({ length: 10 }, (_, i) => clip(`n${i}`, i / 200, 5)),
+      { ...clip("roto1", 0.001, 1), thumbnail_url: "" },
+      { ...clip("roto2", 0.002, 1), thumbnail_url: "" },
+      clip("v1", 0.15, 5), // 3,6 h → ventana [3h,6h]
+      clip("v2", 0.16, 5),
+      clip("v3", 0.2, 5),
+    ];
+    stubHelixCatalog(catalog);
+
+    const result = await getRecentClips("42", NOW);
+
+    expect(result).toHaveLength(MAX_CLIPS);
+    expect(result.some((c) => c.id.startsWith("roto"))).toBe(false);
+    // newest → oldest y sin duplicados
+    const dates = result.map((c) => Date.parse(c.created_at));
+    expect(dates).toEqual([...dates].sort((x, y) => y - x));
+    expect(new Set(result.map((c) => c.id)).size).toBe(result.length);
+    expect(result.slice(-2).map((c) => c.id)).toEqual(["v1", "v2"]);
   });
 
   it("propaga un error de Helix como TwitchApiError 502 (no devuelve datos parciales)", async () => {
@@ -423,6 +458,19 @@ describe("api/twitch-clips", () => {
     expect(state.headers["Cache-Control"]).toContain("s-maxage");
   });
 
+  it("no envía al frontend clips sin thumbnail (no reproducibles)", async () => {
+    stubHelixCatalog([
+      clip("bueno", 0.1, 5),
+      { ...clip("roto", 0.05, 1), thumbnail_url: "" },
+    ]);
+    const { res, state } = mockRes();
+
+    await clipsHandler({ method: "GET" } as VercelRequest, res);
+
+    expect(state.status).toBe(200);
+    expect((state.body as Array<{ id: string }>).map((c) => c.id)).toEqual(["bueno"]);
+  });
+
   it("canal sin clips: 200 con lista vacía", async () => {
     stubHelixCatalog([]);
     const { res, state } = mockRes();
@@ -437,6 +485,7 @@ describe("api/twitch-clips", () => {
     const partial = {
       id: "x1",
       url: "https://www.twitch.tv/c/clip/x1",
+      thumbnail_url: "https://cdn/x1.jpg",
       created_at: new Date().toISOString().replace(/\.\d{3}Z$/, "Z"),
     } as unknown as TwitchClipApiItem;
     stubHelixCatalog([partial]);
@@ -449,7 +498,7 @@ describe("api/twitch-clips", () => {
       id: "x1",
       title: "",
       creatorName: "",
-      thumbnailUrl: "",
+      thumbnailUrl: "https://cdn/x1.jpg",
       viewCount: 0,
     });
   });

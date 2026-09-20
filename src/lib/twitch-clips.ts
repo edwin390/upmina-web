@@ -24,6 +24,21 @@
 // que cualquiera de una ventana anterior, así que las siguientes no pueden
 // desplazar a ninguno de los ya encontrados). El resultado final se ordena
 // explícitamente por fecha de creación descendente; `view_count` nunca decide.
+//
+// Clips no reproducibles: Helix sigue listando clips cuyo procesado en Twitch
+// falló. Ninguno de sus campos lo indica salvo `thumbnail_url`, que llega
+// vacío. Medido contra el canal real (877 clips de 14 días): los 15 clips sin
+// thumbnail fallan en el embed oficial con "Este video no está disponible o no
+// puede reproducirse (Error n.º 4000)" y también en twitch.tv, mientras que
+// todos los clips con thumbnail probados (21) se reproducen. Además `video_id`,
+// `vod_offset`, `embed_url`, `game_id` y `is_featured` no distinguen ambos
+// grupos. Por eso se descartan al recogerlos: cuentan como "no encontrados" y
+// la búsqueda sigue ampliando ventanas hasta reunir MAX_CLIPS clips válidos.
+// (Un clip recién creado también carece de thumbnail hasta que Twitch lo
+// procesa; reaparece solo cuando ya es reproducible.) No hay señal fiable para
+// detectar desde el navegador un fallo del embed: el iframe de clips es de otro
+// origen y no emite eventos, así que no se intenta.
+//
 // Limitación conocida: la incompletitud de Helix en ventanas amplias no es
 // eliminable desde el cliente; en un canal con muy poca actividad reciente el
 // conjunto puede variar ligeramente entre consultas (la caché de 5 min lo
@@ -86,6 +101,12 @@ function isUsableClip(
   );
 }
 
+// Sin thumbnail Twitch no ha generado los recursos del clip y el embed falla
+// (ver arriba). Se comprueba tras isUsableClip, con un string ya garantizado.
+function isPlayableClip(clip: TwitchClipApiItem): boolean {
+  return typeof clip.thumbnail_url === "string" && clip.thumbnail_url.trim() !== "";
+}
+
 export async function getRecentClips(
   broadcasterId: string,
   now: Date = new Date(),
@@ -127,7 +148,7 @@ export async function getRecentClips(
 
       const page = (await response.json()) as ClipsPage;
       for (const clip of page.data ?? []) {
-        if (isUsableClip(clip)) clipsById.set(clip.id, clip);
+        if (isUsableClip(clip) && isPlayableClip(clip)) clipsById.set(clip.id, clip);
       }
 
       const nextCursor = page.pagination?.cursor;
