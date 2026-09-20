@@ -97,7 +97,6 @@ INSTAGRAM_ACCESS_TOKEN=tu_token_de_instagram
 # TikTok
 TIKTOK_CLIENT_KEY=tu_client_key
 TIKTOK_CLIENT_SECRET=tu_client_secret
-TIKTOK_ACCESS_TOKEN=tu_access_token
 
 # Supabase
 VITE_SUPABASE_URL=https://xxx.supabase.co

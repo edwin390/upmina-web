@@ -166,12 +166,15 @@ export interface TikTokTokenSet {
   scope: string;
 }
 
+type TikTokTokenOperation = "exchange" | "refresh";
+
 /**
- * Intercambia el authorization code por tokens y valida que TikTok devolvió
- * credenciales completas.
+ * POST al endpoint de token de TikTok y validación estricta de la respuesta: solo se
+ * devuelve un token set COMPLETO (nunca se debe persistir una respuesta parcial).
  */
-export async function exchangeTikTokCode(
-  code: string,
+async function requestTikTokTokens(
+  operation: TikTokTokenOperation,
+  params: Record<string, string>,
   { clientKey, clientSecret }: TikTokCredentials,
 ): Promise<TikTokTokenSet> {
   let res: Response;
@@ -185,9 +188,7 @@ export async function exchangeTikTokCode(
       body: new URLSearchParams({
         client_key: clientKey,
         client_secret: clientSecret,
-        code,
-        grant_type: "authorization_code",
-        redirect_uri: TIKTOK_REDIRECT_URI,
+        ...params,
       }),
       signal: AbortSignal.timeout(TOKEN_REQUEST_TIMEOUT_MS),
     });
@@ -208,7 +209,9 @@ export async function exchangeTikTokCode(
   const providerError = isNonEmptyString(body.error) ? body.error : undefined;
   if (!res.ok || providerError) {
     throw new TikTokOAuthError(
-      "TikTok rechazó el intercambio del código",
+      operation === "refresh"
+        ? "TikTok rechazó el refresh de tokens"
+        : "TikTok rechazó el intercambio del código",
       502,
       res.status,
       safeCode(providerError),
@@ -238,6 +241,36 @@ export async function exchangeTikTokCode(
     refreshExpiresIn: refresh_expires_in,
     scope: typeof body.scope === "string" ? body.scope : "",
   };
+}
+
+/**
+ * Intercambia el authorization code por tokens y valida que TikTok devolvió
+ * credenciales completas.
+ */
+export function exchangeTikTokCode(
+  code: string,
+  credentials: TikTokCredentials,
+): Promise<TikTokTokenSet> {
+  return requestTikTokTokens(
+    "exchange",
+    { code, grant_type: "authorization_code", redirect_uri: TIKTOK_REDIRECT_URI },
+    credentials,
+  );
+}
+
+/**
+ * Renueva los tokens con el refresh token (grant_type=refresh_token). TikTok puede
+ * devolver un refresh token NUEVO: quien llame debe persistir siempre el set completo.
+ */
+export function refreshTikTokTokens(
+  refreshToken: string,
+  credentials: TikTokCredentials,
+): Promise<TikTokTokenSet> {
+  return requestTikTokTokens(
+    "refresh",
+    { grant_type: "refresh_token", refresh_token: refreshToken },
+    credentials,
+  );
 }
 
 // ---------- logs y respuestas seguras ----------
