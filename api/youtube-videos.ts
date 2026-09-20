@@ -1,40 +1,38 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { parseIsoDuration } from "../src/lib/format.js";
-import type {
-  YouTubeChannelResponse,
-  YouTubePlaylistResponse,
-  YouTubeVideosResponse,
-} from "../src/types/api.js";
-
-const YOUTUBE_API_KEY = process.env.YOUTUBE_API_KEY!;
-const YOUTUBE_CHANNEL_ID = process.env.YOUTUBE_CHANNEL_ID!;
+import type { YouTubePlaylistResponse, YouTubeVideosResponse } from "../src/types/api.js";
+import {
+  fetchYouTube,
+  getUploadsPlaylistId,
+  logYouTubeError,
+  youTubeErrorStatus,
+} from "../src/lib/youtube-shared.js";
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   const maxResults = Math.min(Number(req.query.maxResults) || 12, 50);
 
   try {
-    const channelRes = await fetch(
-      `https://www.googleapis.com/youtube/v3/channels?part=contentDetails&id=${YOUTUBE_CHANNEL_ID}&key=${YOUTUBE_API_KEY}`,
-    );
-    if (!channelRes.ok) throw new Error("No se pudo consultar el canal de YouTube");
-    const channelData = (await channelRes.json()) as YouTubeChannelResponse;
-    const uploadsPlaylistId =
-      channelData.items?.[0]?.contentDetails?.relatedPlaylists?.uploads;
-    if (!uploadsPlaylistId) throw new Error("Canal de YouTube no encontrado");
+    const uploadsPlaylistId = await getUploadsPlaylistId();
 
-    const itemsRes = await fetch(
-      `https://www.googleapis.com/youtube/v3/playlistItems?part=snippet&playlistId=${uploadsPlaylistId}&maxResults=${maxResults}&key=${YOUTUBE_API_KEY}`,
+    const itemsData = await fetchYouTube<YouTubePlaylistResponse>(
+      "playlistItems",
+      "playlistItems",
+      { part: "snippet", playlistId: uploadsPlaylistId, maxResults: String(maxResults) },
     );
-    if (!itemsRes.ok) throw new Error("No se pudieron obtener los videos");
-    const itemsData = (await itemsRes.json()) as YouTubePlaylistResponse;
     const items = itemsData.items ?? [];
+
+    // Sin videos no hay nada que detallar (y Google rechaza `videos` sin `id`).
+    if (items.length === 0) {
+      res.setHeader("Cache-Control", "s-maxage=900, stale-while-revalidate=1800");
+      return res.status(200).json([]);
+    }
 
     const videoIds = items.map((item) => item.snippet.resourceId.videoId).join(",");
 
-    const videosRes = await fetch(
-      `https://www.googleapis.com/youtube/v3/videos?part=contentDetails&id=${videoIds}&key=${YOUTUBE_API_KEY}`,
-    );
-    const videosData = (await videosRes.json()) as YouTubeVideosResponse;
+    const videosData = await fetchYouTube<YouTubeVideosResponse>("videos", "videos", {
+      part: "contentDetails",
+      id: videoIds,
+    });
     const durationById = new Map<string, string>(
       (videosData.items ?? []).map((video) => [video.id, video.contentDetails.duration]),
     );
@@ -55,9 +53,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     res.setHeader("Cache-Control", "s-maxage=900, stale-while-revalidate=1800");
     return res.status(200).json(videos);
   } catch (err) {
-    console.error("[youtube-videos]", err);
+    logYouTubeError("youtube-videos", err);
     return res
-      .status(502)
+      .status(youTubeErrorStatus(err))
       .json({ error: "No se pudieron obtener los videos de YouTube" });
   }
 }
