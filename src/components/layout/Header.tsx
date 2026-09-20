@@ -1,12 +1,14 @@
 import { useEffect, useState } from "react";
+import { Link, NavLink } from "react-router-dom";
 import clsx from "clsx";
 
 const NAV_LINKS = [
-  { href: "#twitch", label: "Twitch" },
-  { href: "#youtube", label: "YouTube" },
-  { href: "#instagram", label: "Instagram" },
-  { href: "#tiktok", label: "TikTok" },
-  { href: "#comunidad", label: "Comunidad" },
+  { to: "/", label: "Inicio" },
+  { to: "/twitch", label: "Twitch" },
+  { to: "/youtube", label: "YouTube" },
+  { to: "/instagram", label: "Instagram" },
+  { to: "/tiktok", label: "TikTok" },
+  { to: "/comunidad", label: "Comunidad" },
 ];
 
 interface HeaderProps {
@@ -48,25 +50,40 @@ export default function Header({ onLogoDoubleClick }: HeaderProps) {
       }`}
     >
       <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-3">
-        <a
-          href="#"
+        <Link
+          to="/"
           onDoubleClick={onLogoDoubleClick}
           title="Doble click para una sorpresa"
           className="font-display text-2xl tracking-wide text-text-primary transition-transform duration-200 ease-bounce hover:scale-105 hover:text-accent-primary"
         >
           UPMINAA
-        </a>
+        </Link>
 
         <nav className="hidden gap-6 md:flex">
           {NAV_LINKS.map((link) => (
-            <a
-              key={link.href}
-              href={link.href}
-              className="group relative text-sm text-text-secondary transition-colors duration-200 ease-smooth hover:text-accent-primary"
+            <NavLink
+              key={link.to}
+              to={link.to}
+              end
+              className={({ isActive }) =>
+                clsx(
+                  "group relative text-sm transition-colors duration-200 ease-smooth hover:text-accent-primary",
+                  isActive ? "font-semibold text-accent-primary" : "text-text-secondary",
+                )
+              }
             >
-              {link.label}
-              <span className="absolute -bottom-2 left-1/2 h-px w-0 -translate-x-1/2 bg-accent-primary transition-all duration-200 ease-bounce group-hover:w-full" />
-            </a>
+              {({ isActive }) => (
+                <>
+                  {link.label}
+                  <span
+                    className={clsx(
+                      "absolute -bottom-2 left-1/2 h-px -translate-x-1/2 bg-accent-primary transition-all duration-200 ease-bounce group-hover:w-full",
+                      isActive ? "w-full" : "w-0",
+                    )}
+                  />
+                </>
+              )}
+            </NavLink>
           ))}
         </nav>
 
@@ -116,14 +133,22 @@ export default function Header({ onLogoDoubleClick }: HeaderProps) {
           className="flex flex-col gap-1 border-t border-border-subtle/60 bg-bg-base/95 px-4 py-3 backdrop-blur-xl md:hidden"
         >
           {NAV_LINKS.map((link) => (
-            <a
-              key={link.href}
-              href={link.href}
+            <NavLink
+              key={link.to}
+              to={link.to}
+              end
               onClick={closeMenu}
-              className="rounded-md px-3 py-2 text-sm text-text-secondary transition-colors duration-200 ease-smooth hover:bg-bg-elevated hover:text-accent-primary"
+              className={({ isActive }) =>
+                clsx(
+                  "rounded-md px-3 py-2 text-sm transition-colors duration-200 ease-smooth hover:bg-bg-elevated hover:text-accent-primary",
+                  isActive
+                    ? "bg-bg-elevated font-semibold text-accent-primary"
+                    : "text-text-secondary",
+                )
+              }
             >
               {link.label}
-            </a>
+            </NavLink>
           ))}
         </nav>
       )}

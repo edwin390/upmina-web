@@ -1,9 +1,24 @@
-import { useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
+import { Navigate, Route, Routes } from "react-router-dom";
 import Header from "./components/layout/Header";
 import Footer from "./components/layout/Footer";
 import HomePage from "./pages/HomePage";
 import AmbientBackground from "./components/ui/AmbientBackground";
 import ScrollProgress from "./components/ui/ScrollProgress";
+import ScrollToTop from "./components/ui/ScrollToTop";
+
+// Cada sección es una ruta con su propio chunk: solo se descarga y renderiza la que se visita.
+const TwitchSection = lazy(() => import("./components/twitch/TwitchSection"));
+const YouTubeSection = lazy(() => import("./components/youtube/YouTubeSection"));
+const InstagramSection = lazy(() => import("./components/instagram/InstagramSection"));
+const TikTokSection = lazy(() => import("./components/tiktok/TikTokSection"));
+const CommunitySection = lazy(() => import("./components/community/CommunitySection"));
+
+function SectionFallback() {
+  return (
+    <div className="mx-auto min-h-[420px] max-w-6xl px-4 py-16" aria-hidden="true" />
+  );
+}
 
 function App() {
   const [sukunaMode, setSukunaMode] = useState(false);
@@ -72,9 +87,20 @@ function App() {
           <span />
         </div>
       )}
+      <ScrollToTop />
       <Header onLogoDoubleClick={activateSukunaMode} />
       <main className="flex-1">
-        <HomePage />
+        <Suspense fallback={<SectionFallback />}>
+          <Routes>
+            <Route path="/" element={<HomePage />} />
+            <Route path="/twitch" element={<TwitchSection />} />
+            <Route path="/youtube" element={<YouTubeSection />} />
+            <Route path="/instagram" element={<InstagramSection />} />
+            <Route path="/tiktok" element={<TikTokSection />} />
+            <Route path="/comunidad" element={<CommunitySection />} />
+            <Route path="*" element={<Navigate to="/" replace />} />
+          </Routes>
+        </Suspense>
       </main>
       <Footer />
       {easterEgg?.kind === "echidna" ? (
