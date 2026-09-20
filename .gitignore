@@ -41,3 +41,6 @@ coverage/
 .vercel
 .env*
 !.env.example
+
+# Local Claude desktop preview config (generated per machine)
+.claude/launch.json
