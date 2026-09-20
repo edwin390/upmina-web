@@ -32,7 +32,6 @@
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "react-router-dom": "^6.27.0",
-    "react-social-media-embed": "^2.5.17",
     "zustand": "^5.0.0"
   },
   "devDependencies": {

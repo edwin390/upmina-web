@@ -40,6 +40,25 @@ export default {
       backgroundImage: {
         "gradient-accent": "linear-gradient(90deg, #ff2d95 0%, #00f0ff 100%)",
       },
+      // Pantallas de poco alto (móvil apaisado): el visor de TikTok pone el texto al lado.
+      screens: {
+        short: { raw: "(max-height: 520px)" },
+      },
+      // Transición vertical corta del visor de TikTok al cambiar de vídeo.
+      keyframes: {
+        "tt-in-up": {
+          from: { opacity: "0", transform: "translateY(28px)" },
+          to: { opacity: "1", transform: "translateY(0)" },
+        },
+        "tt-in-down": {
+          from: { opacity: "0", transform: "translateY(-28px)" },
+          to: { opacity: "1", transform: "translateY(0)" },
+        },
+      },
+      animation: {
+        "tt-in-up": "tt-in-up 220ms ease-out",
+        "tt-in-down": "tt-in-down 220ms ease-out",
+      },
     },
   },
   plugins: [],
