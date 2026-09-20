@@ -14,6 +14,7 @@ export function useInstagramFeed() {
   return useQuery({
     queryKey: ["instagram", "feed"],
     queryFn: fetchInstagramFeed,
-    staleTime: 60 * 60_000,
+    staleTime: 15 * 60_000,
+    retry: 1,
   });
 }

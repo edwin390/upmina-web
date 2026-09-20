@@ -51,11 +51,48 @@ export interface YouTubeVideo {
 export interface InstagramMediaItem {
   id: string;
   mediaType: "IMAGE" | "VIDEO" | "CAROUSEL_ALBUM";
-  mediaUrl: string;
-  thumbnailUrl?: string;
+  /** Imagen para la tarjeta: la foto, la miniatura del video o la portada del carrusel. */
+  imageUrl: string;
+  /** Enlace oficial de la publicación en Instagram. */
   permalink: string;
+  /** Archivo de video (solo VIDEO); se reproduce al abrir la publicación, no en la grid. */
+  videoUrl?: string;
+  /** Solo "REELS" o "FEED" y solo si Meta lo devuelve: nunca se deduce. */
+  productType?: "FEED" | "REELS";
   caption?: string;
+  /** ISO 8601 válido. */
   timestamp: string;
+  username?: string;
+  /** Solo si Meta lo devuelve (el autor puede ocultar los likes). */
+  likeCount?: number;
+  commentsCount?: number;
+}
+
+/** Perfil de la cuenta autorizada. `profilePictureUrl` solo si Meta la devuelve. */
+export interface InstagramProfile {
+  username?: string;
+  profilePictureUrl?: string;
+}
+
+/** Elemento de un carrusel: al menos una de las dos URLs está presente. */
+export interface InstagramChild {
+  id: string;
+  mediaType: "IMAGE" | "VIDEO";
+  imageUrl?: string;
+  videoUrl?: string;
+}
+
+export interface InstagramComment {
+  id: string;
+  text: string;
+  username?: string;
+  timestamp?: string;
+  /** Solo si Meta lo devuelve para el comentario con los permisos del token. */
+  likeCount?: number;
+}
+
+export interface InstagramComments {
+  comments: InstagramComment[];
 }
 
 // ---------- TikTok ----------

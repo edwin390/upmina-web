@@ -92,8 +92,7 @@ YOUTUBE_API_KEY=tu_api_key
 YOUTUBE_CHANNEL_ID=tu_channel_id
 
 # Instagram
-INSTAGRAM_ACCESS_TOKEN=tu_token_larga_duracion
-INSTAGRAM_USER_ID=tu_ig_user_id
+INSTAGRAM_ACCESS_TOKEN=tu_token_de_instagram
 
 # TikTok
 TIKTOK_CLIENT_KEY=tu_client_key

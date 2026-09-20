@@ -1,34 +1,25 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import type { InstagramApiItem } from "../src/types/api.js";
-
-const INSTAGRAM_ACCESS_TOKEN = process.env.INSTAGRAM_ACCESS_TOKEN!;
-const INSTAGRAM_USER_ID = process.env.INSTAGRAM_USER_ID!;
+import {
+  getInstagramMedia,
+  instagramErrorStatus,
+  logInstagramError,
+} from "../src/lib/instagram-shared.js";
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
+  if (req.method !== "GET") {
+    res.setHeader("Allow", "GET");
+    return res.status(405).json({ error: "Método no permitido" });
+  }
+
   try {
-    const fields = "id,media_type,media_url,thumbnail_url,permalink,caption,timestamp";
-    const mediaRes = await fetch(
-      `https://graph.instagram.com/${INSTAGRAM_USER_ID}/media?fields=${fields}&access_token=${INSTAGRAM_ACCESS_TOKEN}&limit=24`,
-    );
+    const items = await getInstagramMedia();
 
-    if (!mediaRes.ok) throw new Error(`Instagram respondió ${mediaRes.status}`);
-
-    const { data } = (await mediaRes.json()) as { data?: InstagramApiItem[] };
-
-    const items = (data ?? []).map((item) => ({
-      id: item.id,
-      mediaType: item.media_type,
-      mediaUrl: item.media_url,
-      thumbnailUrl: item.thumbnail_url ?? item.media_url,
-      permalink: item.permalink,
-      caption: item.caption,
-      timestamp: item.timestamp,
-    }));
-
-    res.setHeader("Cache-Control", "s-maxage=3600, stale-while-revalidate=7200");
+    res.setHeader("Cache-Control", "s-maxage=900, stale-while-revalidate=1800");
     return res.status(200).json(items);
   } catch (err) {
-    console.error("[instagram-feed]", err);
-    return res.status(502).json({ error: "No se pudo obtener el feed de Instagram" });
+    logInstagramError("instagram-feed", err);
+    return res
+      .status(instagramErrorStatus(err))
+      .json({ error: "No se pudo obtener el feed de Instagram" });
   }
 }

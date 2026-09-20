@@ -1,11 +1,40 @@
+// Campos de `GET /me/media` con el permiso instagram_business_basic. Todos se
+// tratan como opcionales porque Meta los omite según el tipo de media.
 export interface InstagramApiItem {
-  id: string;
-  media_type: "IMAGE" | "VIDEO" | "CAROUSEL_ALBUM";
-  media_url: string;
+  id?: string;
+  media_type?: string;
+  media_url?: string;
   thumbnail_url?: string;
-  permalink: string;
+  permalink?: string;
   caption?: string;
-  timestamp: string;
+  timestamp?: string;
+  username?: string;
+  media_product_type?: string;
+  like_count?: number;
+  comments_count?: number;
+}
+
+// `GET /me?fields=username,profile_picture_url` (instagram_business_basic).
+export interface InstagramProfileApiItem {
+  username?: string;
+  profile_picture_url?: string;
+}
+
+export interface InstagramMediaResponse {
+  data?: InstagramApiItem[];
+}
+
+// `GET /{media-id}/comments` (requiere instagram_business_manage_comments).
+export interface InstagramCommentApiItem {
+  id?: string;
+  text?: string;
+  timestamp?: string;
+  username?: string;
+  like_count?: number;
+}
+
+export interface InstagramCommentsResponse {
+  data?: InstagramCommentApiItem[];
 }
 
 export interface TikTokApiVideo {
