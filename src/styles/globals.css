@@ -13,14 +13,22 @@
   --dur-slow: 600ms;
 }
 
+/* Fondo ambiental: las capas se desplazan con transform (compositor) en lugar de animar background-position
+   (repintado por frame en el hilo principal). El aspecto y la velocidad son los mismos. */
+@keyframes ambient-drift-x {
+  0%, 100% { transform: translate3d(0, 0, 0); }
+  50% { transform: translate3d(-75%, 0, 0); }
+}
+
+/* Solo para navegadores sin container query units (ver @supports más abajo). */
 @keyframes ambient-drift {
   0%, 100% { background-position: 0% 50%; }
   50% { background-position: 100% 50%; }
 }
 
 @keyframes ambient-grid-drift {
-  from { background-position: 0 0; }
-  to { background-position: 80px 80px; }
+  from { transform: translate3d(0, 0, 0); }
+  to { transform: translate3d(80px, 80px, 0); }
 }
 
 @keyframes ambient-float {
@@ -33,9 +41,16 @@
   to { opacity: 1; transform: translateY(0) scale(1); }
 }
 
-@keyframes hero-glow {
-  0%, 100% { text-shadow: 0 0 20px rgba(255, 45, 149, 0.75), 0 0 45px rgba(139, 92, 246, 0.45); }
-  50% { text-shadow: 0 0 32px rgba(255, 45, 149, 0.95), 0 0 80px rgba(0, 240, 255, 0.35); }
+/* Glow del título: dos capas con text-shadow estático (estado A y estado B) cuya opacidad se
+   intercambia (compositor), en lugar de animar text-shadow (repintado por frame). */
+@keyframes hero-glow-a {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+
+@keyframes hero-glow-b {
+  0%, 100% { opacity: 0; }
+  50% { opacity: 1; }
 }
 
 @keyframes live-ping {
@@ -43,13 +58,53 @@
   to { transform: scale(2.8); opacity: 0; }
 }
 
+/* Gradiente: antes era un fondo 400% x 400% cuyo background-position iba de 0% a 100% en X.
+   Ahora una capa de 400cqw x 100cqh se desplaza -75% de su ancho (= -3 anchos de la caja).
+   Como un linear-gradient(135deg) solo depende de x + y, basta con la franja vertical visible (100cqh, la
+   central de las 4 alturas originales, desplazada 150cqh): las paradas están recolocadas en px para que
+   cada punto tenga exactamente el color del fondo original. Las medidas son las de la caja (cqw/cqh). */
 .ambient-gradient {
-  background: linear-gradient(135deg, #0a0a0a, #190a1b, #0d1024, #0a0a0a);
-  background-size: 400% 400%;
-  animation: ambient-drift 25s var(--ease-soft) infinite;
+  container-type: size;
+  overflow: hidden;
 }
 
+.ambient-gradient::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 400cqw;
+  height: 100cqh;
+  background: linear-gradient(
+    135deg,
+    #0a0a0a calc(-106.066cqh),
+    #190a1b calc(94.281cqw - 11.785cqh),
+    #0d1024 calc(188.562cqw + 82.496cqh),
+    #0a0a0a calc(282.843cqw + 176.777cqh)
+  );
+  animation: ambient-drift-x 25s var(--ease-soft) infinite;
+}
+
+@supports not (width: 1cqw) {
+  .ambient-gradient {
+    container-type: normal;
+    background: linear-gradient(135deg, #0a0a0a, #190a1b, #0d1024, #0a0a0a);
+    background-size: 400% 400%;
+    animation: ambient-drift 25s var(--ease-soft) infinite;
+  }
+  .ambient-gradient::before { content: none; }
+}
+
+/* Rejilla: el patrón se repite cada 80px, así que basta con una capa 80px mayor por arriba/izquierda
+   desplazada de (0,0) a (80px,80px) con transform; al final del ciclo el patrón coincide con el inicio. */
 .ambient-grid {
+  overflow: hidden;
+}
+
+.ambient-grid::before {
+  content: "";
+  position: absolute;
+  inset: -80px 0 0 -80px;
   background-image: linear-gradient(rgba(255, 45, 149, 0.12) 1px, transparent 1px), linear-gradient(90deg, rgba(255, 45, 149, 0.12) 1px, transparent 1px);
   background-size: 80px 80px;
   animation: ambient-grid-drift 40s linear infinite;
@@ -68,8 +123,32 @@
 .ambient-halo-cyan { background: #00f0ff; animation-delay: -7s; }
 .ambient-particle { animation: ambient-float var(--particle-duration, 10s) var(--ease-soft) var(--particle-delay, 0s) infinite; }
 
-.hero-title { animation: hero-glow 3s var(--ease-soft) infinite; }
-.hero-letter { display: inline-block; animation: hero-rise 600ms var(--ease-bounce) both; }
+.hero-letter { position: relative; isolation: isolate; display: inline-block; animation: hero-rise 600ms var(--ease-bounce) both; }
+
+/* Glow de cada letra (data-letter): cada letra pinta su sombra justo detrás de sí misma y encima de la letra
+   anterior, igual que cuando el text-shadow se heredaba del título, pero con capas estáticas. */
+.hero-letter::before,
+.hero-letter::after {
+  content: attr(data-letter);
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  color: transparent;
+  pointer-events: none;
+}
+
+.hero-letter::before {
+  text-shadow: 0 0 20px rgba(255, 45, 149, 0.75), 0 0 45px rgba(139, 92, 246, 0.45);
+  animation: hero-glow-a 3s var(--ease-soft) infinite;
+}
+
+.hero-letter::after {
+  text-shadow: 0 0 32px rgba(255, 45, 149, 0.95), 0 0 80px rgba(0, 240, 255, 0.35);
+  mix-blend-mode: plus-lighter;
+  opacity: 0;
+  animation: hero-glow-b 3s var(--ease-soft) infinite;
+}
+
 .hero-letter:nth-child(2) { animation-delay: 60ms; }
 .hero-letter:nth-child(3) { animation-delay: 120ms; }
 .hero-letter:nth-child(4) { animation-delay: 180ms; }
@@ -167,8 +246,12 @@
     transition-duration: 0.01ms !important;
     scroll-behavior: auto !important;
   }
-  .ambient-gradient, .ambient-grid, .ambient-halo, .ambient-particle, .ambient-star, .hero-title, .hero-letter, .hero-kicker, .hero-subtitle, .hero-scroll-hint, .live-ping::before, .live-ping::after, .sukuna-slashes span {
+  .ambient-gradient, .ambient-gradient::before, .ambient-grid::before, .ambient-halo, .ambient-particle, .ambient-star, .hero-letter, .hero-kicker, .hero-subtitle, .hero-scroll-hint, .live-ping::before, .live-ping::after, .sukuna-slashes span {
     animation: none !important;
+  }
+  /* Sin animación el título no tenía text-shadow: se ocultan las capas de glow. */
+  .hero-letter::before, .hero-letter::after {
+    display: none;
   }
 }
 

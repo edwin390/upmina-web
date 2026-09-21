@@ -18,13 +18,11 @@ export default function HomePage() {
           aria-label="UPMINAA"
           className="hero-title font-display text-6xl tracking-wide text-text-primary md:text-8xl"
         >
-          <span className="hero-letter">U</span>
-          <span className="hero-letter">P</span>
-          <span className="hero-letter">M</span>
-          <span className="hero-letter">I</span>
-          <span className="hero-letter">N</span>
-          <span className="hero-letter">A</span>
-          <span className="hero-letter">A</span>
+          {Array.from("UPMINAA").map((letter, index) => (
+            <span key={index} className="hero-letter" data-letter={letter}>
+              {letter}
+            </span>
+          ))}
         </h1>
         <p className="hero-subtitle mx-auto mt-5 max-w-xl text-lg text-text-secondary">
           Directos, contenido y comunidad — todo en un solo lugar.
