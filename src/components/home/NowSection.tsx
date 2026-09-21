@@ -4,6 +4,7 @@ import { useTwitchStatus } from "@/hooks/useTwitchStatus";
 import { useTwitchLatestVideo } from "@/hooks/useTwitchLatestVideo";
 import { useLatestYouTubeVideo } from "@/hooks/useYouTubeVideos";
 import { formatRelativeDate, parseTwitchDuration } from "@/lib/format";
+import { youTubeVideoPath } from "@/lib/deep-links";
 import LiveBadge, { type LiveBadgeStatus } from "@/components/twitch/LiveBadge";
 import PlatformIcon from "./PlatformIcon";
 import PreviewCard, { PreviewCardSkeleton } from "./PreviewCard";
@@ -108,7 +109,7 @@ function YouTubeNow() {
 
   return (
     <PreviewCard
-      to="/youtube"
+      to={youTubeVideoPath(video.id)}
       badge="YouTube · Último video"
       title={video.title}
       thumbnailUrl={video.thumbnailUrl}

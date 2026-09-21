@@ -1,14 +1,16 @@
 import { useTwitchClips } from "@/hooks/useTwitchClips";
 import { useYouTubeVideos } from "@/hooks/useYouTubeVideos";
 import { formatRelativeDate } from "@/lib/format";
+import { twitchClipPath, youTubeVideoPath } from "@/lib/deep-links";
 import PreviewCard, { PreviewCardSkeleton } from "./PreviewCard";
 import SectionHeading from "./SectionHeading";
 
-// Máximo 3 elementos: YouTube con el endpoint existente y maxResults=1, y el primer
-// clip del hook que ya usa /twitch (ese endpoint no admite límite).
+// Máximo 3 elementos: el primer video y el primer Short, y el primer clip. Usa las MISMAS
+// consultas (misma URL y queryKey, luego misma caché) que /youtube y /twitch, así el elemento
+// enlazado con ?video= / ?clip= siempre está en las listas de esas secciones.
 export default function LatestContentSection() {
-  const { data: videos, isLoading: videosLoading } = useYouTubeVideos(1, "videos");
-  const { data: shorts, isLoading: shortsLoading } = useYouTubeVideos(1, "shorts");
+  const { data: videos, isLoading: videosLoading } = useYouTubeVideos(12, "videos");
+  const { data: shorts, isLoading: shortsLoading } = useYouTubeVideos(12, "shorts");
   const { data: clips, isLoading: clipsLoading } = useTwitchClips();
 
   const video = videos?.[0];
@@ -29,7 +31,7 @@ export default function LatestContentSection() {
         ) : (
           video && (
             <PreviewCard
-              to="/youtube"
+              to={youTubeVideoPath(video.id)}
               badge="YouTube · Video"
               title={video.title}
               thumbnailUrl={video.thumbnailUrl}
@@ -44,7 +46,7 @@ export default function LatestContentSection() {
         ) : (
           short && (
             <PreviewCard
-              to="/youtube"
+              to={youTubeVideoPath(short.id)}
               badge="YouTube · Short"
               title={short.title}
               thumbnailUrl={short.thumbnailUrl}
@@ -60,7 +62,7 @@ export default function LatestContentSection() {
         ) : (
           clip && (
             <PreviewCard
-              to="/twitch"
+              to={twitchClipPath(clip.id)}
               badge="Twitch · Clip"
               title={clip.title}
               thumbnailUrl={clip.thumbnailUrl}

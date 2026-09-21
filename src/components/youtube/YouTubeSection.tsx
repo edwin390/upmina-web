@@ -1,6 +1,10 @@
-import { useState, useMemo } from "react";
+import { useEffect, useMemo } from "react";
 import type { YouTubeVideo } from "@/types";
 import { useLatestYouTubeVideo, useYouTubeVideos } from "@/hooks/useYouTubeVideos";
+import { useSearchParam } from "@/hooks/useSearchParam";
+import { useContentNotice } from "@/hooks/useContentNotice";
+import { isYouTubeVideoId } from "@/lib/deep-links";
+import ContentNotice from "@/components/ui/ContentNotice";
 import HeroVideo from "./HeroVideo";
 import VideoGrid from "./VideoGrid";
 
@@ -45,35 +49,71 @@ function VideoGroup({
 }
 
 export default function YouTubeSection() {
-  const { data: latest } = useLatestYouTubeVideo();
-  const { data: videos, isLoading: isLoadingVideos } = useYouTubeVideos(12, "videos");
-  const { data: shorts, isLoading: isLoadingShorts } = useYouTubeVideos(12, "shorts");
-  const [selectedVideoId, setSelectedVideoId] = useState<string | null>(null);
+  const latestQuery = useLatestYouTubeVideo();
+  const videosQuery = useYouTubeVideos(12, "videos");
+  const shortsQuery = useYouTubeVideos(12, "shorts");
+  const { data: latest } = latestQuery;
+  const { data: videos, isLoading: isLoadingVideos } = videosQuery;
+  const { data: shorts, isLoading: isLoadingShorts } = shortsQuery;
 
-  const activeVideo = useMemo(() => {
-    if (selectedVideoId) {
-      return (
-        videos?.find((v) => v.id === selectedVideoId) ??
-        shorts?.find((v) => v.id === selectedVideoId) ??
-        latest
-      );
-    }
-    return latest;
-  }, [selectedVideoId, videos, shorts, latest]);
+  // La URL (?video=<id>) es la única fuente de verdad de la selección; sin ella, el último video.
+  const [videoParam, setVideoParam] = useSearchParam("video");
+  const notice = useContentNotice();
+  const requestedId = isYouTubeVideoId(videoParam) ? videoParam : null;
+
+  // Solo se reproduce contenido del propio canal: el id debe estar en las listas (o ser el último).
+  const requested = useMemo(() => {
+    if (!requestedId) return undefined;
+    return (
+      videos?.find((v) => v.id === requestedId) ??
+      shorts?.find((v) => v.id === requestedId) ??
+      (latest?.id === requestedId ? latest : undefined)
+    );
+  }, [requestedId, videos, shorts, latest]);
+
+  // Solo se concluye "ya no está" con las tres consultas resueltas con éxito: mientras cargan,
+  // o si alguna falla (fallo temporal), el deep link se conserva.
+  const allSettled =
+    latestQuery.isSuccess && videosQuery.isSuccess && shortsQuery.isSuccess;
+  const stillLoading =
+    latestQuery.isPending || videosQuery.isPending || shortsQuery.isPending;
+  const unavailable =
+    videoParam !== null && (requestedId === null || (!requested && allSettled));
+
+  const showNotice = notice.show;
+  useEffect(() => {
+    if (!unavailable) return;
+    showNotice();
+    setVideoParam(null);
+  }, [unavailable, showNotice, setVideoParam]);
+
+  // Con un id válido aún sin resolver no se monta el último video (evita cargar uno equivocado).
+  const waitingForRequested = requestedId !== null && !requested && stillLoading;
+  const activeVideo = requested ?? latest;
+  const selectedId = waitingForRequested ? "" : (activeVideo?.id ?? "");
 
   return (
     <section className="mx-auto max-w-6xl px-4 py-16">
       <h2 className="mb-6 font-display text-3xl tracking-wide">YOUTUBE</h2>
 
-      {activeVideo && <HeroVideo video={activeVideo} />}
+      {notice.visible && <ContentNotice />}
+
+      {waitingForRequested ? (
+        <div
+          aria-hidden="true"
+          className="aspect-video w-full animate-pulse rounded-lg border border-border-subtle bg-bg-surface"
+        />
+      ) : (
+        activeVideo && <HeroVideo video={activeVideo} />
+      )}
 
       <VideoGroup
         title="Más videos"
         loadingText="Cargando videos…"
         videos={videos}
         isLoading={isLoadingVideos}
-        selectedVideoId={activeVideo?.id ?? ""}
-        onSelect={setSelectedVideoId}
+        selectedVideoId={selectedId}
+        onSelect={setVideoParam}
       />
 
       <VideoGroup
@@ -82,8 +122,8 @@ export default function YouTubeSection() {
         variant="short"
         videos={shorts}
         isLoading={isLoadingShorts}
-        selectedVideoId={activeVideo?.id ?? ""}
-        onSelect={setSelectedVideoId}
+        selectedVideoId={selectedId}
+        onSelect={setVideoParam}
       />
     </section>
   );

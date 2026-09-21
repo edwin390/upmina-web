@@ -9,6 +9,14 @@ import {
   within,
 } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import {
+  MemoryRouter,
+  Route,
+  Routes,
+  useLocation,
+  useNavigate,
+  useNavigationType,
+} from "react-router-dom";
 import type { TwitchClip } from "@/types";
 import TwitchSection from "./TwitchSection";
 import TwitchClipPlayer, { PLAYER_LOAD_TIMEOUT_MS } from "./TwitchClipPlayer";
@@ -43,7 +51,7 @@ const json = (body: unknown, status = 200) =>
     headers: { "content-type": "application/json" },
   });
 
-function stubApi(clips: () => Response = () => json(FEED)) {
+function stubApi(clips: () => Response | Promise<Response> = () => json(FEED)) {
   const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
     const url = String(input);
     if (url.includes("twitch-clips")) return clips();
@@ -63,13 +71,40 @@ function stubApi(clips: () => Response = () => json(FEED)) {
   return fetchMock;
 }
 
-function renderSection() {
+// La selección vive en la URL (?clip=): cada test renderiza bajo un MemoryRouter con un probe que
+// expone la ubicación, el tipo de la última navegación (PUSH/REPLACE) y un botón "atrás".
+function RouterProbe() {
+  const location = useLocation();
+  const navigationType = useNavigationType();
+  const navigate = useNavigate();
+  return (
+    <div>
+      <output data-testid="url">{location.pathname + location.search}</output>
+      <output data-testid="navtype">{navigationType}</output>
+      <button type="button" onClick={() => navigate(-1)}>
+        __atrás
+      </button>
+    </div>
+  );
+}
+const url = () => screen.getByTestId("url").textContent;
+const navType = () => screen.getByTestId("navtype").textContent;
+const goBack = () => fireEvent.click(screen.getByRole("button", { name: "__atrás" }));
+
+function renderSection(entries: string[] = ["/twitch"], initialIndex?: number) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  return render(
+  const view = render(
     <QueryClientProvider client={client}>
-      <TwitchSection />
+      <MemoryRouter initialEntries={entries} initialIndex={initialIndex}>
+        <RouterProbe />
+        <Routes>
+          <Route path="/" element={<p>Inicio</p>} />
+          <Route path="/twitch" element={<TwitchSection />} />
+        </Routes>
+      </MemoryRouter>
     </QueryClientProvider>,
   );
+  return { ...view, client };
 }
 
 const cardButton = (title: string) =>
@@ -601,5 +636,236 @@ describe("URLs de Twitch", () => {
         "https://clips.twitch.tv/embed?clip=A%2FB&parent=localhost",
       );
     }
+  });
+});
+
+// ---------- Deep links: /twitch?clip=<id> (la URL es la única fuente de verdad) ----------
+
+const UNAVAILABLE = /Este contenido ya no está disponible entre los más recientes\./;
+const noticeVisible = () => screen.queryByText(UNAVAILABLE) !== null;
+
+describe("Deep link /twitch?clip=<id>", () => {
+  it("sin parámetro: 0 iframes de clips, sin visor ni aviso, y la URL no cambia", async () => {
+    stubApi();
+    renderSection(["/twitch"]);
+    await screen.findAllByRole("button", { name: /^Reproducir clip:/ });
+
+    expect(clipIframes()).toHaveLength(0);
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(noticeVisible()).toBe(false);
+    expect(url()).toBe("/twitch");
+    expect(navType()).toBe("POP");
+  });
+
+  it("abre el visor con exactamente ese clip (1 iframe, autoplay OFF) al cargar la URL", async () => {
+    stubApi();
+    renderSection(["/twitch?clip=Clip3-abc"]);
+
+    const dialog = await screen.findByRole("dialog");
+    expect(viewerTitle()).toBe("Clip 3");
+    expect(clipIframes()).toHaveLength(1);
+    const frame = dialog.querySelector("iframe") as HTMLIFrameElement;
+    expect(frame.getAttribute("src")).toBe(
+      "https://clips.twitch.tv/embed?clip=Clip3-abc&parent=localhost",
+    );
+    expect(frame.getAttribute("src")).not.toContain("autoplay");
+    expect(url()).toBe("/twitch?clip=Clip3-abc");
+    expect(noticeVisible()).toBe(false);
+  });
+
+  it("recargar o pegar la URL en otra pestaña abre el mismo clip (montaje nuevo)", async () => {
+    stubApi();
+    const first = renderSection(["/twitch?clip=Clip2-abc"]);
+    await screen.findByRole("dialog");
+    key("ArrowRight");
+    key("ArrowRight");
+    expect(url()).toBe("/twitch?clip=Clip4-abc");
+    const lastUrl = url() as string;
+    first.unmount();
+
+    // "Recarga": se monta de cero con la URL que quedó.
+    renderSection([lastUrl]);
+    await screen.findByRole("dialog");
+    expect(viewerTitle()).toBe("Clip 4");
+    expect(clipIframes()).toHaveLength(1);
+  });
+
+  it("anterior/siguiente actualizan ?clip= con REPLACE, también en modo circular", async () => {
+    stubApi();
+    renderSection(["/twitch?clip=Clip12-abc"]);
+    await screen.findByRole("dialog");
+
+    key("ArrowRight");
+    expect(url()).toBe("/twitch?clip=Clip1-abc");
+    expect(navType()).toBe("REPLACE");
+    expect(viewerTitle()).toBe("Clip 1");
+    key("ArrowLeft");
+    expect(url()).toBe("/twitch?clip=Clip12-abc");
+    fireEvent.click(screen.getByRole("button", { name: "Clip siguiente" }));
+    expect(url()).toBe("/twitch?clip=Clip1-abc");
+    fireEvent.click(screen.getByRole("button", { name: "Clip anterior" }));
+    expect(url()).toBe("/twitch?clip=Clip12-abc");
+    swipe(300, 150);
+    expect(url()).toBe("/twitch?clip=Clip1-abc");
+    expect(clipIframes()).toHaveLength(1);
+  });
+
+  it("abrir por tarjeta pone ?clip= (REPLACE) y cerrar con X o Escape lo elimina (REPLACE)", async () => {
+    stubApi();
+    renderSection(["/twitch"]);
+
+    await openViewer("Clip 5");
+    expect(url()).toBe("/twitch?clip=Clip5-abc");
+    expect(navType()).toBe("REPLACE");
+
+    fireEvent.click(screen.getByRole("button", { name: "Cerrar" }));
+    expect(url()).toBe("/twitch");
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(clipIframes()).toHaveLength(0);
+    expect(navType()).toBe("REPLACE");
+
+    await openViewer("Clip 6");
+    key("Escape");
+    expect(url()).toBe("/twitch");
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(clipIframes()).toHaveLength(0);
+  });
+
+  it("los cambios internos no llenan el historial: Atrás vuelve a Home", async () => {
+    stubApi();
+    renderSection(["/", "/twitch?clip=Clip1-abc"], 1);
+    await screen.findByRole("dialog");
+
+    for (let i = 0; i < 5; i++) key("ArrowRight");
+    fireEvent.click(screen.getByRole("button", { name: "Cerrar" }));
+    await openViewer("Clip 8");
+    expect(url()).toBe("/twitch?clip=Clip8-abc");
+
+    goBack();
+    expect(url()).toBe("/");
+    expect(screen.getByText("Inicio")).toBeTruthy();
+    expect(document.querySelectorAll("iframe")).toHaveLength(0);
+    expect(document.body.style.overflow).toBe("");
+  });
+
+  it("apertura por tarjeta: al cerrar el foco vuelve a la tarjeta (con la URL como fuente)", async () => {
+    stubApi();
+    renderSection(["/twitch"]);
+    const { card } = await openViewer("Clip 2");
+
+    fireEvent.click(screen.getByRole("button", { name: "Cerrar" }));
+
+    await waitFor(() => expect(document.activeElement).toBe(card));
+  });
+
+  it("apertura directa (sin tarjeta que la abriera): cerrar no falla", async () => {
+    stubApi();
+    renderSection(["/twitch?clip=Clip2-abc"]);
+    await screen.findByRole("dialog");
+
+    key("Escape");
+    await new Promise((resolve) => requestAnimationFrame(() => resolve(null)));
+
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(url()).toBe("/twitch");
+    expect(console.error).not.toHaveBeenCalled();
+  });
+
+  it("id malformado: aviso discreto, parámetro eliminado y sin visor", async () => {
+    stubApi();
+    renderSection(["/twitch?clip=../mal id"]);
+
+    expect(await screen.findByText(UNAVAILABLE)).toBeTruthy();
+    await waitFor(() => expect(url()).toBe("/twitch"));
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(clipIframes()).toHaveLength(0);
+    // No bloquea nada: siguen las tarjetas.
+    expect(
+      await screen.findAllByRole("button", { name: /^Reproducir clip:/ }),
+    ).toHaveLength(12);
+    expect(navType()).toBe("REPLACE");
+  });
+
+  it("id válido pero fuera de los 12 actuales: aviso, parámetro eliminado y sin visor", async () => {
+    stubApi();
+    renderSection(["/twitch?clip=ViejoClipYaFuera-XYZ"]);
+
+    expect(await screen.findByText(UNAVAILABLE)).toBeTruthy();
+    await waitFor(() => expect(url()).toBe("/twitch"));
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(clipIframes()).toHaveLength(0);
+    expect(document.body.style.overflow).toBe("");
+  });
+
+  it("mientras los clips cargan NO se limpia el parámetro; al llegar, se abre el clip", async () => {
+    let release: (value: Response) => void = () => {};
+    stubApi(() => new Promise<Response>((resolve) => (release = resolve)));
+    renderSection(["/twitch?clip=Clip7-abc"]);
+
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    expect(url()).toBe("/twitch?clip=Clip7-abc");
+    expect(noticeVisible()).toBe(false);
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(navType()).toBe("POP");
+
+    await act(async () => release(json(FEED)));
+    await screen.findByRole("dialog");
+    expect(viewerTitle()).toBe("Clip 7");
+    expect(clipIframes()).toHaveLength(1);
+  });
+
+  it("si la consulta falla NO se destruye el deep link (fallo temporal)", async () => {
+    stubApi(() => json({ error: "x" }, 502));
+    renderSection(["/twitch?clip=Clip7-abc"]);
+
+    expect(await screen.findByText(/No se pudieron cargar los clips/)).toBeTruthy();
+    expect(url()).toBe("/twitch?clip=Clip7-abc");
+    expect(noticeVisible()).toBe(false);
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(navType()).toBe("POP");
+  });
+
+  it("conserva los demás parámetros al navegar y al cerrar", async () => {
+    stubApi();
+    renderSection(["/twitch?utm=a&clip=Clip2-abc&x=1"]);
+    await screen.findByRole("dialog");
+
+    key("ArrowRight");
+    expect(new URLSearchParams(url()!.split("?")[1]).get("clip")).toBe("Clip3-abc");
+    expect(url()).toContain("utm=a");
+    expect(url()).toContain("x=1");
+    key("Escape");
+    expect(url()).toBe("/twitch?utm=a&x=1");
+  });
+
+  it("al limpiar un id no disponible también conserva los demás parámetros", async () => {
+    stubApi();
+    renderSection(["/twitch?a=1&clip=NoExiste123&b=2"]);
+    await screen.findByText(UNAVAILABLE);
+    await waitFor(() => expect(url()).toBe("/twitch?a=1&b=2"));
+  });
+
+  it("sin bucles: URL → selección → URL se estabiliza (una sola limpieza, sin errores)", async () => {
+    stubApi();
+    renderSection(["/twitch?clip=NoExiste123"]);
+    await screen.findByText(UNAVAILABLE);
+    await waitFor(() => expect(url()).toBe("/twitch"));
+    await new Promise((resolve) => setTimeout(resolve, 100));
+
+    expect(url()).toBe("/twitch");
+    expect(console.error).not.toHaveBeenCalled();
+  });
+
+  it("salir de /twitch con el visor abierto desmonta TODOS los iframes de Twitch", async () => {
+    stubApi();
+    renderSection(["/", "/twitch?clip=Clip1-abc"], 1);
+    await screen.findByRole("dialog");
+    await waitFor(() => expect(document.querySelectorAll("iframe").length).toBe(2)); // principal + clip
+
+    goBack();
+
+    expect(url()).toBe("/");
+    expect(document.querySelectorAll("iframe")).toHaveLength(0);
+    expect(screen.queryByRole("dialog")).toBeNull();
   });
 });

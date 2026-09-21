@@ -1,9 +1,13 @@
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import { useTwitchStatus } from "@/hooks/useTwitchStatus";
 import { useTwitchClips, TwitchClipsError } from "@/hooks/useTwitchClips";
 import { useTwitchLatestVideo } from "@/hooks/useTwitchLatestVideo";
 import { formatRelativeDate, parseTwitchDuration } from "@/lib/format";
 import { wrapIndex } from "@/lib/media-ratio";
+import { isTwitchClipId } from "@/lib/deep-links";
+import { useSearchParam } from "@/hooks/useSearchParam";
+import { useContentNotice } from "@/hooks/useContentNotice";
+import ContentNotice from "@/components/ui/ContentNotice";
 import LiveBadge, { type LiveBadgeStatus } from "./LiveBadge";
 import TwitchPlayer from "./TwitchPlayer";
 import TwitchClip from "./TwitchClip";
@@ -22,24 +26,44 @@ export default function TwitchSection() {
   } = useTwitchLatestVideo();
   const { data: clips, isLoading: clipsLoading, error: clipsErrorObj } = useTwitchClips();
 
-  // Se guarda el id (no el índice): si los clips se refrescan, el visor sigue en el mismo clip.
-  const [selected, setSelected] = useState<{ id: string; trigger: HTMLElement } | null>(
-    null,
-  );
+  // La URL (?clip=<id>) es la única fuente de verdad del clip abierto: recargar o pegar el
+  // enlace abre el mismo clip. `replace` en todos los cambios (no llena el historial).
+  const [clipParam, setClipParam] = useSearchParam("clip");
+  const notice = useContentNotice();
+  const clipId = isTwitchClipId(clipParam) ? clipParam : null;
   const selectedIndex =
-    selected && clips ? clips.findIndex((clip) => clip.id === selected.id) : -1;
+    clipId && clips ? clips.findIndex((clip) => clip.id === clipId) : -1;
+  // Tarjeta que abrió el visor (recupera el foco al cerrarlo); null si se abrió por enlace.
+  const triggerRef = useRef<HTMLElement | null>(null);
+
+  // Solo se concluye "ya no está entre los últimos 12" con los clips cargados: mientras cargan,
+  // o si la consulta falla (fallo temporal), el deep link se conserva.
+  const unavailable =
+    clipParam !== null && (clipId === null || (clips !== undefined && selectedIndex < 0));
+  const showNotice = notice.show;
+  useEffect(() => {
+    if (!unavailable) return;
+    showNotice();
+    setClipParam(null);
+  }, [unavailable, showNotice, setClipParam]);
 
   const navigateClip = useCallback(
     (delta: number) => {
       if (!clips || selectedIndex < 0) return;
-      setSelected((current) =>
-        current
-          ? { ...current, id: clips[wrapIndex(selectedIndex, delta, clips.length)].id }
-          : current,
-      );
+      setClipParam(clips[wrapIndex(selectedIndex, delta, clips.length)].id);
     },
-    [clips, selectedIndex],
+    [clips, selectedIndex, setClipParam],
   );
+
+  const openClip = (id: string, trigger: HTMLElement) => {
+    triggerRef.current = trigger;
+    setClipParam(id);
+  };
+
+  const closeViewer = () => {
+    triggerRef.current = null;
+    setClipParam(null);
+  };
 
   const badgeStatus: LiveBadgeStatus = statusLoading
     ? "loading"
@@ -90,6 +114,8 @@ export default function TwitchSection() {
         <h2 className="font-display text-3xl tracking-wide">TWITCH</h2>
         <LiveBadge status={badgeStatus} viewerCount={status?.viewerCount} />
       </div>
+
+      {notice.visible && <ContentNotice />}
 
       <div className="mb-10">
         {status?.isLive ? (
@@ -159,18 +185,18 @@ export default function TwitchSection() {
           <TwitchClip
             key={clip.id}
             clip={clip}
-            onOpen={(item, trigger) => setSelected({ id: item.id, trigger })}
+            onOpen={(item, trigger) => openClip(item.id, trigger)}
           />
         ))}
       </div>
 
-      {clips && selected && selectedIndex >= 0 && (
+      {clips && clipId && selectedIndex >= 0 && (
         <TwitchClipViewer
           clips={clips}
           index={selectedIndex}
           onNavigate={navigateClip}
-          returnFocusTo={selected.trigger}
-          onClose={() => setSelected(null)}
+          returnFocusTo={triggerRef.current}
+          onClose={closeViewer}
         />
       )}
     </section>

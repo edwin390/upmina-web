@@ -9,7 +9,10 @@ export default function HeroVideo({ video }: HeroVideoProps) {
   return (
     <div className="overflow-hidden rounded-lg border border-border-subtle shadow-glow-primary">
       <div className="aspect-video w-full">
+        {/* `key`: un iframe nuevo por video. Cambiar el `src` de uno ya cargado añade una entrada
+            al historial del navegador y "Atrás" navegaría dentro del reproductor. */}
         <iframe
+          key={video.id}
           src={`https://www.youtube.com/embed/${video.id}`}
           title={video.title}
           allowFullScreen
