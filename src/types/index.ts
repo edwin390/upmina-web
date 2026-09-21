@@ -26,8 +26,8 @@ export interface TwitchVideo {
 
 export interface TwitchClip {
   id: string;
-  // URL del clip en twitch.tv (fallback si el iframe de embed no carga, p.
-  // ej. por un bloqueador de contenido).
+  // URL del clip en twitch.tv (salida opcional "Ver en Twitch"; la reproducción
+  // normal ocurre en el visor interno con `embedUrl`).
   url: string;
   title: string;
   creatorName: string;

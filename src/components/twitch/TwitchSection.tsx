@@ -1,10 +1,13 @@
+import { useCallback, useState } from "react";
 import { useTwitchStatus } from "@/hooks/useTwitchStatus";
 import { useTwitchClips, TwitchClipsError } from "@/hooks/useTwitchClips";
 import { useTwitchLatestVideo } from "@/hooks/useTwitchLatestVideo";
 import { formatRelativeDate, parseTwitchDuration } from "@/lib/format";
+import { wrapIndex } from "@/lib/media-ratio";
 import LiveBadge, { type LiveBadgeStatus } from "./LiveBadge";
 import TwitchPlayer from "./TwitchPlayer";
 import TwitchClip from "./TwitchClip";
+import TwitchClipViewer from "./TwitchClipViewer";
 
 export default function TwitchSection() {
   const {
@@ -18,6 +21,25 @@ export default function TwitchSection() {
     isError: latestVideoError,
   } = useTwitchLatestVideo();
   const { data: clips, isLoading: clipsLoading, error: clipsErrorObj } = useTwitchClips();
+
+  // Se guarda el id (no el índice): si los clips se refrescan, el visor sigue en el mismo clip.
+  const [selected, setSelected] = useState<{ id: string; trigger: HTMLElement } | null>(
+    null,
+  );
+  const selectedIndex =
+    selected && clips ? clips.findIndex((clip) => clip.id === selected.id) : -1;
+
+  const navigateClip = useCallback(
+    (delta: number) => {
+      if (!clips || selectedIndex < 0) return;
+      setSelected((current) =>
+        current
+          ? { ...current, id: clips[wrapIndex(selectedIndex, delta, clips.length)].id }
+          : current,
+      );
+    },
+    [clips, selectedIndex],
+  );
 
   const badgeStatus: LiveBadgeStatus = statusLoading
     ? "loading"
@@ -134,9 +156,23 @@ export default function TwitchSection() {
           <p className="text-sm text-text-muted">Todavía no hay clips disponibles.</p>
         )}
         {clips?.map((clip) => (
-          <TwitchClip key={clip.id} clip={clip} />
+          <TwitchClip
+            key={clip.id}
+            clip={clip}
+            onOpen={(item, trigger) => setSelected({ id: item.id, trigger })}
+          />
         ))}
       </div>
+
+      {clips && selected && selectedIndex >= 0 && (
+        <TwitchClipViewer
+          clips={clips}
+          index={selectedIndex}
+          onNavigate={navigateClip}
+          returnFocusTo={selected.trigger}
+          onClose={() => setSelected(null)}
+        />
+      )}
     </section>
   );
 }
