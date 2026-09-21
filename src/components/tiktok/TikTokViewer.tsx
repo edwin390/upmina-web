@@ -2,7 +2,8 @@ import { useEffect, useRef, useState, type TouchEvent } from "react";
 import type { TikTokVideo } from "@/types";
 import { wrapIndex } from "@/lib/media-ratio";
 import TikTokCover from "./TikTokCover";
-import { safeTikTokUrl } from "./tiktokUrl";
+import TikTokPlayer from "./TikTokPlayer";
+import { safeTikTokUrl, tikTokVideoId } from "./tiktokUrl";
 
 interface TikTokViewerProps {
   /** Vídeos del feed, en el orden de la rejilla. */
@@ -33,16 +34,18 @@ const FRAME_WIDTH =
   "w-[min(92vw,calc((100dvh-190px)*9/16),380px)] short:w-[min(60vw,calc((100dvh-32px)*9/16),380px)]";
 
 /**
- * Visor vertical de TikTok dentro de Upmina Web. video.list no da un archivo reproducible,
- * así que muestra la portada 9:16 (object-cover, sin deformar) con título, fecha y enlace
- * al TikTok original.
+ * Visor vertical de TikTok dentro de Upmina Web. Reproduce el vídeo real con el reproductor
+ * oficial de TikTok (iframe alojado por TikTok, a partir del id del `share_url`); video.list no
+ * da un archivo reproducible, así que la portada solo se usa mientras carga o si el
+ * reproductor falla. Título, fecha y enlace al TikTok original quedan fuera del área 9:16.
  *
  * Navegación vertical y circular, como el feed de TikTok:
  * - Teclado: ↓ siguiente, ↑ anterior, Escape cierra.
  * - Táctil: swipe hacia arriba → siguiente, hacia abajo → anterior (umbral SWIPE_THRESHOLD_PX).
  * - Botones ↑ / ↓ discretos.
- * Mientras está abierto, el scroll del documento queda bloqueado (y `touch-action: none`
- * evita que el gesto desplace la página de detrás).
+ * Solo hay un reproductor montado a la vez: al cambiar de vídeo el anterior se desmonta, y
+ * al cerrar también (deja de sonar). Mientras está abierto, el scroll del documento queda
+ * bloqueado (y `touch-action: none` evita que el gesto desplace la página de detrás).
  */
 export default function TikTokViewer({
   videos,
@@ -86,7 +89,11 @@ export default function TikTokViewer({
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
 
+    // Marca de la última pulsación de Tab: quien navega con teclado no pierde el foco.
+    let lastTabAt = 0;
+
     const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Tab") lastTabAt = Date.now();
       if (event.defaultPrevented) return;
 
       // Escape explícito: no depende de que el navegador dispare `cancel`.
@@ -108,8 +115,23 @@ export default function TikTokViewer({
     };
     document.addEventListener("keydown", onKeyDown);
 
+    // El reproductor es un iframe de otro origen: tras un clic (Play, volumen…) se queda con
+    // el foco y se traga ↑ / ↓ / Escape. Al perder la ventana el foco hacia el iframe, se
+    // devuelve al visor (el vídeo sigue sonando; solo cambia quién recibe el teclado).
+    const onWindowBlur = () => {
+      window.setTimeout(() => {
+        if (Date.now() - lastTabAt < 500) return;
+        const active = document.activeElement;
+        if (active instanceof HTMLIFrameElement && dialog.contains(active)) {
+          dialog.focus({ preventScroll: true });
+        }
+      }, 0);
+    };
+    window.addEventListener("blur", onWindowBlur);
+
     return () => {
       document.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("blur", onWindowBlur);
       document.body.style.overflow = previousOverflow;
       // Diferido un frame y solo si el diálogo ya salió del DOM (desmontaje real,
       // no la simulación de StrictMode): el foco vuelve a la tarjeta que lo abrió.
@@ -131,6 +153,7 @@ export default function TikTokViewer({
 
   const title = video.title.trim();
   const href = safeTikTokUrl(video.embedUrl);
+  const videoId = tikTokVideoId(video.embedUrl);
   const date = new Date(video.createTime);
   const hasDate = !Number.isNaN(date.getTime());
   const enter =
@@ -167,6 +190,7 @@ export default function TikTokViewer({
     <dialog
       ref={dialogRef}
       aria-labelledby="tt-viewer-title"
+      tabIndex={-1}
       onCancel={(event) => {
         event.preventDefault();
         onClose();
@@ -188,7 +212,7 @@ export default function TikTokViewer({
       onTouchCancel={() => {
         touchStart.current = null;
       }}
-      className="fixed inset-0 m-0 h-dvh max-h-none w-screen max-w-none touch-none overflow-hidden overscroll-contain bg-transparent p-0 text-text-primary backdrop:bg-black/85 backdrop:backdrop-blur-sm"
+      className="fixed inset-0 m-0 h-dvh max-h-none w-screen max-w-none touch-none overflow-hidden overscroll-contain bg-transparent p-0 outline-none text-text-primary backdrop:bg-black/85 backdrop:backdrop-blur-sm"
     >
       <div
         data-tt-backdrop
@@ -202,10 +226,19 @@ export default function TikTokViewer({
           <div
             className={`relative aspect-[9/16] shrink-0 overflow-hidden rounded-2xl border border-border-strong bg-bg-surface shadow-glow-secondary ${FRAME_WIDTH}`}
           >
-            <TikTokCover
-              url={video.coverImageUrl}
-              alt={title ? `Portada: ${title}` : "Portada del video de TikTok"}
-            />
+            {videoId ? (
+              <TikTokPlayer
+                videoId={videoId}
+                title={title}
+                coverUrl={video.coverImageUrl}
+              />
+            ) : (
+              // Sin id de vídeo (p. ej. enlace corto vm.tiktok.com): solo portada.
+              <TikTokCover
+                url={video.coverImageUrl}
+                alt={title ? `Portada: ${title}` : "Portada del video de TikTok"}
+              />
+            )}
           </div>
 
           <div className="flex min-w-[14rem] max-w-[92vw] flex-col items-center gap-2 text-center short:w-56 short:min-w-0 short:items-start short:text-left">

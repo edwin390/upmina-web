@@ -209,7 +209,7 @@ describe("TikTokViewer: apertura y cierre", () => {
     expect(dialog.querySelector("img")?.getAttribute("src")).toBe(`${COVER}?3`);
   });
 
-  it("contenido: portada 9:16 sin deformar, título, fecha, 'Ver en TikTok' y botón X", async () => {
+  it("contenido: área 9:16 con portada mientras carga, título, fecha, 'Ver en TikTok' y botón X", async () => {
     stubApi();
     renderSection();
     const { dialog } = await openViewer("Título 2");
@@ -218,8 +218,9 @@ describe("TikTokViewer: apertura y cierre", () => {
     expect(cover.className).toContain("object-cover");
     expect(cover.className).toContain("h-full");
     expect(cover.parentElement?.className).toContain("aspect-[9/16]");
-    // Es una imagen: no se intenta reproducir nada.
-    expect(dialog.querySelector("video, iframe")).toBeNull();
+    // Nunca un <video> con archivo propio: el vídeo lo reproduce el iframe oficial de TikTok.
+    expect(dialog.querySelector("video")).toBeNull();
+    expect(dialog.querySelectorAll("iframe")).toHaveLength(1);
     expect(viewerTitle()).toBe("Título 2");
     expect(dialog.querySelector("time")?.getAttribute("datetime")).toBe(
       "2026-09-18T19:00:31.000Z",

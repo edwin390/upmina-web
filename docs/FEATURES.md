@@ -104,12 +104,12 @@ Mostrar los videos más recientes de TikTok.
 ### ⚙️ Comportamiento esperado
 1. Se obtiene la lista vía Display API (`/v2/video/list/`).
 2. Grid de tarjetas verticales (formato 9:16).
-3. Cada tarjeta muestra la portada (`cover_image_url`) con un indicador de reproducción. Al hacer clic se abre un visor vertical dentro de la web (`<TikTokViewer>`) con la portada 9:16, título, fecha y "Ver en TikTok" (`share_url`, pestaña nueva). Navegación circular: ↓/↑ y swipe vertical (arriba = siguiente); Escape cierra. `video.list` no entrega un archivo de vídeo reproducible, así que no se reproduce ni se incrusta el reproductor de TikTok.
+3. La rejilla muestra la portada (`cover_image_url`) de cada vídeo en una tarjeta 9:16. Al hacer clic se abre un visor vertical dentro de la web (`<TikTokViewer>`) que reproduce el vídeo real con el reproductor oficial de TikTok (iframe `https://www.tiktok.com/player/v1/<id>`, con el id sacado de `share_url`), más título, fecha y "Ver en TikTok" (`share_url`, pestaña nueva). Navegación circular: ↓/↑ y swipe vertical (arriba = siguiente); Escape cierra. Solo hay un reproductor montado a la vez. Si el reproductor no carga, se muestra la portada como respaldo. `video.list` no entrega un archivo de vídeo propio, por eso se usa el iframe oficial.
 4. Caché de 30 minutos.
 
 ### 🔧 Implementación
 - Proxy en `api/tiktok-videos.ts`.
-- Componentes en `src/components/tiktok/`: `TikTokSection` (rejilla), `TikTokCard` (tarjeta 9:16), `TikTokViewer` (visor vertical) y `TikTokCover` (portada con fallback).
+- Componentes en `src/components/tiktok/`: `TikTokSection` (rejilla), `TikTokCard` (tarjeta 9:16), `TikTokViewer` (visor vertical), `TikTokPlayer` (iframe oficial con respaldo) y `TikTokCover` (portada con fallback).
 
 ---
 

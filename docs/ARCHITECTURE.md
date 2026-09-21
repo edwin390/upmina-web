@@ -131,7 +131,7 @@ de cuota de 10,000 uds/día a un valor insignificante.
 1. Cliente → `GET /api/tiktok-videos`
 2. Vercel Function → Display API (`/v2/video/list/`)
 3. Function mapea IDs → URLs públicas
-4. Cliente muestra la portada 9:16 de cada vídeo (`TikTokCard`) y, al hacer clic, un visor vertical interno (`TikTokViewer`)
+4. Cliente muestra la portada 9:16 de cada vídeo (`TikTokCard`) y, al hacer clic, un visor vertical interno (`TikTokViewer`) que reproduce el vídeo con el reproductor oficial de TikTok (`TikTokPlayer`, iframe con el id del `share_url`)
 
 **Por qué el proxy:** el access token caduca en 24h y se renueva con refresh
 token desde el backend.
