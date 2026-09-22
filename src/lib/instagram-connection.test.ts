@@ -3,6 +3,7 @@ import {
   InstagramConnectionError,
   InstagramConnectionFormatError,
   InstagramStorageError,
+  acquireInstagramRefreshLease,
   assertInstagramStorageConfigured,
   claimInstagramOAuthNonce,
   getInstagramConnection,
@@ -10,7 +11,7 @@ import {
   saveInstagramConnection,
   type InstagramTokenSet,
 } from "./instagram-connection";
-import { igFakeDb, resetIgFakeDb } from "./instagram-supabase-fake";
+import { countIgOps, igFakeDb, resetIgFakeDb } from "./instagram-supabase-fake";
 
 // Fijan la lectura de la conexión de Instagram y la prioridad de resolución del token:
 // Supabase primero y, solo mientras no exista fila, INSTAGRAM_ACCESS_TOKEN (temporal).
@@ -49,10 +50,41 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.unstubAllEnvs();
+  vi.unstubAllGlobals();
   vi.restoreAllMocks();
 });
 
 const logged = () => JSON.stringify(errorSpy.mock.calls);
+
+const DAY = 24 * HOUR;
+const RENEWAL_THRESHOLD_MS = 7 * DAY;
+const noSleep = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
+
+function jsonResponse(body: unknown, status = 200): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { "content-type": "application/json" },
+  });
+}
+
+const REFRESH_URL = "https://graph.instagram.com/refresh_access_token";
+const NEW_DB_TOKEN = "IGAA-token-renovado-ficticio";
+
+/** Simula graph.instagram.com/refresh_access_token; cualquier otra URL no debería
+ *  llamarse desde estos tests. */
+function stubInstagramRefresh(
+  respond: () => Promise<Response> | Response = () =>
+    jsonResponse({ access_token: NEW_DB_TOKEN, expires_in: 60 * 24 * 3600 }),
+) {
+  const fetchMock = vi.fn(async (url: string) => {
+    if (!url.startsWith(REFRESH_URL)) {
+      throw new Error(`llamada de red inesperada en el test: ${url}`);
+    }
+    return respond();
+  });
+  vi.stubGlobal("fetch", fetchMock);
+  return fetchMock;
+}
 
 describe("getInstagramConnection", () => {
   it("devuelve la fila de Instagram con los campos del contrato", async () => {
@@ -309,6 +341,460 @@ describe("getUsableInstagramAccessToken: fila expirada o inválida (sin fallback
     await expect(getUsableInstagramAccessToken()).rejects.toMatchObject({
       reason: "expired",
     });
+  });
+});
+
+// Renovación automática (auto-refresh) del token largo persistido. Independiente de la
+// prioridad de resolución de arriba: estos tests fijan solo lo que ocurre CON una fila
+// de Instagram ya válida (no expirada) cuando está dentro del umbral de renovación.
+
+describe("getUsableInstagramAccessToken: renovación automática", () => {
+  it("A) más de 7 días de vigencia → no llama a Meta, devuelve el token guardado", async () => {
+    igFakeDb.rows.instagram = igRow({
+      access_token_expires_at: new Date(NOW + RENEWAL_THRESHOLD_MS + 1000).toISOString(),
+    });
+    const fetchMock = stubInstagramRefresh();
+
+    expect(await getUsableInstagramAccessToken(NOW)).toBe(DB_TOKEN);
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(countIgOps("lease")).toBe(0);
+  });
+
+  it("exactamente a 7 días → SÍ se considera dentro del umbral (intenta renovar)", async () => {
+    igFakeDb.rows.instagram = igRow({
+      access_token_expires_at: new Date(NOW + RENEWAL_THRESHOLD_MS).toISOString(),
+    });
+    const fetchMock = stubInstagramRefresh();
+
+    expect(await getUsableInstagramAccessToken(NOW)).toBe(NEW_DB_TOKEN);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("dentro de los 7 días → renueva bajo lease y devuelve el token nuevo", async () => {
+    igFakeDb.rows.instagram = igRow({
+      access_token_expires_at: new Date(NOW + 3 * DAY).toISOString(),
+    });
+    const fetchMock = stubInstagramRefresh();
+
+    const token = await getUsableInstagramAccessToken(NOW);
+
+    expect(token).toBe(NEW_DB_TOKEN);
+    const [url] = fetchMock.mock.calls[0];
+    expect(new URL(url as string).searchParams.get("access_token")).toBe(DB_TOKEN);
+    expect(countIgOps("lease")).toBe(1);
+  });
+
+  it("refresh exitoso: persiste access_token y nueva expiración, libera el lease", async () => {
+    igFakeDb.rows.instagram = igRow({
+      access_token_expires_at: new Date(NOW + 3 * DAY).toISOString(),
+    });
+    stubInstagramRefresh(() =>
+      jsonResponse({ access_token: NEW_DB_TOKEN, expires_in: 60 * 24 * 3600 }),
+    );
+
+    await getUsableInstagramAccessToken(NOW);
+
+    expect(igFakeDb.rows.instagram).toMatchObject({
+      provider: "instagram",
+      access_token: NEW_DB_TOKEN,
+      access_token_expires_at: new Date(NOW + 60 * 24 * HOUR).toISOString(),
+      refresh_lock_until: null,
+    });
+    expect(countIgOps("refresh-save")).toBe(1);
+  });
+
+  it("refresh_token / refresh_token_expires_at nunca se escriben (siguen NULL)", async () => {
+    igFakeDb.rows.instagram = igRow({
+      access_token_expires_at: new Date(NOW + 3 * DAY).toISOString(),
+    });
+    stubInstagramRefresh();
+
+    await getUsableInstagramAccessToken(NOW);
+
+    expect(igFakeDb.rows.instagram).not.toHaveProperty("refresh_token");
+    expect(igFakeDb.rows.instagram).not.toHaveProperty("refresh_token_expires_at");
+  });
+
+  it("fallo de red de Meta con el token actual todavía vigente → usa el token actual, registra el error saneado", async () => {
+    igFakeDb.rows.instagram = igRow({
+      access_token_expires_at: new Date(NOW + 3 * DAY).toISOString(),
+    });
+    stubInstagramRefresh(() => {
+      throw new Error(`ECONNRESET con ${DB_TOKEN}`);
+    });
+
+    const token = await getUsableInstagramAccessToken(NOW);
+
+    expect(token).toBe(DB_TOKEN);
+    expect(countIgOps("refresh-save")).toBe(0);
+    expect(errorSpy).toHaveBeenCalled();
+    expect(logged()).not.toContain(DB_TOKEN);
+  });
+
+  it("HTTP error de Meta con el token actual todavía vigente → usa el token actual", async () => {
+    igFakeDb.rows.instagram = igRow({
+      access_token_expires_at: new Date(NOW + 3 * DAY).toISOString(),
+    });
+    stubInstagramRefresh(() => jsonResponse({ error_type: "OAuthException" }, 400));
+
+    expect(await getUsableInstagramAccessToken(NOW)).toBe(DB_TOKEN);
+    expect(countIgOps("refresh-save")).toBe(0);
+  });
+
+  it("JSON malformado en la respuesta de Meta → tratado como fallo, usa el token actual", async () => {
+    igFakeDb.rows.instagram = igRow({
+      access_token_expires_at: new Date(NOW + 3 * DAY).toISOString(),
+    });
+    stubInstagramRefresh(() => new Response("no es json", { status: 200 }));
+
+    expect(await getUsableInstagramAccessToken(NOW)).toBe(DB_TOKEN);
+  });
+
+  it("access_token ausente en la respuesta → tratado como fallo, usa el token actual", async () => {
+    igFakeDb.rows.instagram = igRow({
+      access_token_expires_at: new Date(NOW + 3 * DAY).toISOString(),
+    });
+    stubInstagramRefresh(() => jsonResponse({ expires_in: 100 }));
+
+    expect(await getUsableInstagramAccessToken(NOW)).toBe(DB_TOKEN);
+  });
+
+  it("expires_in inválido en la respuesta → tratado como fallo, usa el token actual", async () => {
+    igFakeDb.rows.instagram = igRow({
+      access_token_expires_at: new Date(NOW + 3 * DAY).toISOString(),
+    });
+    stubInstagramRefresh(() => jsonResponse({ access_token: "IGAAx", expires_in: 0 }));
+
+    expect(await getUsableInstagramAccessToken(NOW)).toBe(DB_TOKEN);
+  });
+
+  it("timeout de Meta con el token actual todavía vigente → usa el token actual", async () => {
+    igFakeDb.rows.instagram = igRow({
+      access_token_expires_at: new Date(NOW + 3 * DAY).toISOString(),
+    });
+    const controller = new AbortController();
+    vi.spyOn(AbortSignal, "timeout").mockReturnValue(controller.signal);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        (_url: string, init?: RequestInit) =>
+          new Promise<Response>((_resolve, reject) => {
+            const signal = init?.signal;
+            if (signal?.aborted) return reject(signal.reason);
+            signal?.addEventListener("abort", () => reject(signal.reason));
+          }),
+      ),
+    );
+
+    const pending = getUsableInstagramAccessToken(NOW);
+    controller.abort(new DOMException("tiempo agotado", "TimeoutError"));
+    expect(await pending).toBe(DB_TOKEN);
+  });
+
+  it("Meta falla y el token ya no es utilizable (carrera con otra escritura) → 503, sin fallback al env", async () => {
+    // Justo antes de tomar el lease, otra operación deja la fila con el MISMO
+    // access_token pero ya a menos de 60 s de expirar (simula una situación donde el
+    // margen duro se cruza entre la lectura inicial y la renovación).
+    igFakeDb.rows.instagram = igRow({
+      access_token_expires_at: new Date(NOW + 3 * DAY).toISOString(),
+    });
+    igFakeDb.before.lease = () => {
+      igFakeDb.rows.instagram = igRow({
+        access_token: DB_TOKEN,
+        access_token_expires_at: new Date(NOW + 30_000).toISOString(),
+      });
+    };
+    stubInstagramRefresh(() => jsonResponse({ error_type: "OAuthException" }, 400));
+
+    const error = await getUsableInstagramAccessToken(NOW).catch((e: unknown) => e);
+
+    expect(error).toBeInstanceOf(InstagramConnectionError);
+    expect((error as InstagramConnectionError).status).toBe(503);
+    expect((error as InstagramConnectionError).reason).toBe("expired");
+  });
+
+  it("fallo al persistir tras un refresh exitoso: NO da la renovación por completada, conserva la fila anterior, usa el token actual", async () => {
+    igFakeDb.rows.instagram = igRow({
+      access_token_expires_at: new Date(NOW + 3 * DAY).toISOString(),
+    });
+    igFakeDb.failOn["refresh-save"] = {
+      code: "57014",
+      message: `canceling statement ${NEW_DB_TOKEN}`,
+    };
+    stubInstagramRefresh();
+
+    const token = await getUsableInstagramAccessToken(NOW);
+
+    expect(token).toBe(DB_TOKEN);
+    expect(igFakeDb.rows.instagram.access_token).toBe(DB_TOKEN);
+    expect(logged()).toMatch(/57014/);
+    expect(logged()).not.toContain(NEW_DB_TOKEN);
+  });
+
+  it("fallo al persistir Y el token actual ya no es utilizable → se propaga el error de almacenamiento", async () => {
+    igFakeDb.rows.instagram = igRow({
+      access_token_expires_at: new Date(NOW + 3 * DAY).toISOString(),
+    });
+    igFakeDb.before.lease = () => {
+      igFakeDb.rows.instagram = igRow({
+        access_token: DB_TOKEN,
+        access_token_expires_at: new Date(NOW + 30_000).toISOString(),
+      });
+    };
+    igFakeDb.failOn["refresh-save"] = { code: "57014", message: "boom" };
+    stubInstagramRefresh();
+
+    const error = await getUsableInstagramAccessToken(NOW).catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(InstagramStorageError);
+    expect((error as InstagramStorageError).code).toBe("57014");
+  });
+
+  it("UPDATE condicionado evita sobrescribir una conexión que cambió (reautorización durante el refresh)", async () => {
+    igFakeDb.rows.instagram = igRow({
+      access_token_expires_at: new Date(NOW + 3 * DAY).toISOString(),
+    });
+    igFakeDb.before["refresh-save"] = () => {
+      // Otra autorización completa reemplaza la fila mientras Meta respondía.
+      igFakeDb.rows.instagram = igRow({
+        provider_user_id: "17841400000000099",
+        access_token: "IGAA-token-de-otra-reautorizacion",
+        access_token_expires_at: new Date(NOW + 60 * DAY).toISOString(),
+      });
+    };
+    stubInstagramRefresh();
+
+    const token = await getUsableInstagramAccessToken(NOW);
+
+    // No se pisa: se sirve lo que quedó tras la reautorización, no el token que
+    // esta petición había renovado.
+    expect(token).toBe("IGAA-token-de-otra-reautorizacion");
+    expect(igFakeDb.rows.instagram.access_token).toBe(
+      "IGAA-token-de-otra-reautorizacion",
+    );
+  });
+
+  it("dos peticiones concurrentes dentro del umbral → un único refresh contra Meta", async () => {
+    igFakeDb.rows.instagram = igRow({
+      access_token_expires_at: new Date(NOW + 3 * DAY).toISOString(),
+    });
+    // El refresh "ganador" tarda 5 ms; la petición que pierde el lease espera 30 ms
+    // (bastante más) antes de releer, así que su única relectura ya ve el token nuevo:
+    // el resultado es determinista sin necesitar un bucle de reintentos.
+    const fetchMock = stubInstagramRefresh(
+      () =>
+        new Promise((resolve) =>
+          setTimeout(
+            () => resolve(jsonResponse({ access_token: NEW_DB_TOKEN, expires_in: 100 })),
+            5,
+          ),
+        ),
+    );
+    const slowerWait = () => new Promise<void>((resolve) => setTimeout(resolve, 30));
+
+    const [a, b] = await Promise.all([
+      getUsableInstagramAccessToken(NOW, { sleep: slowerWait }),
+      getUsableInstagramAccessToken(NOW, { sleep: slowerWait }),
+    ]);
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect([a, b].sort()).toEqual([NEW_DB_TOKEN, NEW_DB_TOKEN]);
+    expect(igFakeDb.rows.instagram.refresh_lock_until).toBeNull();
+  });
+
+  it("dos peticiones concurrentes: la que pierde el lease puede seguir usando el token todavía válido sin esperar a que la otra termine", async () => {
+    igFakeDb.rows.instagram = igRow({
+      access_token_expires_at: new Date(NOW + 3 * DAY).toISOString(),
+    });
+    // El refresh "ganador" tarda más que la espera de la petición que pierde el lease:
+    // esta última no debe bloquearse hasta que termine, sino servir el token actual
+    // (todavía válido) tras su única relectura.
+    const fetchMock = stubInstagramRefresh(
+      () =>
+        new Promise((resolve) =>
+          setTimeout(
+            () => resolve(jsonResponse({ access_token: NEW_DB_TOKEN, expires_in: 100 })),
+            50,
+          ),
+        ),
+    );
+    const fasterWait = () => new Promise<void>((resolve) => setTimeout(resolve, 5));
+
+    const [a, b] = await Promise.all([
+      getUsableInstagramAccessToken(NOW, { sleep: fasterWait }),
+      getUsableInstagramAccessToken(NOW, { sleep: fasterWait }),
+    ]);
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    // Una de las dos ganó el lease y devuelve el token nuevo; la otra, al releer antes
+    // de que el refresh terminara, sigue sirviendo el token original (todavía válido).
+    expect([a, b].sort()).toEqual([DB_TOKEN, NEW_DB_TOKEN].sort());
+  });
+
+  it("lease perdido: espera un turno corto, relee y usa el token que la otra petición ya renovó", async () => {
+    igFakeDb.rows.instagram = igRow({
+      access_token_expires_at: new Date(NOW + 3 * DAY).toISOString(),
+      refresh_lock_until: new Date(NOW + 20_000).toISOString(),
+    });
+    const fetchMock = stubInstagramRefresh();
+    // Durante la espera, la otra petición (dueña del lease) termina y guarda el nuevo.
+    const original = igFakeDb.rows.instagram;
+    const sleepAndFinish = async () => {
+      igFakeDb.rows.instagram = {
+        ...original,
+        access_token: NEW_DB_TOKEN,
+        access_token_expires_at: new Date(NOW + 60 * DAY).toISOString(),
+        refresh_lock_until: null,
+      };
+    };
+
+    const token = await getUsableInstagramAccessToken(NOW, { sleep: sleepAndFinish });
+
+    expect(token).toBe(NEW_DB_TOKEN);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("lease perdido y la otra petición no terminó: se sigue usando el token original mientras sea válido", async () => {
+    igFakeDb.rows.instagram = igRow({
+      access_token_expires_at: new Date(NOW + 3 * DAY).toISOString(),
+      refresh_lock_until: new Date(NOW + 20_000).toISOString(),
+    });
+    const fetchMock = stubInstagramRefresh();
+
+    const token = await getUsableInstagramAccessToken(NOW, { sleep: noSleep });
+
+    expect(token).toBe(DB_TOKEN);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("lease perdido y, tras la espera, el token original ya expiró → 503", async () => {
+    igFakeDb.rows.instagram = igRow({
+      // Vigente en el momento de la lectura inicial (por encima del margen duro), pero
+      // la relectura tras la espera lo muestra ya vencido (otra petición lo consumió sin
+      // renovarlo a tiempo, o el reloj avanzó lo suficiente).
+      access_token_expires_at: new Date(NOW + 3 * DAY).toISOString(),
+      refresh_lock_until: new Date(NOW + 20_000).toISOString(),
+    });
+    stubInstagramRefresh();
+    const original = igFakeDb.rows.instagram;
+    const sleepAndExpire = async () => {
+      igFakeDb.rows.instagram = {
+        ...original,
+        access_token_expires_at: new Date(NOW - 1000).toISOString(),
+      };
+    };
+
+    const error = await getUsableInstagramAccessToken(NOW, {
+      sleep: sleepAndExpire,
+    }).catch((e: unknown) => e);
+
+    expect(error).toBeInstanceOf(InstagramConnectionError);
+    expect((error as InstagramConnectionError).reason).toBe("expired");
+  });
+
+  it("lease abandonado (dueño anterior murió a mitad) caduca solo y puede volver a tomarse", async () => {
+    igFakeDb.rows.instagram = igRow({
+      access_token_expires_at: new Date(NOW + 3 * DAY).toISOString(),
+    });
+    expect(await acquireInstagramRefreshLease(DB_TOKEN, NOW)).toBe(true);
+    // Todavía vigente (30 s): una segunda adquisición falla.
+    expect(await acquireInstagramRefreshLease(DB_TOKEN, NOW + 10_000)).toBe(false);
+    // Pasados los 30 s, el lease caducó solo y puede volver a tomarse.
+    expect(await acquireInstagramRefreshLease(DB_TOKEN, NOW + 31_000)).toBe(true);
+  });
+
+  it("el lease es atómico: entre varias adquisiciones concurrentes solo una prospera", async () => {
+    igFakeDb.rows.instagram = igRow({
+      access_token_expires_at: new Date(NOW + 3 * DAY).toISOString(),
+    });
+    const results = await Promise.all([
+      acquireInstagramRefreshLease(DB_TOKEN, NOW),
+      acquireInstagramRefreshLease(DB_TOKEN, NOW),
+      acquireInstagramRefreshLease(DB_TOKEN, NOW),
+    ]);
+    expect(results.filter(Boolean)).toHaveLength(1);
+  });
+
+  it("el lease nunca se condiciona por refresh_token (Instagram no lo usa)", async () => {
+    igFakeDb.rows.instagram = igRow({
+      access_token_expires_at: new Date(NOW + 3 * DAY).toISOString(),
+    });
+    // Con un access_token que no coincide, la adquisición falla aunque el resto de la
+    // fila sea idéntico: la condición es por access_token, no por otra columna.
+    expect(await acquireInstagramRefreshLease("otro-token-cualquiera", NOW)).toBe(false);
+  });
+
+  it("TikTok permanece intacto: la renovación de Instagram nunca toca la fila de TikTok", async () => {
+    igFakeDb.rows.instagram = igRow({
+      access_token_expires_at: new Date(NOW + 3 * DAY).toISOString(),
+    });
+    igFakeDb.rows.tiktok = {
+      provider: "tiktok",
+      access_token: TIKTOK_TOKEN,
+      refresh_token: "rft.ficticio",
+    };
+    stubInstagramRefresh();
+
+    await getUsableInstagramAccessToken(NOW);
+
+    expect(igFakeDb.rows.tiktok).toEqual({
+      provider: "tiktok",
+      access_token: TIKTOK_TOKEN,
+      refresh_token: "rft.ficticio",
+    });
+  });
+
+  it("ningún token (actual, renovado o de entorno) aparece en logs ante ningún fallo de renovación", async () => {
+    const scenarios: (() => void)[] = [
+      () => stubInstagramRefresh(() => jsonResponse({ error_type: "x" }, 400)),
+      () =>
+        stubInstagramRefresh(() => {
+          throw new Error(`${DB_TOKEN}`);
+        }),
+      () => {
+        igFakeDb.failOn["refresh-save"] = { code: "XX000", message: NEW_DB_TOKEN };
+        stubInstagramRefresh();
+      },
+    ];
+    for (const setup of scenarios) {
+      resetIgFakeDb();
+      vi.stubEnv("VITE_SUPABASE_URL", SUPABASE_URL);
+      vi.stubEnv("SUPABASE_SERVICE_ROLE_KEY", SERVICE_ROLE_KEY);
+      vi.stubEnv("INSTAGRAM_ACCESS_TOKEN", ENV_TOKEN);
+      errorSpy.mockClear();
+      igFakeDb.rows.instagram = igRow({
+        access_token_expires_at: new Date(NOW + 3 * DAY).toISOString(),
+      });
+      setup();
+      await getUsableInstagramAccessToken(NOW);
+      expect(logged()).not.toContain(DB_TOKEN);
+      expect(logged()).not.toContain(NEW_DB_TOKEN);
+      expect(logged()).not.toContain(ENV_TOKEN);
+    }
+  });
+});
+
+// Fallback INSTAGRAM_ACCESS_TOKEN: la renovación automática de arriba SOLO existe para
+// una conexión ya persistida. Estos casos (sin fila, o error de lectura) siguen
+// resolviéndose exactamente como antes de introducir el auto-refresh.
+
+describe("getUsableInstagramAccessToken: el fallback al env es ajeno a la renovación", () => {
+  it("sin fila persistida, el env sigue funcionando sin tocar Meta", async () => {
+    const fetchMock = stubInstagramRefresh();
+    expect(await getUsableInstagramAccessToken(NOW)).toBe(ENV_TOKEN);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("conexión persistida expirada nunca cae al fallback, aunque esté dentro de lo que sería el umbral de renovación", async () => {
+    igFakeDb.rows.instagram = igRow({
+      access_token_expires_at: new Date(NOW - HOUR).toISOString(),
+    });
+    const fetchMock = stubInstagramRefresh();
+
+    const error = await getUsableInstagramAccessToken(NOW).catch((e: unknown) => e);
+
+    expect(error).toBeInstanceOf(InstagramConnectionError);
+    expect((error as InstagramConnectionError).reason).toBe("expired");
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });
 

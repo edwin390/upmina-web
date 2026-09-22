@@ -13,6 +13,7 @@ import {
   isProductionEnvironment,
   logInstagramOAuthError,
   readStateCookie,
+  refreshInstagramAccessToken,
   safeCode,
   stateCookie,
   verifyInstagramState,
@@ -611,6 +612,130 @@ describe("exchangeForLongLivedToken (short-lived -> long-lived)", () => {
     const pending = exchangeForLongLivedToken(SHORT_LIVED, credentials);
     controller.abort(new DOMException("tiempo agotado", "TimeoutError"));
     await expect(pending).rejects.toBeInstanceOf(InstagramOAuthError);
+  });
+});
+
+describe("refreshInstagramAccessToken (renovación del token largo)", () => {
+  const CURRENT_TOKEN = "IGAAtoken-largo-a-renovar-ficticio";
+
+  it("camino feliz: GET a graph.instagram.com/refresh_access_token con ig_refresh_token", async () => {
+    const fetchMock = vi.fn(async (_url: string) =>
+      jsonResponse({
+        access_token: "IGAAtoken-renovado-ficticio",
+        token_type: "bearer",
+        expires_in: 5_184_000,
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await refreshInstagramAccessToken(CURRENT_TOKEN);
+
+    expect(result).toEqual({
+      accessToken: "IGAAtoken-renovado-ficticio",
+      expiresIn: 5_184_000,
+    });
+    const [url] = fetchMock.mock.calls[0];
+    const parsed = new URL(url);
+    expect(parsed.origin + parsed.pathname).toBe(
+      "https://graph.instagram.com/refresh_access_token",
+    );
+    expect(parsed.searchParams.get("grant_type")).toBe("ig_refresh_token");
+    expect(parsed.searchParams.get("access_token")).toBe(CURRENT_TOKEN);
+    // Nunca lleva client_secret: a diferencia del intercambio inicial, la renovación
+    // solo requiere el propio access token vigente.
+    expect(parsed.searchParams.has("client_secret")).toBe(false);
+  });
+
+  it("Instagram rechaza la renovación → InstagramOAuthError 502 con el código del proveedor", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => jsonResponse({ error_type: "OAuthException" }, 400)),
+    );
+    const error = await refreshInstagramAccessToken(CURRENT_TOKEN).catch(
+      (e: unknown) => e,
+    );
+    expect(error).toBeInstanceOf(InstagramOAuthError);
+    expect((error as InstagramOAuthError).status).toBe(502);
+    expect((error as InstagramOAuthError).httpStatus).toBe(400);
+    expect((error as InstagramOAuthError).providerCode).toBe("OAuthException");
+  });
+
+  it.each([
+    ["sin access_token", { token_type: "bearer", expires_in: 100 }],
+    ["sin expires_in", { access_token: "IGAAnuevo", token_type: "bearer" }],
+    ["expires_in cero", { access_token: "IGAAnuevo", expires_in: 0 }],
+    ["expires_in negativo", { access_token: "IGAAnuevo", expires_in: -10 }],
+    ["expires_in no numérico", { access_token: "IGAAnuevo", expires_in: "sesenta días" }],
+    ["access_token vacío", { access_token: "", expires_in: 100 }],
+  ])("respuesta inválida (%s) → rechazada", async (_name, body) => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => jsonResponse(body)),
+    );
+    await expect(refreshInstagramAccessToken(CURRENT_TOKEN)).rejects.toBeInstanceOf(
+      InstagramOAuthError,
+    );
+  });
+
+  it("cuerpo no JSON → inválida (502), no truena", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response("no es json", { status: 200 })),
+    );
+    await expect(refreshInstagramAccessToken(CURRENT_TOKEN)).rejects.toBeInstanceOf(
+      InstagramOAuthError,
+    );
+  });
+
+  it("fallo de red → 502 sin exponer el token en el mensaje", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        throw new Error(`ECONNRESET con ${CURRENT_TOKEN}`);
+      }),
+    );
+    const error = await refreshInstagramAccessToken(CURRENT_TOKEN).catch(
+      (e: unknown) => e,
+    );
+    expect(error).toBeInstanceOf(InstagramOAuthError);
+    expect((error as Error).message).not.toContain(CURRENT_TOKEN);
+  });
+
+  it("timeout de red (AbortSignal) → 502", async () => {
+    const controller = new AbortController();
+    vi.spyOn(AbortSignal, "timeout").mockReturnValue(controller.signal);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        (_url: string, init?: RequestInit) =>
+          new Promise<Response>((_resolve, reject) => {
+            const signal = init?.signal;
+            if (signal?.aborted) return reject(signal.reason);
+            signal?.addEventListener("abort", () => reject(signal.reason));
+          }),
+      ),
+    );
+
+    const pending = refreshInstagramAccessToken(CURRENT_TOKEN);
+    controller.abort(new DOMException("tiempo agotado", "TimeoutError"));
+    const error = await pending.catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(InstagramOAuthError);
+    expect((error as InstagramOAuthError).status).toBe(502);
+  });
+
+  it("nunca registra el token renovado ni el que se está renovando", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        jsonResponse({ error_type: "OAuthException", error_message: "rejected" }, 400),
+      ),
+    );
+    const error = await refreshInstagramAccessToken(CURRENT_TOKEN).catch(
+      (e: unknown) => e,
+    );
+    logInstagramOAuthError("test", error);
+    const logged = JSON.stringify(errorSpy.mock.calls);
+    expect(logged).not.toContain(CURRENT_TOKEN);
   });
 });
 

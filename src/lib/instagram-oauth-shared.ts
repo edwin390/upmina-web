@@ -26,6 +26,12 @@ import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 export const INSTAGRAM_AUTHORIZE_URL = "https://www.instagram.com/oauth/authorize";
 export const INSTAGRAM_TOKEN_URL = "https://api.instagram.com/oauth/access_token";
 export const INSTAGRAM_GRAPH_TOKEN_URL = "https://graph.instagram.com/access_token";
+// long-lived -> long-lived (renovación): GET, grant_type=ig_refresh_token, respuesta
+// plana con access_token/token_type/expires_in (mismo formato que el intercambio a
+// long-lived, endpoint distinto). NO es el mismo grant_type que ig_exchange_token: no
+// debe confundirse con exchangeForLongLivedToken. Meta exige que el token a renovar
+// tenga al menos 24 h de antigüedad y no esté ya expirado.
+export const INSTAGRAM_REFRESH_URL = "https://graph.instagram.com/refresh_access_token";
 
 /** Redirect URI registrada en la app de Meta; debe coincidir exactamente y NUNCA derivarse
  *  del Host de la petición (evita que Preview genere un redirect_uri distinto). */
@@ -407,6 +413,78 @@ export async function exchangeForLongLivedToken(
   if (!isNonEmptyString(access_token) || !isPositiveNumber(expires_in)) {
     throw new InstagramOAuthError(
       "Instagram devolvió un token de larga duración inválido",
+      502,
+      res.status,
+    );
+  }
+
+  return { accessToken: access_token, expiresIn: expires_in };
+}
+
+// ---------- renovación del token largo (auto-refresh) ----------
+
+/** Token renovado. SOLO para código servidor: nunca se serializa a una respuesta, log o
+ *  mensaje de error. */
+export interface InstagramRefreshedToken {
+  accessToken: string;
+  /** Segundos de vida del token renovado, desde este momento. */
+  expiresIn: number;
+}
+
+/**
+ * GET a graph.instagram.com/refresh_access_token (grant_type=ig_refresh_token). Renueva
+ * el propio access token largo de Instagram ANTES de que expire: a diferencia de TikTok,
+ * no hay un refresh token separado, así que es el propio access token vigente el que
+ * autoriza su renovación (no requiere client_secret ni ninguna otra credencial de la
+ * app). Misma disciplina de timeout/validación estricta/errores saneados que
+ * `exchangeForLongLivedToken`; no se asume que la respuesta real coincida exactamente
+ * con la documentación (ver el comentario sobre `exchangeInstagramCode` más arriba).
+ */
+export async function refreshInstagramAccessToken(
+  accessToken: string,
+): Promise<InstagramRefreshedToken> {
+  const url = new URL(INSTAGRAM_REFRESH_URL);
+  url.searchParams.set("grant_type", "ig_refresh_token");
+  url.searchParams.set("access_token", accessToken);
+
+  let res: Response;
+  try {
+    res = await fetch(url.toString(), {
+      signal: AbortSignal.timeout(TOKEN_REQUEST_TIMEOUT_MS),
+    });
+  } catch (err) {
+    // El error original podría arrastrar la URL (con el token): se descarta.
+    if (isTimeout(err)) {
+      throw new InstagramOAuthError(
+        "Tiempo de espera agotado al renovar el token de Instagram",
+        502,
+      );
+    }
+    throw new InstagramOAuthError("No se pudo contactar con Instagram", 502);
+  }
+
+  let body: Record<string, unknown> = {};
+  try {
+    const parsed: unknown = await res.json();
+    if (parsed && typeof parsed === "object") body = parsed as Record<string, unknown>;
+  } catch {
+    // Cuerpo no JSON: se trata como respuesta inválida más abajo.
+  }
+
+  if (!res.ok) {
+    const providerError = body as InstagramProviderErrorBody;
+    throw new InstagramOAuthError(
+      "Instagram rechazó la renovación del token",
+      502,
+      res.status,
+      safeCode(providerError.error_type),
+    );
+  }
+
+  const { access_token, expires_in } = body;
+  if (!isNonEmptyString(access_token) || !isPositiveNumber(expires_in)) {
+    throw new InstagramOAuthError(
+      "Instagram devolvió una respuesta de renovación inválida",
       502,
       res.status,
     );

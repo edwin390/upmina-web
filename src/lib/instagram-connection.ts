@@ -1,5 +1,10 @@
 import { createHash } from "node:crypto";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import {
+  logInstagramOAuthError,
+  refreshInstagramAccessToken,
+  type InstagramRefreshedToken,
+} from "./instagram-oauth-shared.js";
 
 // Persistencia de la conexión de Instagram en Supabase (tabla social_connections, fila
 // provider = 'instagram'; ver supabase/migrations) y consumo de un solo uso del
@@ -18,6 +23,15 @@ const NONCE_TABLE = "instagram_oauth_nonces";
 
 /** Margen antes de la caducidad real para no usar un token a punto de expirar. */
 const ACCESS_TOKEN_EXPIRY_SKEW_MS = 60_000;
+/** Umbral de renovación proactiva: por debajo de esta antelación se intenta refrescar
+ *  contra Meta, muy por encima del margen duro de arriba y del mínimo de 24h que exige
+ *  Meta para poder renovar un token de ~60 días de vida. */
+const RENEWAL_THRESHOLD_MS = 7 * 24 * 60 * 60_000;
+/** Vigencia del lease de renovación: igual que el de TikTok (cubre una renovación normal
+ *  y caduca solo si la función muere a mitad). */
+const REFRESH_LEASE_MS = 30_000;
+/** Espera única antes de releer si otra petición ya tiene el lease de renovación. */
+const REFRESH_WAIT_INTERVAL_MS = 500;
 
 export class InstagramStorageError extends Error {
   constructor(
@@ -256,8 +270,8 @@ export interface SavedInstagramConnection {
  *
  * `refresh_token`/`refresh_token_expires_at` nunca se envían: Instagram (Instagram Login)
  * no tiene un refresh token separado (su propio access token largo se renueva a sí mismo
- * con ig_refresh_token, en un lote posterior), y el CHECK de la migración exige que para
- * provider = 'instagram' ambas columnas sean NULL.
+ * con ig_refresh_token, ver la sección de auto-refresh más abajo), y el CHECK de la
+ * migración exige que para provider = 'instagram' ambas columnas sean NULL.
  *
  * El upsert es atómico y NUNCA borra la fila anterior antes de escribir: si esta llamada
  * falla (red, permisos, formato), la conexión previa —si existía— sigue intacta y
@@ -313,12 +327,208 @@ function getEnvFallbackToken(): string | undefined {
   return process.env.INSTAGRAM_ACCESS_TOKEN?.trim() || undefined;
 }
 
+// ---------- renovación automática (auto-refresh) ----------
+//
+// Instagram no tiene un refresh token separado: el propio access token largo se renueva
+// a sí mismo con ig_refresh_token (ver refreshInstagramAccessToken en
+// instagram-oauth-shared.ts). El lease reutiliza la misma columna `refresh_lock_until`
+// que ya usa TikTok (ver acquireTikTokRefreshLease en tiktok-connection.ts) con el mismo
+// patrón de UPDATE atómico condicionado, pero condicionado por `access_token` —la única
+// "versión" estable del token en Instagram— en vez de por `refresh_token`, que aquí
+// siempre es NULL. No requiere ninguna migración nueva: la columna ya es genérica.
+//
+// Política (ver docs/lote de diseño aprobado):
+//   - más de RENEWAL_THRESHOLD_MS de vigencia → se usa tal cual, sin tocar Meta;
+//   - dentro del umbral pero por encima del margen duro → se intenta renovar bajo lease;
+//   - a partir del margen duro (ACCESS_TOKEN_EXPIRY_SKEW_MS) → nunca se usa, sin
+//     fallback a INSTAGRAM_ACCESS_TOKEN (igual que ya hacía "expired" antes de esto).
+// Un fallo de Meta o de Supabase durante la renovación nunca tumba una petición cuyo
+// token actual sigue siendo válido: se registra de forma saneada y se sirve ese token.
+
+/** Adquiere de forma ATÓMICA el lease de renovación: un único UPDATE condicionado a que
+ *  el `access_token` siga siendo el esperado y a que nadie tenga un lease vigente.
+ *  Devuelve true solo si esta petición se llevó la fila. */
+export async function acquireInstagramRefreshLease(
+  accessToken: string,
+  now: number = Date.now(),
+): Promise<boolean> {
+  const client = getSupabaseAdmin();
+  let data: unknown;
+  let error: unknown;
+  try {
+    ({ data, error } = await client
+      .from(TABLE)
+      .update({ refresh_lock_until: new Date(now + REFRESH_LEASE_MS).toISOString() })
+      .eq("provider", PROVIDER)
+      .eq("access_token", accessToken)
+      .or(
+        `refresh_lock_until.is.null,refresh_lock_until.lt.${new Date(now).toISOString()}`,
+      )
+      .select("provider"));
+  } catch (err) {
+    throw storageError("lease", err);
+  }
+  if (error) throw storageError("lease", error);
+  return Array.isArray(data) && data.length > 0;
+}
+
+/** Libera el lease (best effort: si falla, caduca solo a los 30 s). */
+async function releaseInstagramRefreshLease(accessToken: string): Promise<void> {
+  try {
+    await getSupabaseAdmin()
+      .from(TABLE)
+      .update({ refresh_lock_until: null })
+      .eq("provider", PROVIDER)
+      .eq("access_token", accessToken);
+  } catch {
+    // Se ignora: el lease caduca solo.
+  }
+}
+
+/**
+ * Guarda el access token renovado (y su nueva expiración) tras un refresh exitoso, y
+ * libera el lease en el mismo UPDATE. Escritura condicionada al access token que se usó
+ * para renovar: si la conexión cambió mientras tanto (reautorización, u otra renovación
+ * que ya escribió) no se sobrescribe nada y devuelve false. `refresh_token` /
+ * `refresh_token_expires_at` nunca se incluyen: Instagram sigue sin usarlos y deben
+ * seguir NULL.
+ */
+async function saveRefreshedInstagramConnection(
+  refreshed: InstagramRefreshedToken,
+  previousAccessToken: string,
+  now: number,
+): Promise<boolean> {
+  const client = getSupabaseAdmin();
+  let data: unknown;
+  let error: unknown;
+  try {
+    ({ data, error } = await client
+      .from(TABLE)
+      .update({
+        access_token: refreshed.accessToken,
+        access_token_expires_at: new Date(now + refreshed.expiresIn * 1000).toISOString(),
+        refresh_lock_until: null,
+        updated_at: new Date(now).toISOString(),
+      })
+      .eq("provider", PROVIDER)
+      .eq("access_token", previousAccessToken)
+      .select("provider"));
+  } catch (err) {
+    throw storageError("refresh-save", err);
+  }
+  if (error) throw storageError("refresh-save", error);
+  return Array.isArray(data) && data.length > 0;
+}
+
+function isRenewalDue(connection: InstagramConnection, now: number): boolean {
+  return Date.parse(connection.accessTokenExpiresAt) - now <= RENEWAL_THRESHOLD_MS;
+}
+
+function isStillUsable(connection: InstagramConnection, now: number): boolean {
+  return Date.parse(connection.accessTokenExpiresAt) - ACCESS_TOKEN_EXPIRY_SKEW_MS > now;
+}
+
+function defaultSleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * Intenta renovar bajo lease y devuelve el token vigente resultante, o `null` si no se
+ * consiguió el lease (otra petición ya está renovando). Nunca borra ni invalida el
+ * token guardado: ante cualquier fallo de Meta o de Supabase la conexión previa queda
+ * intacta, y se sirve el token actual mientras siga siendo válido.
+ */
+async function renewInstagramConnectionUnderLease(
+  connection: InstagramConnection,
+  now: number,
+): Promise<string | null> {
+  if (!(await acquireInstagramRefreshLease(connection.accessToken, now))) return null;
+
+  // Con el lease en mano se relee: otra petición pudo terminar su renovación justo
+  // antes de que esta lo consiguiera.
+  const fresh = await getInstagramConnection();
+  if (!fresh) {
+    await releaseInstagramRefreshLease(connection.accessToken);
+    throw new InstagramConnectionError("missing_token");
+  }
+  if (fresh.accessToken !== connection.accessToken || !isRenewalDue(fresh, now)) {
+    // Ya no hace falta renovar (otra petición lo hizo, o la relectura ya no está dentro
+    // del umbral): liberar el lease tomado sobre el access_token vigente y usarlo.
+    await releaseInstagramRefreshLease(fresh.accessToken);
+    return fresh.accessToken;
+  }
+
+  let refreshed: InstagramRefreshedToken;
+  try {
+    refreshed = await refreshInstagramAccessToken(fresh.accessToken);
+  } catch (err) {
+    // A diferencia de TikTok, Instagram no rota el token en cada intento: no hay ventaja
+    // en mantener el lease bloqueado hasta que caduque solo, así que se libera de una
+    // vez para no bloquear el próximo intento.
+    await releaseInstagramRefreshLease(fresh.accessToken);
+    logInstagramOAuthError("instagram-connection", err);
+    if (isStillUsable(fresh, now)) return fresh.accessToken;
+    throw new InstagramConnectionError("expired");
+  }
+
+  try {
+    const saved = await saveRefreshedInstagramConnection(
+      refreshed,
+      fresh.accessToken,
+      now,
+    );
+    if (saved) return refreshed.accessToken;
+    // El UPDATE condicionado no aplicó: la conexión cambió entretanto (reautorización, u
+    // otra renovación que ya ganó la carrera de guardado). No se pisa nada: se relee y
+    // se sirve lo que haya.
+    const changed = await getInstagramConnection();
+    if (!changed) throw new InstagramConnectionError("missing_token");
+    return changed.accessToken;
+  } catch (err) {
+    // Meta ya emitió el token nuevo, pero no se pudo guardar: la renovación NO se da por
+    // completada y el token nuevo se descarta (nunca se devuelve como fuente persistida
+    // definitiva). La fila anterior sigue intacta —el UPDATE condicionado nunca llegó a
+    // aplicar—, y el lease queda tomado (caduca solo a los 30 s).
+    logInstagramStorageError("instagram-connection", err);
+    if (isStillUsable(fresh, now)) return fresh.accessToken;
+    throw err;
+  }
+}
+
+/**
+ * Resuelve el access token a partir de una conexión ya validada como no expirada
+ * (`getUsableInstagramAccessToken` ya comprobó el margen duro antes de llamar aquí).
+ */
+async function resolveInstagramAccessToken(
+  connection: InstagramConnection,
+  now: number,
+  sleep: (ms: number) => Promise<void>,
+): Promise<string> {
+  if (!isRenewalDue(connection, now)) return connection.accessToken;
+
+  const renewed = await renewInstagramConnectionUnderLease(connection, now);
+  if (renewed !== null) return renewed;
+
+  // No se consiguió el lease: otra petición ya está renovando. Se espera un turno corto
+  // (mismo patrón conceptual que TikTok, sin busy-loop) y se relee UNA vez, por si esa
+  // renovación ya terminó; si no, se sigue con el token actual mientras siga siendo
+  // utilizable.
+  await sleep(REFRESH_WAIT_INTERVAL_MS);
+  const fresh = await getInstagramConnection();
+  if (!fresh) throw new InstagramConnectionError("missing_token");
+  if (isStillUsable(fresh, now)) return fresh.accessToken;
+  throw new InstagramConnectionError("expired");
+}
+
 /**
  * Access token de Instagram listo para llamar a Meta (solo servidor).
- * - Fila de Instagram con más de 60 s de vigencia → su token.
+ * - Fila de Instagram con más de 60 s de vigencia → su token, renovándolo antes bajo
+ *   lease si está a 7 días o menos de expirar (ver `resolveInstagramAccessToken`). Un
+ *   fallo de Meta o de Supabase durante esa renovación no impide servir el token actual
+ *   mientras siga siendo válido.
  * - Fila con el token caducado o a ≤ 60 s de caducar → `InstagramConnectionError("expired")`
  *   (503), SIN fallback: no se sirve en silencio el token de otra cuenta si ya hay una
- *   conexión guardada.
+ *   conexión guardada, y tampoco se intenta renovar un token que Meta rechazaría igual.
  * - Fila con formato inválido → error 500, tampoco hay fallback.
  * - Sin fila, Supabase sin configurar o error al leerlo (registrado de forma saneada) →
  *   fallback TEMPORAL a INSTAGRAM_ACCESS_TOKEN.
@@ -327,6 +537,7 @@ function getEnvFallbackToken(): string | undefined {
  */
 export async function getUsableInstagramAccessToken(
   now: number = Date.now(),
+  options: { sleep?: (ms: number) => Promise<void> } = {},
 ): Promise<string> {
   let connection: InstagramConnection | null;
   try {
@@ -358,7 +569,8 @@ export async function getUsableInstagramAccessToken(
   if (expiresAt - ACCESS_TOKEN_EXPIRY_SKEW_MS <= now) {
     throw new InstagramConnectionError("expired");
   }
-  return connection.accessToken;
+
+  return resolveInstagramAccessToken(connection, now, options.sleep ?? defaultSleep);
 }
 
 /** Registra solo mensaje genérico y código saneado. */
