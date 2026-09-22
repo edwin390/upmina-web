@@ -21,7 +21,7 @@ A husky pre-commit hook runs `lint-staged` (eslint --fix + prettier on staged `*
 
 ## Architecture
 
-**Two TypeScript worlds in one repo.** `src/` is the browser SPA (`tsconfig.app.json`, `@/*` → `src/*`). `api/*.ts` are Vercel Functions (checked by `tsconfig.node.json`). Secrets (Twitch/YouTube/Instagram/TikTok credentials) are read only in `api/` via `process.env`; only `VITE_*` vars reach the client. `SUPABASE_SERVICE_ROLE_KEY` (server-only, bypasses RLS) is used solely by `src/lib/tiktok-connection.ts` to persist the TikTok OAuth tokens in `social_connections` (RLS forced, no policies; see `supabase/migrations/`); the browser client never touches that table.
+**Two TypeScript worlds in one repo.** `src/` is the browser SPA (`tsconfig.app.json`, `@/*` → `src/*`). `api/*.ts` are Vercel Functions (checked by `tsconfig.node.json`). Secrets (Twitch/YouTube/Instagram/TikTok credentials) are read only in `api/` via `process.env`; only `VITE_*` vars reach the client. `SUPABASE_SERVICE_ROLE_KEY` (server-only, bypasses RLS) is used solely by `src/lib/tiktok-connection.ts` (persists the TikTok OAuth tokens) and `src/lib/instagram-connection.ts` (reads the Instagram connection; `INSTAGRAM_ACCESS_TOKEN` is only a temporary fallback) in `social_connections` (RLS forced, no policies; see `supabase/migrations/`); the browser client never touches that table.
 
 **Serverless import rules (learned the hard way, see git history):**
 - Relative imports in `api/` must use explicit `.js` extensions (e.g. `../src/types/api.js`) because Vercel runs them as ESM.

@@ -15,10 +15,19 @@
 // Cada llamada a Meta tiene un timeout de 10 s (INSTAGRAM_REQUEST_TIMEOUT_MS); si vence se
 // responde 502 como cualquier otro fallo del proveedor.
 //
+// El token se resuelve con getUsableInstagramAccessToken (instagram-connection.ts): la
+// conexión guardada en Supabase y, mientras no exista, INSTAGRAM_ACCESS_TOKEN como fallback
+// temporal.
+//
 // Regla de seguridad: el access token viaja en la query string de Meta, así que
 // nunca se registra ni se devuelve una URL, un mensaje de Meta ni el error
 // original de `fetch`. Solo se registran la operación, el status HTTP y el
 // `type`/`code` de Meta, filtrados a un formato seguro.
+import {
+  InstagramConnectionError,
+  InstagramStorageError,
+  getUsableInstagramAccessToken,
+} from "./instagram-connection.js";
 import type {
   InstagramChild,
   InstagramComment,
@@ -74,17 +83,6 @@ export class InstagramPermissionError extends InstagramApiError {
   }
 }
 
-export function getInstagramAccessToken(): string {
-  const token = process.env.INSTAGRAM_ACCESS_TOKEN?.trim();
-  if (!token) {
-    throw new InstagramApiError(
-      "Falta la variable de entorno de Instagram: INSTAGRAM_ACCESS_TOKEN",
-      503,
-    );
-  }
-  return token;
-}
-
 // Meta devuelve `{ error: { type, code, ... } }`. Solo se aceptan identificadores
 // cortos; el `message` de Meta nunca se lee.
 async function getMetaError(
@@ -119,7 +117,8 @@ async function fetchInstagram<T>(
   path: string,
   params: Record<string, string>,
 ): Promise<T> {
-  const accessToken = getInstagramAccessToken();
+  // Conexión guardada en Supabase; INSTAGRAM_ACCESS_TOKEN solo como fallback temporal.
+  const accessToken = await getUsableInstagramAccessToken();
 
   const url = new URL(`${INSTAGRAM_GRAPH_BASE}/${path}`);
   for (const [name, value] of Object.entries(params)) {
@@ -415,12 +414,23 @@ export async function getInstagramProfile(): Promise<InstagramProfile> {
   return normalizeInstagramProfile(body);
 }
 
-/** Registra solo el mensaje propio de InstagramApiError; cualquier otro error, solo su nombre. */
+// Errores con mensaje y status propios, ya saneados (sin URL, token ni datos de Meta/Supabase).
+type InstagramSafeError =
+  InstagramApiError | InstagramConnectionError | InstagramStorageError;
+
+const isSafeError = (err: unknown): err is InstagramSafeError =>
+  err instanceof InstagramApiError ||
+  err instanceof InstagramConnectionError ||
+  err instanceof InstagramStorageError;
+
+/** Registra solo el mensaje propio de los errores de Instagram; cualquier otro error, solo su nombre. */
 export function logInstagramError(handler: string, err: unknown): void {
-  const detail = err instanceof InstagramApiError ? err.message : "error inesperado";
-  console.error(`[${handler}] ${detail}`);
+  const detail = isSafeError(err) ? err.message : "error inesperado";
+  const code =
+    err instanceof InstagramStorageError && err.code ? ` (code=${err.code})` : "";
+  console.error(`[${handler}] ${detail}${code}`);
 }
 
 export function instagramErrorStatus(err: unknown): number {
-  return err instanceof InstagramApiError ? err.status : 502;
+  return isSafeError(err) ? err.status : 502;
 }

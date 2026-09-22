@@ -10,6 +10,14 @@ import {
   normalizeInstagramMedia,
   normalizeInstagramProfile,
 } from "./instagram-shared";
+import { igFakeDb, resetIgFakeDb } from "./instagram-supabase-fake";
+
+// La resolución del token consulta Supabase (instagram-connection.ts). En estos tests
+// Supabase está sin configurar salvo en el bloque final, así que se usa INSTAGRAM_ACCESS_TOKEN.
+vi.mock("@supabase/supabase-js", async () => {
+  const { fakeInstagramCreateClient } = await import("./instagram-supabase-fake");
+  return { createClient: fakeInstagramCreateClient };
+});
 
 // Fijan la normalización del media de Instagram (feed, children de carruseles,
 // comentarios) y el manejo de errores del backend (token ausente, fallos de Meta,
@@ -246,6 +254,9 @@ const metaError = (code: number, status = 400, type = "OAuthException") =>
 let errorSpy: ReturnType<typeof vi.spyOn>;
 
 beforeEach(() => {
+  resetIgFakeDb();
+  vi.stubEnv("VITE_SUPABASE_URL", "");
+  vi.stubEnv("SUPABASE_SERVICE_ROLE_KEY", "");
   vi.stubEnv("INSTAGRAM_ACCESS_TOKEN", TOKEN);
   errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 });
@@ -798,12 +809,15 @@ describe("timeout de 10 s en las llamadas a Meta", () => {
     return { spy, fire };
   }
 
-  // fetch que nunca responde hasta que se aborta su señal (como una conexión colgada).
+  // fetch que nunca responde hasta que se aborta su señal (como una conexión colgada). Como el
+  // fetch real, rechaza al instante si la señal ya estaba abortada al llamarlo.
   const hangingFetch = () =>
     vi.fn(
       (_url: string, init?: RequestInit) =>
         new Promise<Response>((_resolve, reject) => {
-          init?.signal?.addEventListener("abort", () => reject(init.signal?.reason));
+          const signal = init?.signal;
+          if (signal?.aborted) return reject(signal.reason);
+          signal?.addEventListener("abort", () => reject(signal.reason));
         }),
     );
 
@@ -914,5 +928,186 @@ describe("timeout de 10 s en las llamadas a Meta", () => {
 
     expect(state.status).toBe(200);
     expect(errorSpy).not.toHaveBeenCalled();
+  });
+});
+
+describe("token resuelto desde Supabase", () => {
+  const DB_TOKEN = "IGAA-token-supabase-ficticio";
+  const SERVICE_ROLE_KEY = "srk-service-role-ficticia";
+  const NOW_MS = Date.now();
+
+  function connectSupabase(expiresInMs = 30 * 24 * 3_600_000) {
+    vi.stubEnv("VITE_SUPABASE_URL", "https://proyecto-ficticio.supabase.co");
+    vi.stubEnv("SUPABASE_SERVICE_ROLE_KEY", SERVICE_ROLE_KEY);
+    igFakeDb.rows.instagram = {
+      provider: "instagram",
+      provider_user_id: "17841400000000000",
+      access_token: DB_TOKEN,
+      access_token_expires_at: new Date(NOW_MS + expiresInMs).toISOString(),
+      scope: "instagram_business_basic",
+    };
+  }
+
+  const tokensSent = (fetchMock: ReturnType<typeof vi.fn>) =>
+    fetchMock.mock.calls.map((_c, i) =>
+      calledUrl(fetchMock, i).searchParams.get("access_token"),
+    );
+
+  const leakedSecret = (state: { body?: unknown }) => {
+    const everything = JSON.stringify([state.body, errorSpy.mock.calls]);
+    return [DB_TOKEN, TOKEN, SERVICE_ROLE_KEY].some((secret) =>
+      everything.includes(secret),
+    );
+  };
+
+  it("fetchInstagram usa el token de la fila y no el del env (feed, children, comentarios y perfil)", async () => {
+    connectSupabase();
+    const fetchMock = vi.fn(async () => jsonResponse({ data: [] }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await feedHandler(getReq(), mockRes().res);
+    await mediaHandler(getReq({ id: "123" }), mockRes().res);
+    await commentsHandler(getReq({ id: "123" }), mockRes().res);
+    await profileHandler(getReq(), mockRes().res);
+
+    expect(tokensSent(fetchMock)).toEqual([DB_TOKEN, DB_TOKEN, DB_TOKEN, DB_TOKEN]);
+    // Coste de la persistencia: una lectura de Supabase por llamada a Meta, ni una más.
+    expect(igFakeDb.queries).toHaveLength(4);
+  });
+
+  it("los contratos no cambian: mismas respuestas y una sola petición a Meta por operación", async () => {
+    connectSupabase();
+    const fetchMock = vi.fn(async (url: string) =>
+      new URL(url).pathname === "/me"
+        ? jsonResponse({ username: "upminaa", profile_picture_url: IMG })
+        : jsonResponse({ data: [media({ id: "img" })] }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const feed = mockRes();
+    await feedHandler(getReq(), feed.res);
+    expect(feed.state.status).toBe(200);
+    expect((feed.state.body as { id: string }[]).map((i) => i.id)).toEqual(["img"]);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    const profile = mockRes();
+    await profileHandler(getReq(), profile.res);
+    expect(profile.state.status).toBe(200);
+    expect(profile.state.body).toEqual({ username: "upminaa", profilePictureUrl: IMG });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("sin fila en Supabase configurado, se sigue usando el env (transición)", async () => {
+    connectSupabase();
+    delete igFakeDb.rows.instagram;
+    const fetchMock = vi.fn(async () => jsonResponse({ data: [] }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await feedHandler(getReq(), mockRes().res);
+
+    expect(tokensSent(fetchMock)).toEqual([TOKEN]);
+  });
+
+  it("fila caducada: 503 en los cuatro endpoints, sin llamar a Meta ni usar el env", async () => {
+    connectSupabase(-3_600_000);
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const feed = mockRes();
+    await feedHandler(getReq(), feed.res);
+    expect(feed.state.status).toBe(503);
+    expect(feed.state.body).toEqual({ error: "No se pudo obtener el feed de Instagram" });
+
+    const results = [
+      [mediaHandler, getReq({ id: "1" })],
+      [commentsHandler, getReq({ id: "1" })],
+      [profileHandler, getReq()],
+    ] as const;
+    for (const [handler, req] of results) {
+      const r = mockRes();
+      await handler(req, r.res);
+      expect(r.state.status).toBe(503);
+      expect(leakedSecret(r.state)).toBe(false);
+    }
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(errorSpy).toHaveBeenCalledWith(
+      "[instagram-feed] La conexión de Instagram guardada ha caducado: hace falta reconectar",
+    );
+  });
+
+  it("fila inválida: 500 sin llamar a Meta y sin filtrar la fila", async () => {
+    connectSupabase();
+    igFakeDb.rows.instagram.access_token = "";
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { res, state } = mockRes();
+    await feedHandler(getReq(), res);
+
+    expect(state.status).toBe(500);
+    expect(state.body).toEqual({ error: "No se pudo obtener el feed de Instagram" });
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(leakedSecret(state)).toBe(false);
+  });
+
+  it("error al leer Supabase: usa el env y registra solo un código saneado", async () => {
+    connectSupabase();
+    igFakeDb.failWith = { code: "08006", message: `caída ${SERVICE_ROLE_KEY}` };
+    const fetchMock = vi.fn(async () => jsonResponse({ data: [] }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { res, state } = mockRes();
+    await feedHandler(getReq(), res);
+
+    expect(state.status).toBe(200);
+    expect(tokensSent(fetchMock)).toEqual([TOKEN]);
+    expect(errorSpy).toHaveBeenCalledWith(
+      "[instagram-connection] Error de almacenamiento (get) (code=08006); usando INSTAGRAM_ACCESS_TOKEN",
+    );
+    expect(leakedSecret(state)).toBe(false);
+  });
+
+  it("error al leer Supabase y sin env: 500 saneado", async () => {
+    connectSupabase();
+    vi.stubEnv("INSTAGRAM_ACCESS_TOKEN", "");
+    igFakeDb.failWith = { code: "08006", message: `caída ${SERVICE_ROLE_KEY}` };
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { res, state } = mockRes();
+    await feedHandler(getReq(), res);
+
+    expect(state.status).toBe(500);
+    expect(state.body).toEqual({ error: "No se pudo obtener el feed de Instagram" });
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(errorSpy).toHaveBeenCalledWith(
+      "[instagram-feed] Error de almacenamiento (get) (code=08006)",
+    );
+    expect(leakedSecret(state)).toBe(false);
+  });
+
+  it("los errores de Meta con el token de Supabase no lo filtran", async () => {
+    connectSupabase();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        jsonResponse(
+          {
+            error: {
+              message: `Detalle con ${DB_TOKEN}`,
+              type: "OAuthException",
+              code: 190,
+            },
+          },
+          400,
+        ),
+      ),
+    );
+
+    const { res, state } = mockRes();
+    await feedHandler(getReq(), res);
+
+    expect(state.status).toBe(502);
+    expect(leakedSecret(state)).toBe(false);
   });
 });
