@@ -117,7 +117,16 @@ function CommentsBlock({ item }: { item: InstagramMediaItem }) {
       </p>
     );
   } else {
-    content = <p className="text-text-muted">Todavía no hay comentarios.</p>;
+    // Estado DESCONOCIDO: Meta no dio `comments_count` (commentsCount === undefined) y la lista
+    // llegó vacía. No se sabe si hay comentarios, así que no se afirma que no los haya ni se
+    // habla de permisos: solo se ofrece consultarlos en Instagram. (Con commentsCount === 0 no
+    // se llega aquí: ese caso se resuelve arriba sin consultar a Meta.)
+    content = (
+      <p className="flex flex-wrap items-center gap-x-3 gap-y-1 text-text-muted">
+        <span>Los comentarios pueden consultarse en Instagram.</span>
+        <ViewCommentsLink permalink={item.permalink} />
+      </p>
+    );
   }
 
   return (

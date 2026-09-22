@@ -12,6 +12,8 @@
 //   Un HTTP 200 con `data: []` NO es falta de permisos: Meta puede devolver la lista
 //   vacía aunque `comments_count` > 0, y se responde tal cual (lista vacía).
 // Nada de publicar, mensajes ni insights.
+// Cada llamada a Meta tiene un timeout de 10 s (INSTAGRAM_REQUEST_TIMEOUT_MS); si vence se
+// responde 502 como cualquier otro fallo del proveedor.
 //
 // Regla de seguridad: el access token viaja en la query string de Meta, así que
 // nunca se registra ni se devuelve una URL, un mensaje de Meta ni el error
@@ -46,6 +48,8 @@ const COMMENT_FIELDS_WITH_LIKES = `${COMMENT_FIELDS},like_count`;
 const MEDIA_LIMIT = 24;
 const COMMENTS_LIMIT = 30;
 const MAX_COMMENT_LENGTH = 2200;
+/** Tiempo máximo de cada llamada a Meta (incluye la lectura del cuerpo). */
+export const INSTAGRAM_REQUEST_TIMEOUT_MS = 10_000;
 
 export class InstagramApiError extends Error {
   constructor(
@@ -123,11 +127,16 @@ async function fetchInstagram<T>(
   }
   url.searchParams.set("access_token", accessToken);
 
+  // AbortSignal.timeout cancela la petición (y la lectura del cuerpo) a los 10 s y se limpia
+  // solo; no queda ningún temporizador vivo.
+  const signal = AbortSignal.timeout(INSTAGRAM_REQUEST_TIMEOUT_MS);
+
   let response: Response;
   try {
-    response = await fetch(url.toString());
-  } catch {
-    // El error original de fetch puede arrastrar la URL (con el token).
+    response = await fetch(url.toString(), { signal });
+  } catch (err) {
+    // El error original de fetch puede arrastrar la URL (con el token): no se propaga.
+    if (isTimeout(err)) throw timeoutError(operation);
     throw new InstagramApiError(`Instagram ${operation}: error de red`, 502);
   }
 
@@ -145,10 +154,24 @@ async function fetchInstagram<T>(
 
   try {
     return (await response.json()) as T;
-  } catch {
+  } catch (err) {
+    if (isTimeout(err)) throw timeoutError(operation);
     throw new InstagramApiError(`Instagram ${operation}: respuesta no válida`, 502);
   }
 }
+
+// AbortSignal.timeout rechaza con un DOMException "TimeoutError".
+const isTimeout = (err: unknown): boolean =>
+  typeof err === "object" &&
+  err !== null &&
+  (err as { name?: unknown }).name === "TimeoutError";
+
+// Mismo status (502) que cualquier otro fallo de Meta; el mensaje no lleva URL ni token.
+const timeoutError = (operation: string) =>
+  new InstagramApiError(
+    `Instagram ${operation}: tiempo de espera agotado (${INSTAGRAM_REQUEST_TIMEOUT_MS / 1000} s)`,
+    502,
+  );
 
 // ---------- Normalización ----------
 

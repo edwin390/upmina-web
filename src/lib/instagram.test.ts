@@ -784,3 +784,135 @@ describe("api/instagram-profile", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 });
+
+describe("timeout de 10 s en las llamadas a Meta", () => {
+  // AbortSignal.timeout usa temporizadores internos que vi.useFakeTimers no controla: se sustituye
+  // por una señal manejable y se comprueba el valor con el que se crea.
+  function controllableTimeout() {
+    const controller = new AbortController();
+    const spy = vi.spyOn(AbortSignal, "timeout").mockReturnValue(controller.signal);
+    const fire = () =>
+      controller.abort(
+        new DOMException(`superado el tiempo con ${TOKEN}`, "TimeoutError"),
+      );
+    return { spy, fire };
+  }
+
+  // fetch que nunca responde hasta que se aborta su señal (como una conexión colgada).
+  const hangingFetch = () =>
+    vi.fn(
+      (_url: string, init?: RequestInit) =>
+        new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener("abort", () => reject(init.signal?.reason));
+        }),
+    );
+
+  it("cada operación (feed, children, comentarios y perfil) usa un timeout de exactamente 10 s", async () => {
+    const spy = vi.spyOn(AbortSignal, "timeout");
+    const fetchMock = vi.fn(async () => jsonResponse({ data: [] }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await feedHandler(getReq(), mockRes().res);
+    await mediaHandler(getReq({ id: "123" }), mockRes().res);
+    await commentsHandler(getReq({ id: "123" }), mockRes().res);
+    await profileHandler(getReq(), mockRes().res);
+
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+    expect(spy).toHaveBeenCalledTimes(4);
+    for (const call of spy.mock.calls) expect(call).toEqual([10_000]);
+    for (const call of fetchMock.mock.calls as unknown as [string, RequestInit][]) {
+      expect(call[1].signal).toBeInstanceOf(AbortSignal);
+    }
+  });
+
+  it("si Meta no responde, el feed acaba en 502 con el mismo contrato y sin filtrar el token", async () => {
+    const { fire } = controllableTimeout();
+    vi.stubGlobal("fetch", hangingFetch());
+
+    const { res, state } = mockRes();
+    const pending = feedHandler(getReq(), res);
+    fire();
+    await pending;
+
+    expect(state.status).toBe(502);
+    expect(state.body).toEqual({ error: "No se pudo obtener el feed de Instagram" });
+    expect(errorSpy).toHaveBeenCalledWith(
+      "[instagram-feed] Instagram media: tiempo de espera agotado (10 s)",
+    );
+    expect(leaked(state)).toBe(false);
+  });
+
+  it("también si el cuerpo de la respuesta se queda colgado", async () => {
+    const { fire } = controllableTimeout();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          ({
+            ok: true,
+            status: 200,
+            json: () =>
+              Promise.reject(new DOMException(`cuerpo colgado ${TOKEN}`, "TimeoutError")),
+          }) as unknown as Response,
+      ),
+    );
+
+    const { res, state } = mockRes();
+    fire();
+    await profileHandler(getReq(), res);
+
+    expect(state.status).toBe(502);
+    expect(state.body).toEqual({ error: "No se pudo obtener el perfil de Instagram" });
+    expect(errorSpy).toHaveBeenCalledWith(
+      "[instagram-profile] Instagram profile: tiempo de espera agotado (10 s)",
+    );
+    expect(leaked(state)).toBe(false);
+  });
+
+  it("en comentarios un timeout es un fallo del proveedor (502), no de permisos (403), y no se reintenta", async () => {
+    const { fire } = controllableTimeout();
+    const fetchMock = hangingFetch();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { res, state } = mockRes();
+    const pending = commentsHandler(getReq({ id: "17900000000000001" }), res);
+    fire();
+    await pending;
+
+    expect(state.status).toBe(502);
+    expect(state.body).toEqual({
+      error: "No se pudieron obtener los comentarios de Instagram",
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(leaked(state)).toBe(false);
+  });
+
+  it("children de un carrusel: mismo tratamiento (502 saneado)", async () => {
+    const { fire } = controllableTimeout();
+    vi.stubGlobal("fetch", hangingFetch());
+
+    const { res, state } = mockRes();
+    const pending = mediaHandler(getReq({ id: "17900000000000001" }), res);
+    fire();
+    await pending;
+
+    expect(state.status).toBe(502);
+    expect(state.body).toEqual({
+      error: "No se pudo obtener la publicación de Instagram",
+    });
+    expect(leaked(state)).toBe(false);
+  });
+
+  it("una respuesta normal no se ve afectada: sin aviso de timeout en los logs", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => jsonResponse({ data: [media({ id: "ok" })] })),
+    );
+
+    const { res, state } = mockRes();
+    await feedHandler(getReq(), res);
+
+    expect(state.status).toBe(200);
+    expect(errorSpy).not.toHaveBeenCalled();
+  });
+});

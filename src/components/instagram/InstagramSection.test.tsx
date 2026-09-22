@@ -46,14 +46,22 @@ const json = (body: unknown, status = 200) =>
     headers: { "content-type": "application/json" },
   });
 
-type Routes = { comments?: () => Response; profile?: () => Response };
+type Routes = {
+  feed?: () => Response;
+  children?: () => Response;
+  comments?: () => Response;
+  profile?: () => Response;
+};
 
 const AVATAR = "https://scontent.cdninstagram.com/v/avatar.jpg";
 
 function stubApi(routes: Routes = {}) {
   const fetchMock = vi.fn(async (input: string) => {
-    if (input.startsWith("/api/instagram-feed")) return json(FEED);
-    if (input.startsWith("/api/instagram-media")) return json({ children: CHILDREN });
+    if (input.startsWith("/api/instagram-feed"))
+      return (routes.feed ?? (() => json(FEED)))();
+    if (input.startsWith("/api/instagram-media")) {
+      return (routes.children ?? (() => json({ children: CHILDREN })))();
+    }
     if (input.startsWith("/api/instagram-profile")) {
       return (
         routes.profile ?? (() => json({ username: "upminaa", profilePictureUrl: AVATAR }))
@@ -456,5 +464,238 @@ describe("foto de perfil", () => {
     fireEvent.error(avatarIn(header) as HTMLImageElement);
     expect(avatarIn(header)).toBeNull();
     expect(header.querySelector("span[aria-hidden=true]")).toHaveTextContent("u");
+  });
+});
+
+describe("comentarios: estado DESCONOCIDO (commentsCount ausente)", () => {
+  // Meta rechazó los campos extendidos y el feed llegó sin `comments_count`.
+  const unknownFeed = () =>
+    json([post("2001", { caption: "Sin dato", commentsCount: undefined })]);
+
+  it("no afirma que no haya comentarios ni habla de permisos: neutral + enlace a Instagram", async () => {
+    const fetchMock = stubApi({ feed: unknownFeed }); // /comments → 200 con lista vacía
+    renderSection();
+    const dialog = await openPost("Sin dato");
+
+    expect(
+      await screen.findByText("Los comentarios pueden consultarse en Instagram."),
+    ).toBeInTheDocument();
+    const link = screen.getByRole("link", { name: /Ver comentarios en Instagram/ });
+    expect(link).toHaveAttribute("href", "https://www.instagram.com/p/2001/");
+    expect(link).toHaveAttribute("target", "_blank");
+    expect(link).toHaveAttribute("rel", expect.stringContaining("noopener"));
+    expect(screen.queryByText(/Todavía no hay comentarios/)).toBeNull();
+    expect(dialog).not.toHaveTextContent(/permiso/i);
+    expect(dialog).not.toHaveTextContent("instagram_business_manage_comments");
+    expect(dialog).not.toHaveTextContent(/\d+ comentarios?/); // no inventa ningún número
+    // Como no se conoce el total, sí se consulta a Meta.
+    expect(fetchMock).toHaveBeenCalledWith("/api/instagram-comments?id=2001");
+  });
+
+  it("con comentarios reales disponibles los muestra (el estado neutral no aparece)", async () => {
+    stubApi({
+      feed: unknownFeed,
+      comments: () => json({ comments: [{ id: "k1", text: "Genial", username: "fan" }] }),
+    });
+    renderSection();
+    await openPost("Sin dato");
+
+    expect(await screen.findByText("Genial")).toBeInTheDocument();
+    expect(
+      screen.queryByText("Los comentarios pueden consultarse en Instagram."),
+    ).toBeNull();
+  });
+
+  it("un 403 explícito sigue siendo el único caso que habla de permisos (caso A intacto)", async () => {
+    stubApi({
+      feed: unknownFeed,
+      comments: () => json({ reason: "insufficient_permission" }, 403),
+    });
+    renderSection();
+    const dialog = await openPost("Sin dato");
+
+    expect(
+      await screen.findByText(/no se pueden mostrar aquí todavía/),
+    ).toBeInTheDocument();
+    expect(dialog).toHaveTextContent("instagram_business_manage_comments"); // aviso solo en dev
+    expect(screen.queryByText(/Todavía no hay comentarios/)).toBeNull();
+  });
+
+  it("un error del proveedor (502) sigue siendo un fallo genérico (caso B intacto)", async () => {
+    stubApi({ feed: unknownFeed, comments: () => json({ error: "x" }, 502) });
+    renderSection();
+    await openPost("Sin dato");
+
+    expect(
+      await screen.findByText(
+        "No se pudieron cargar los comentarios.",
+        {},
+        { timeout: 4000 },
+      ),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/Todavía no hay comentarios/)).toBeNull();
+    expect(
+      screen.queryByText("Los comentarios pueden consultarse en Instagram."),
+    ).toBeNull();
+  });
+
+  it("con commentsCount === 0 (caso D) sigue diciendo que no hay comentarios y no consulta a Meta", async () => {
+    const fetchMock = stubApi({
+      feed: () => json([post("2002", { caption: "Cero", commentsCount: 0 })]),
+    });
+    renderSection();
+    await openPost("Cero");
+
+    expect(screen.getByText("Todavía no hay comentarios.")).toBeInTheDocument();
+    expect(
+      screen.queryByText("Los comentarios pueden consultarse en Instagram."),
+    ).toBeNull();
+    expect(fetchMock).not.toHaveBeenCalledWith(
+      expect.stringContaining("/api/instagram-comments"),
+    );
+  });
+});
+
+describe("modal: scroll, foco, desmontaje y video", () => {
+  afterEach(() => {
+    document.body.style.overflow = "";
+  });
+
+  it("bloquea el scroll del documento al abrir y lo restaura tal cual estaba al cerrar", async () => {
+    stubApi();
+    document.body.style.overflow = "scroll";
+    renderSection();
+    await openPost("Dos");
+    expect(document.body.style.overflow).toBe("hidden");
+
+    fireEvent.click(screen.getByRole("button", { name: "Cerrar" }));
+
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(document.body.style.overflow).toBe("scroll");
+  });
+
+  it("navegar entre publicaciones no toca el bloqueo; Escape lo restaura", async () => {
+    stubApi();
+    renderSection();
+    await openPost("Uno");
+
+    nextPost();
+    nextPost();
+    expect(document.body.style.overflow).toBe("hidden");
+    fireEvent.keyDown(document, { key: "Escape" });
+
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(document.body.style.overflow).toBe("");
+  });
+
+  it("foco inicial en el botón Cerrar y, al cerrar, vuelve a la tarjeta que abrió el modal", async () => {
+    stubApi();
+    renderSection();
+    const card = await screen.findByRole("button", { name: /Dos\. Abrir/ });
+    fireEvent.click(card);
+    await screen.findByRole("dialog");
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Cerrar" }));
+
+    nextPost(); // navegar no cambia la tarjeta de retorno
+    fireEvent.click(screen.getByRole("button", { name: "Cerrar" }));
+
+    await waitFor(() => expect(document.activeElement).toBe(card));
+  });
+
+  it("desmontar la sección con el modal abierto restaura el scroll, quita el diálogo y sus listeners", async () => {
+    stubApi();
+    const added = vi.spyOn(document, "addEventListener");
+    const removed = vi.spyOn(document, "removeEventListener");
+    const view = renderSection();
+    await openPost("Dos");
+    expect(document.body.style.overflow).toBe("hidden");
+
+    view.unmount();
+
+    expect(document.querySelector("dialog")).toBeNull();
+    expect(document.body.style.overflow).toBe("");
+    const count = (spy: typeof added, type: string) =>
+      spy.mock.calls.filter(([t]) => t === type).length;
+    expect(count(removed, "keydown")).toBe(count(added, "keydown"));
+  });
+
+  it("cerrar deja el DOM sin imágenes ni videos del modal", async () => {
+    stubApi();
+    renderSection();
+    await openPost("Uno");
+    expect(screen.getByRole("dialog").querySelector("img")).not.toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Cerrar" }));
+
+    expect(document.querySelector("dialog")).toBeNull();
+    expect(document.querySelector("video")).toBeNull();
+  });
+
+  describe("video", () => {
+    const VIDEO_FILE = "https://scontent.cdninstagram.com/v/video.mp4";
+    const videoFeed = () =>
+      json([
+        post("4001", {
+          mediaType: "VIDEO",
+          videoUrl: VIDEO_FILE,
+          productType: "REELS",
+          caption: "Reel",
+        }),
+        post("4002", { caption: "Foto" }),
+      ]);
+
+    it("un Reel se reproduce con controles nativos, sin autoplay y solo carga los metadatos", async () => {
+      stubApi({ feed: videoFeed });
+      renderSection();
+      const dialog = await openPost("Reel");
+
+      const video = dialog.querySelector("video") as HTMLVideoElement;
+      expect(video.getAttribute("src")).toBe(VIDEO_FILE);
+      expect(video.controls).toBe(true);
+      expect(video.autoplay).toBe(false);
+      expect(video.hasAttribute("autoplay")).toBe(false);
+      expect(video.getAttribute("preload")).toBe("metadata");
+      expect(video.getAttribute("poster")).toBe(IMG);
+    });
+
+    it("el video se desmonta al cambiar de publicación y al cerrar", async () => {
+      stubApi({ feed: videoFeed });
+      renderSection();
+      const dialog = await openPost("Reel");
+      const video = dialog.querySelector("video") as HTMLVideoElement;
+
+      nextPost();
+      expect(video.isConnected).toBe(false);
+      expect(document.querySelector("video")).toBeNull();
+
+      prevPost();
+      const again = document.querySelector("video") as HTMLVideoElement;
+      expect(again).not.toBeNull();
+      fireEvent.click(screen.getByRole("button", { name: "Cerrar" }));
+      expect(again.isConnected).toBe(false);
+      expect(document.querySelector("video")).toBeNull();
+    });
+
+    it("en un carrusel, el video de un elemento se desmonta al pasar al siguiente", async () => {
+      stubApi({
+        children: () =>
+          json({
+            children: [
+              { id: "v1", mediaType: "VIDEO", imageUrl: IMG, videoUrl: VIDEO_FILE },
+              { id: "i2", mediaType: "IMAGE", imageUrl: `${IMG}?2` },
+            ],
+          }),
+      });
+      renderSection();
+      const dialog = await openPost("Uno");
+
+      await waitFor(() => expect(dialog.querySelector("video")).not.toBeNull());
+      const video = dialog.querySelector("video") as HTMLVideoElement;
+      expect(video.autoplay).toBe(false);
+      fireEvent.click(screen.getByRole("button", { name: "Elemento siguiente" }));
+
+      expect(video.isConnected).toBe(false);
+      expect(dialog.querySelector("video")).toBeNull();
+    });
   });
 });
