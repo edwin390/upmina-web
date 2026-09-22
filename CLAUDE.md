@@ -1,116 +1,598 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+Este archivo contiene las reglas permanentes de ingeniería y las invariantes
+arquitectónicas de UPMINA Web.
 
-UPMINA Web is an unofficial fan site (Spanish-language docs, UI copy and most commit messages): a Vite + React 19 SPA plus Vercel serverless functions that proxy Twitch/YouTube/Instagram/TikTok, with Supabase for the community-edits feature. The Node version is pinned by `engines` in `package.json`.
+Mantén este archivo enfocado únicamente en información que siga siendo útil
+entre sesiones.
 
-## Commands
+El repositorio actual y el historial de Git son la fuente de verdad sobre el
+estado de la implementación.
+
+# Proyecto
+
+UPMINA Web es un fan site no oficial construido como:
+
+- Vite + React 19 SPA
+- TypeScript
+- Vercel Serverless Functions
+- Supabase
+
+El proyecto integra contenido de:
+
+- Twitch
+- YouTube
+- Instagram
+- TikTok
+
+También contiene infraestructura para autenticación, roles privilegiados y
+un futuro sistema privado de administración/moderación.
+
+La interfaz, documentación y la mayoría de los commits se manejan
+principalmente en español.
+
+La versión de Node está fijada mediante `engines` en `package.json`.
+
+# Comandos
 
 ```bash
-npm run dev          # Vite on :3000 (SPA only; /api is NOT served)
-npm run dev:local    # vercel dev on :3001 + Vite on :3000, reads .env.local then .env
-npm run build        # tsc -b && vite build (type-check is part of build)
-npm run lint         # eslint, --max-warnings 0 (warnings fail)
-npm test             # vitest run (jsdom, globals enabled)
-npm run test:e2e     # Playwright (auto-starts `npm run dev`)
+npm run dev
+# Solo frontend Vite.
+# /api NO se sirve con este comando.
+
+npm run dev:local
+# Entorno local con Vercel Functions + Vite.
+
+npm run build
+# tsc -b && vite build
+
+npm run lint
+# ESLint. Los warnings hacen fallar la validación.
+
+npm test
+# Suite de Vitest.
+
+npm run test:e2e
+# Playwright.
+
+npm run admin:bootstrap-invitation
+# COMANDO SENSIBLE.
+# NUNCA ejecutar salvo petición explícita del usuario.
+# Genera una invitación bootstrap ADMIN real.
+````
+
+Para pruebas específicas, usa preferentemente el comando más acotado posible:
+
+```bash
+npx vitest run src/lib/example.test.ts
+npx vitest run -t "nombre del test"
 ```
 
-Single test: `npx vitest run src/lib/format.test.ts` or `npx vitest run -t "name"`. Single e2e: `npx playwright test e2e/home.spec.ts`.
+Existe un hook pre-commit de Husky que ejecuta `lint-staged`.
 
-A husky pre-commit hook runs `lint-staged` (eslint --fix + prettier on staged `*.{ts,tsx}`). Commits follow Conventional Commits with a scope, e.g. `fix(twitch): ...`, preferably in Spanish.
+Usa Conventional Commits con un scope apropiado.
 
-## Architecture
+# Arquitectura
 
-**Two TypeScript worlds in one repo.** `src/` is the browser SPA (`tsconfig.app.json`, `@/*` → `src/*`). `api/*.ts` are Vercel Functions (checked by `tsconfig.node.json`). Secrets (Twitch/YouTube/Instagram/TikTok credentials) are read only in `api/` via `process.env`; only `VITE_*` vars reach the client. `SUPABASE_SERVICE_ROLE_KEY` (server-only, bypasses RLS) is used solely by `src/lib/tiktok-connection.ts` (persists the TikTok OAuth tokens) and `src/lib/instagram-connection.ts` (reads the Instagram connection; `INSTAGRAM_ACCESS_TOKEN` is only a temporary fallback) in `social_connections` (RLS forced, no policies; see `supabase/migrations/`); the browser client never touches that table.
+## Frontend
 
-**Serverless import rules (learned the hard way, see git history):**
-- Relative imports in `api/` must use explicit `.js` extensions (e.g. `../src/types/api.js`) because Vercel runs them as ESM.
-- Types shared with functions live in `src/types/api.ts` (raw upstream API shapes). Client-facing normalized types live in `src/types/index.ts`. Keep them separate; `api/` may import from `src/lib/format` and `src/types/api` only for things that are safe outside Vite.
-- Vercel deploys every file in `api/` as its own route, so shared backend logic must not live there. The Twitch helper (token cache with 401-triggered invalidation, broadcaster lookup, `TwitchApiError`) lives in `src/lib/twitch-shared.ts` and is imported by the three Twitch handlers; there is no `/api/twitch` route.
+`src/` contiene la SPA del navegador.
 
-**Data flow per integration:** component → hook in `src/hooks/use*.ts` (TanStack Query with per-resource `staleTime`, see `docs/ARCHITECTURE.md` cache table) → `fetch("/api/<name>")` → Vercel Function → external API → normalized JSON. Functions set `Cache-Control: s-maxage=...` for edge caching and answer with a generic Spanish error message on upstream failure: `502` by default, and the Twitch handlers use the status carried by `TwitchApiError` (e.g. `503` when credentials are missing). The Twitch handlers also reject non-GET with `405`.
+Utiliza:
 
-**Local `/api`:** `vite.config.ts` proxies `/api` to `http://localhost:3001`. Plain `npm run dev` starts nothing there, so `/api` calls fail; use `npm run dev:local` (needs real `TWITCH_*` values in `.env.local`) or demo mode to work without the APIs.
+* Vite
+* React 19
+* TypeScript
+* TanStack Query
+* HeroUI
+* Tailwind
 
-**Two independent runtime flags — never mix them:**
-- `isDemoMode` (`src/lib/runtime.ts`, from `VITE_DEMO_MODE === "true"`): every social-integration hook short-circuits to mock/empty data before calling `/api`. New integration hooks must honor it.
-- `isSupabaseConfigured` / `supabase === null` (`src/lib/supabase.ts`): the Community components (`src/components/community/*`) check `supabase` themselves and degrade gracefully when it is null. Demo mode does not affect Community.
+El TypeScript del navegador se configura mediante `tsconfig.app.json`.
 
-**Community feature** talks to Supabase directly from the browser (no API proxy), relying on Row-Level Security; schema and RLS policies are documented in `docs/ARCHITECTURE.md` (tables: profiles, edits, votes, reports; edits have `pending|approved|rejected` status). `ModerationPanel` exists but is not rendered anywhere yet.
+El alias `@/*` apunta a `src/*`.
 
-**App shell:** `main.tsx` wraps `App` in `QueryClientProvider` + `HeroUIProvider`; `App` renders Header/HomePage/Footer, and `HomePage` composes the per-integration sections (Twitch, YouTube, Instagram, TikTok, Community) as anchor sections on a single page. Styling is Tailwind with design tokens from `tailwind.config.js` (see `docs/DESIGN_SYSTEM.md`) plus HeroUI components.
+## Backend
 
-## Environment and permissions
+`api/` contiene los entrypoints de Vercel Serverless Functions.
 
-Env vars are listed in `.env.example`. `.gitignore` ignores `.env*` but re-includes `.env.example` with `!.env.example`. `.claude/settings.json` denies reading `.env`, `.env.local`, `.env.*.local`, `*.pem` and `*private*key*`; `.env.example` is readable. `docs/ROADMAP.md` tracks phased delivery; several features are still in progress.
+El TypeScript del backend se comprueba mediante `tsconfig.node.json`.
 
-The `.claude/` folder holds this project's agents, skills and slash commands (`/feature`, `/review`, `/test`, `/security`, `/release`); they describe this Vite + Vercel stack, not Next.js.
+Vercel trata los archivos dentro de `api/` como rutas serverless.
 
----
+No coloques helpers reutilizables del backend dentro de `api/` si hacerlo
+crearía una función serverless innecesaria.
 
-# AI Engineering Team — Project Rules
+La lógica compartida del backend debe vivir en módulos apropiados de
+`src/lib/`.
 
-## Mission
-Build production-quality JavaScript/TypeScript applications with React/Next.js, APIs and Vercel while minimizing paid-model/token consumption.
+Los imports relativos utilizados por las funciones Vercel deben respetar
+los requisitos ESM existentes del proyecto. El backend actual utiliza
+extensiones `.js` explícitas donde son necesarias.
 
-## Team model
-- `tech-lead`: plans architecture and delegates. Do not implement unless explicitly asked.
-- `frontend-engineer`: React/Next.js UI, accessibility, client state, API integration.
-- `backend-engineer`: API routes, services, validation, auth, database integration.
-- `qa-engineer`: tests, edge cases, regression checks and reproducible bug reports.
-- `code-reviewer`: reviews diffs for correctness, maintainability and regressions.
-- `security-auditor`: security-focused review; never expose secrets.
-- `devops-engineer`: Vercel, CI/CD, environment variables, builds and deployment diagnostics.
-- `final-auditor`: release gate; checks requirements, tests, security, build and deployment readiness.
+Antes de crear una nueva función serverless, inspecciona la arquitectura de
+routing existente y utiliza un dispatcher existente cuando sea apropiado.
 
-## Cost-control rules
-1. Prefer the least expensive capable model.
-2. Use free/local models for boilerplate, routine tests, documentation, simple refactors and straightforward CRUD.
-3. Reserve the strongest model for architecture, ambiguous requirements, difficult debugging, security findings and final audits.
-4. Never ask multiple agents to reread the whole repository. Give each agent the smallest relevant file set.
-5. Prefer `git diff`, targeted `Read`, `Glob`, and `Grep` over repository-wide dumps.
-6. Do not repeat a completed analysis unless new evidence exists.
-7. Before spawning another agent, check whether the current result already answers the question.
-8. Never send secrets, `.env` contents, tokens, private keys or credentials to external/free models.
-9. Keep generated prompts compact and reference files instead of copying their contents.
+El límite de funciones del plan Hobby de Vercel importa para este proyecto.
+No crees entrypoints serverless innecesarios.
 
-## Change protocol
-Before editing:
-- Identify the requirement.
-- Inspect the relevant files.
-- State assumptions if they matter.
-- Make the smallest coherent change.
+## Flujo de datos de APIs
 
-After editing:
-- Run the narrowest relevant tests/typecheck/lint.
-- Inspect the diff.
-- Report changed files and verification performed.
+El flujo normal de las integraciones es:
 
-## Git safety
-- Never reset, force-push, delete branches, or discard user changes unless explicitly requested.
-- Do not rewrite unrelated code.
-- Keep commits atomic when asked to commit.
-- Never commit secrets or `.env` files.
+Componente React
+→ hook
+→ `/api/...`
+→ Vercel Function
+→ proveedor externo
+→ respuesta normalizada
 
-## Definition of Done
-A feature is done only when:
-- Requirement is implemented.
-- Relevant tests pass.
-- Typecheck/lint/build pass where configured.
-- Error paths have been considered.
-- Security-sensitive paths have been reviewed.
-- No obvious unrelated regressions remain.
-- Deployment configuration is consistent with the project.
+Conserva el comportamiento de caché existente salvo que el bloque actual
+requiera modificarlo explícitamente.
 
-## Stack defaults
-Prefer:
-- TypeScript over JavaScript for new production code.
-- Next.js App Router where Next.js is already used.
-- Server-side work for secrets and privileged operations.
-- Runtime validation at API boundaries.
-- Small composable functions.
-- Explicit error handling.
-- Accessible semantic HTML.
-- Environment variables for secrets/configuration.
+Evita:
 
-Do not introduce a framework, library or architecture change without a concrete reason.
+* polling innecesario;
+* requests duplicadas;
+* reproductores multimedia duplicados;
+* carga anticipada innecesaria.
+
+Limpia timers, listeners y recursos cuando corresponda.
+
+El rendimiento debe considerarse tanto en móvil como en PC sin sacrificar
+la calidad visual, funcionalidad o UX prevista.
+
+## Desarrollo local
+
+`vite.config.ts` redirige `/api` al servidor local de Vercel Functions.
+
+Ejecutar solamente:
+
+```bash
+npm run dev
+```
+
+no proporciona las APIs del backend.
+
+Usa el flujo de desarrollo local existente del proyecto cuando sean
+necesarias funciones API reales.
+
+No leas archivos de entorno protegidos únicamente para diagnosticar una
+configuración.
+
+Cuando sea necesario, pide al operador que configure o verifique variables
+sin solicitar sus valores secretos.
+
+# Supabase
+
+Supabase proporciona Postgres y Auth.
+
+El acceso desde cliente y el acceso privilegiado server-side son límites
+de seguridad diferentes.
+
+No debilites Row-Level Security simplemente para facilitar el desarrollo.
+
+Las tablas privilegiadas pueden utilizar intencionalmente:
+
+* RLS habilitado;
+* FORCE RLS;
+* ninguna policy para `anon` o `authenticated`;
+* acceso exclusivo mediante `service_role`.
+
+Inspecciona la migración correspondiente antes de cambiar suposiciones
+sobre una tabla.
+
+Nunca modifiques retroactivamente una migración que ya fue aplicada en
+Supabase remoto.
+
+Los cambios posteriores de esquema deben realizarse mediante una nueva
+migración.
+
+# Autenticación y autorización
+
+Autenticación y autorización son conceptos separados.
+
+La arquitectura actual para sesiones privilegiadas es:
+
+Supabase Auth
+→ Bearer JWT
+→ verificación server-side del JWT
+→ user ID / AAL verificados
+→ consulta server-side del rol
+→ decisión de autorización
+
+El navegador envía el access token mediante:
+
+```text
+Authorization: Bearer <token>
+```
+
+No introduzcas cookies de sesión para Admin ni `@supabase/ssr` sin una
+decisión arquitectónica explícita que sustituya el diseño Bearer actual.
+
+La identidad privilegiada debe provenir de un JWT de Supabase verificado
+criptográficamente.
+
+Nunca confíes en estos valores si provienen directamente del cliente:
+
+* user ID;
+* role;
+* AAL;
+* estado ADMIN/MODERATOR.
+
+Esto incluye body, query params, metadata de localStorage u otros datos
+controlados por el navegador.
+
+Los roles privilegiados actuales son:
+
+* USER
+* MODERATOR
+* ADMIN
+
+USER se representa mediante la ausencia de una fila privilegiada en
+`admin_roles`.
+
+`admin_roles` es la fuente de verdad server-side para roles privilegiados.
+
+El registro público nunca debe otorgar ADMIN ni MODERATOR.
+
+# MFA
+
+Las operaciones privilegiadas requieren que la sesión verificada actual
+tenga:
+
+```text
+aal2
+```
+
+Tener un factor TOTP registrado NO significa que la sesión actual sea AAL2.
+
+La autorización debe verificar el estado actual del JWT/AAL server-side.
+
+ADMIN y MODERATOR requieren MFA.
+
+No crees bypasses de MFA.
+
+MFA tampoco constituye prueba de identidad real de una persona.
+
+# Service Role
+
+`SUPABASE_SERVICE_ROLE_KEY` es infraestructura privilegiada exclusivamente
+server-side/operator-side.
+
+NUNCA debe:
+
+* llegar al navegador;
+* exponerse mediante `VITE_*`;
+* imprimirse;
+* registrarse en logs;
+* guardarse en Git;
+* devolverse mediante una API;
+* utilizarse como prueba de identidad de un usuario.
+
+`service_role` puede utilizarse únicamente en código confiable
+server-side/operator-side cuando sea necesario para operaciones
+privilegiadas de base de datos.
+
+Cuando una operación privilegiada se realiza en nombre de un usuario,
+verifica primero su identidad de forma independiente.
+
+# Secretos
+
+Nunca expongas, imprimas, copies en respuestas, guardes en Git ni inspecciones
+intencionalmente:
+
+* `.env`;
+* `.env.local`;
+* `.env.*.local`;
+* access tokens;
+* refresh tokens;
+* OAuth client secrets;
+* Supabase service role;
+* private keys;
+* secretos de invitaciones generadas.
+
+`.env.example` puede inspeccionarse porque debe contener únicamente
+placeholders.
+
+Respeta las restricciones de `.claude/settings.json`.
+
+Nunca pidas al usuario que pegue un secreto en el chat.
+
+Cuando un error pueda explicarse sin mostrar payloads sensibles del proveedor
+o de la base de datos, utiliza un error genérico seguro.
+
+# Invariantes del bootstrap ADMIN
+
+El primer ADMIN se establece mediante el sistema de invitación bootstrap.
+
+Invariantes:
+
+* el token tiene 256 bits de aleatoriedad criptográfica;
+* solo su SHA-256 se almacena en Supabase;
+* el token en texto plano nunca se almacena en la base de datos;
+* la invitación bootstrap es de un solo uso;
+* la invitación expira;
+* bootstrap no debe crear una ruta pública permanente de auto-elevación;
+* bootstrap NO es un mecanismo de recuperación de cuenta;
+* bootstrap NO demuestra la identidad real de una persona;
+* múltiples ADMIN deben seguir siendo posibles en el futuro.
+
+NO introduzcas una restricción global que permita únicamente un ADMIN.
+
+El generador bootstrap es operator-side y sensible.
+
+Nunca ejecutes:
+
+```bash
+npm run admin:bootstrap-invitation
+```
+
+salvo que el usuario solicite explícitamente crear una invitación real.
+
+Una invitación generada nunca debe aparecer en:
+
+* salida del terminal;
+* respuestas de Claude;
+* logs;
+* Git.
+
+# OAuth social
+
+Las credenciales de conexión de Instagram y TikTok son privilegiadas.
+
+Las operaciones OAuth capaces de conectar o reemplazar la conexión social
+activa del sitio deben terminar protegidas server-side para ADMIN y MFA.
+
+Ocultar un botón o una ruta en React NO constituye autorización.
+
+La autorización debe realizarse server-side.
+
+Los callbacks OAuth deben conservar las garantías de seguridad del flujo
+privilegiado que los inició y no convertirse en un bypass.
+
+Nunca coloques access tokens de Supabase en:
+
+* query params;
+* OAuth state;
+* URLs;
+* logs.
+
+# Protocolo de trabajo
+
+Trabaja en bloques pequeños y aislados.
+
+UN BLOQUE = UN OBJETIVO CONCRETO.
+
+Para cada bloque:
+
+1. Comprende exactamente el requisito.
+2. Inspecciona únicamente los archivos relevantes.
+3. Considera implicaciones de seguridad y rutas de error cuando corresponda.
+4. Realiza el cambio coherente más pequeño posible.
+5. Ejecuta tests específicos.
+6. Ejecuta regresión más amplia cuando corresponda.
+7. Inspecciona el diff resultante.
+8. Reporta archivos modificados y validaciones realizadas.
+9. Haz commit únicamente cuando el usuario lo solicite.
+10. DETENTE.
+
+NO continúes automáticamente con el siguiente bloque.
+
+NO amplíes el alcance porque hayas encontrado otra mejora conveniente.
+
+Si descubres un problema no relacionado, repórtalo en lugar de corregirlo
+silenciosamente.
+
+NO uses subagentes salvo petición explícita del usuario.
+
+No envíes varios agentes/modelos a releer el repositorio.
+
+Prefiere inspecciones específicas, Git diff, búsquedas concretas y tests
+enfocados sobre lecturas completas innecesarias del repositorio.
+
+# Fuente de verdad
+
+El repositorio actual y el historial de Git son la fuente de verdad sobre
+el estado de implementación.
+
+No dependas exclusivamente de resúmenes de sesiones anteriores cuando el
+código relevante pueda inspeccionarse.
+
+Si un handoff o una conversación anterior contradice el repositorio actual:
+
+1. DETENTE.
+2. Inspecciona el código y Git relevantes.
+3. Reporta la contradicción.
+4. No elijas silenciosamente una versión.
+
+Los bloques cerrados NO deben reabrirse salvo que:
+
+* exista evidencia nueva de una regresión;
+* un requisito actual necesite modificarlos;
+* el usuario lo solicite explícitamente.
+
+No infieras el estado remoto de Supabase o Vercel únicamente desde archivos
+locales cuando sea necesaria una verificación remota.
+
+# Protocolo de cambios
+
+Antes de editar:
+
+* identifica el requisito;
+* inspecciona los archivos relevantes;
+* comprende el comportamiento existente;
+* declara supuestos únicamente si afectan materialmente la implementación;
+* realiza el cambio coherente más pequeño posible.
+
+Después de editar:
+
+* ejecuta los tests relevantes más acotados;
+* ejecuta typecheck/lint/build cuando corresponda;
+* inspecciona el diff;
+* considera rutas de fallo;
+* reporta exactamente qué cambió;
+* detente antes de trabajo no relacionado.
+
+Que los tests pasen NO demuestra por sí solo que un diseño sensible de
+seguridad sea correcto.
+
+Revisa explícitamente invariantes y estados de fallo importantes.
+
+# Seguridad Git
+
+Nunca:
+
+* hagas force-push;
+* hagas resets destructivos;
+* elimines branches;
+* descartes cambios del usuario;
+* reescribas código no relacionado;
+* hagas commit de secretos;
+* hagas commit de archivos `.env`;
+
+salvo petición explícita y consciente del usuario cuando corresponda.
+
+Mantén commits atómicos.
+
+Antes de un commit solicitado:
+
+1. inspecciona `git status`;
+2. inspecciona el diff relevante;
+3. stagea únicamente los archivos previstos;
+4. verifica la lista de archivos staged;
+5. ejecuta las validaciones requeridas;
+6. crea el commit;
+7. haz push únicamente cuando sea solicitado.
+
+No mezcles trabajo no relacionado dentro del commit de un bloque.
+
+# Seguridad de base de datos
+
+Las migraciones aplicadas en producción son historial inmutable.
+
+No:
+
+* reescribas una migración ya aplicada;
+* concedas acceso cliente a tablas privilegiadas como atajo;
+* desactives RLS para arreglar comportamiento;
+* insertes manualmente roles ADMIN/MODERATOR salvo una operación administrativa
+  controlada solicitada explícitamente.
+
+Los cambios de esquema posteriores requieren una nueva migración.
+
+Para funciones sensibles de base de datos considera:
+
+* límites transaccionales;
+* concurrencia;
+* replay;
+* expiración;
+* row locking;
+* RLS/FORCE RLS;
+* ownership de funciones;
+* SECURITY DEFINER;
+* EXECUTE grants;
+* comportamiento de rollback.
+
+# Manejo de errores
+
+Considera tanto el camino exitoso como los estados de fallo.
+
+En operaciones sensibles de varios pasos, analiza explícitamente los fallos
+parciales entre pasos.
+
+Ejemplos:
+
+* base de datos funciona pero filesystem falla;
+* filesystem funciona pero base de datos falla;
+* OAuth state se crea pero el callback nunca llega;
+* un token expira durante el flujo;
+* dos requests compiten simultáneamente;
+* el rollback también falla.
+
+No expongas errores sensibles del proveedor o de la base de datos cuando un
+mensaje genérico sea suficiente.
+
+# Testing
+
+Los tests deben verificar comportamiento e invariantes importantes, no
+simplemente aumentar coverage.
+
+Para código sensible incluye casos negativos y rutas de error relevantes.
+
+Nunca uses credenciales reales ni secretos de invitaciones reales en tests.
+
+Los valores sintéticos deben ser claramente sintéticos.
+
+Tests, build y dev nunca deben ejecutar accidentalmente acciones
+administrativas operator-side.
+
+Las comprobaciones estáticas del código pueden servir para invariantes
+estructurales, pero no sustituyen tests runtime/integración cuando es
+necesario verificar comportamiento real.
+
+# Performance
+
+Conserva o mejora el rendimiento con cada feature cuando sea razonable.
+
+Prefiere:
+
+* lazy loading para UI no crítica;
+* code splitting cuando sea útil;
+* caché de requests;
+* deduplicación;
+* limpieza de recursos;
+* evitar polling innecesario.
+
+No sacrifiques diseño, animaciones, funcionalidad o UX por optimizaciones
+insignificantes.
+
+Móvil y PC tienen la misma importancia.
+
+# UI
+
+Conserva el design system existente salvo que el bloque actual requiera
+modificarlo.
+
+Usa HTML semántico y accesible.
+
+No rediseñes secciones no relacionadas durante una feature específica.
+
+La UI administrativa nunca debe depender de ocultar elementos como frontera
+de seguridad.
+
+# Definition of Done
+
+Un bloque está listo para cerrarse cuando, según corresponda:
+
+* el comportamiento solicitado está implementado;
+* los tests específicos pasan;
+* la regresión relevante pasa;
+* typecheck pasa;
+* lint pasa;
+* formatting pasa;
+* build pasa;
+* se consideraron rutas de fallo importantes;
+* se revisaron invariantes sensibles de seguridad;
+* el diff no contiene cambios no relacionados;
+* no se expusieron secretos;
+* el estado remoto se verificó cuando el bloque realmente requería
+  verificación remota.
+
+Que build/tests estén verdes NO significa automáticamente que el bloque esté
+terminado.
+
+# Disciplina de alcance
+
+No implementes elementos futuros del roadmap simplemente porque su diseño ya
+sea conocido.
+
+No generes una invitación bootstrap real hasta que el flujo de activación,
+autenticación y MFA haya sido probado end-to-end con una cuenta de prueba
+controlada.
+
+No involucres al destinatario real del ADMIN durante el desarrollo y pruebas
+de infraestructura.
+
+Cuando el bloque actual termine:
+
+DETENTE Y ESPERA LA SIGUIENTE INSTRUCCIÓN.
