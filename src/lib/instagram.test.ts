@@ -1,9 +1,16 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import feedHandler from "../../api/instagram-feed";
-import mediaHandler from "../../api/instagram-media";
-import commentsHandler from "../../api/instagram-comments";
-import profileHandler from "../../api/instagram-profile";
+// Los 4 endpoints de solo lectura los atiende ahora una única Serverless Function
+// (api/instagram/[resource].ts, ver vercel.json) por el límite de 12 funciones del plan
+// Hobby de Vercel; la lógica de cada uno no cambió, solo se movió a un export nombrado en
+// src/lib/instagram-handlers.ts. Se renombra en el import para no tocar el resto del
+// archivo (mismos nombres locales que usaban los tests).
+import {
+  handleInstagramComments as commentsHandler,
+  handleInstagramFeed as feedHandler,
+  handleInstagramMedia as mediaHandler,
+  handleInstagramProfile as profileHandler,
+} from "./instagram-handlers";
 import {
   normalizeInstagramChild,
   normalizeInstagramComment,

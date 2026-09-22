@@ -8,6 +8,10 @@
     }
   ],
   "rewrites": [
+    { "source": "/api/instagram-feed", "destination": "/api/instagram/feed" },
+    { "source": "/api/instagram-profile", "destination": "/api/instagram/profile" },
+    { "source": "/api/instagram-media", "destination": "/api/instagram/media" },
+    { "source": "/api/instagram-comments", "destination": "/api/instagram/comments" },
     { "source": "/((?!api/|assets/).*)", "destination": "/index.html" }
   ]
 }
