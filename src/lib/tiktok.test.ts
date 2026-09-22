@@ -1,7 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import authHandler from "../../api/tiktok-auth";
-import callbackHandler from "../../api/tiktok-callback";
+// Los 3 endpoints de TikTok los atiende ahora una única Serverless Function
+// (api/tiktok/[resource].ts, ver vercel.json) por el límite de 12 funciones del plan
+// Hobby de Vercel; la lógica de /api/tiktok-auth y /api/tiktok-callback no cambió, solo
+// se movió a exports nombrados en src/lib/tiktok-handlers.ts. Se renombran en el import
+// para no tocar el resto del archivo (mismos nombres locales que ya usaban los tests).
+import {
+  handleTikTokAuth as authHandler,
+  handleTikTokCallback as callbackHandler,
+} from "./tiktok-handlers";
 import {
   TIKTOK_REDIRECT_URI,
   TIKTOK_STATE_COOKIE,

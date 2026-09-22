@@ -1,6 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import handler from "../../api/tiktok-videos";
+// Los 3 endpoints de TikTok los atiende ahora una única Serverless Function
+// (api/tiktok/[resource].ts, ver vercel.json) por el límite de 12 funciones del plan
+// Hobby de Vercel; la lógica de /api/tiktok-videos no cambió, solo se movió a un export
+// nombrado en src/lib/tiktok-handlers.ts. Se renombra en el import para no tocar el
+// resto del archivo (mismo nombre local que ya usaban los tests).
+import { handleTikTokVideos as handler } from "./tiktok-handlers";
 import {
   TikTokConnectionError,
   acquireTikTokRefreshLease,

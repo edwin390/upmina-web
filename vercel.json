@@ -12,6 +12,9 @@
     { "source": "/api/instagram-profile", "destination": "/api/instagram/profile" },
     { "source": "/api/instagram-media", "destination": "/api/instagram/media" },
     { "source": "/api/instagram-comments", "destination": "/api/instagram/comments" },
+    { "source": "/api/tiktok-auth", "destination": "/api/tiktok/auth" },
+    { "source": "/api/tiktok-callback", "destination": "/api/tiktok/callback" },
+    { "source": "/api/tiktok-videos", "destination": "/api/tiktok/videos" },
     { "source": "/((?!api/|assets/).*)", "destination": "/index.html" }
   ]
 }
