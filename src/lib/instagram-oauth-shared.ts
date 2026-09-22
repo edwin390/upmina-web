@@ -211,6 +211,11 @@ function isPositiveNumber(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value) && value > 0;
 }
 
+/** Objeto plano: no null, no array. Usado para no aceptar arrays/null como fuente de campos. */
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
 // AbortSignal.timeout rechaza con un DOMException "TimeoutError".
 const isTimeout = (err: unknown): boolean =>
   typeof err === "object" &&
@@ -233,10 +238,14 @@ export interface InstagramShortLivedToken {
 }
 
 /**
- * POST a api.instagram.com/oauth/access_token. La respuesta de Instagram Login viene
- * envuelta en `data[0]` (a diferencia de la antigua Basic Display API). Valida que el
- * `user_id` recibido tenga forma de Instagram-scoped id: si no puede determinarse una
- * identidad fiable, se lanza y NO se debe persistir nada con esta respuesta.
+ * POST a api.instagram.com/oauth/access_token. La documentación de Instagram Login
+ * describe la respuesta envuelta en `data[0]`; también se acepta la forma plana
+ * (`access_token`/`user_id`/`permissions` en la raíz) por si la API la devuelve así en la
+ * práctica — Production rechazó una respuesta HTTP 200 real con el parser que solo
+ * aceptaba `data[0]`, y no hay forma de confirmar cuál usa sin repetir el OAuth. Ambas
+ * formas pasan por la misma validación estricta (ver más abajo). Valida que el `user_id`
+ * recibido tenga forma de Instagram-scoped id: si no puede determinarse una identidad
+ * fiable, se lanza y NO se debe persistir nada con esta respuesta.
  */
 export async function exchangeInstagramCode(
   code: string,
@@ -290,9 +299,22 @@ export async function exchangeInstagramCode(
     );
   }
 
-  const entry = Array.isArray(body.data)
-    ? (body.data[0] as Record<string, unknown>)
-    : undefined;
+  // La documentación vigente describe la respuesta envuelta en `data[0]`; no puede
+  // descartarse que en la práctica llegue como objeto plano en la raíz (no hay forma de
+  // confirmarlo sin repetir el OAuth). Se aceptan ambas formas, pero de manera estricta:
+  // si `data` está presente, es la ÚNICA fuente válida —sin caer a la raíz aunque esté
+  // vacío o su primer elemento no sirva—; la raíz solo se usa cuando `data` no existe en
+  // absoluto. Así el soporte de compatibilidad no relaja ninguna validación existente.
+  const entry: Record<string, unknown> | undefined = Object.prototype.hasOwnProperty.call(
+    body,
+    "data",
+  )
+    ? Array.isArray(body.data) && isPlainObject(body.data[0])
+      ? (body.data[0] as Record<string, unknown>)
+      : undefined
+    : isPlainObject(body)
+      ? body
+      : undefined;
   const accessToken = entry?.access_token;
   const rawUserId = entry?.user_id;
   const permissions = entry?.permissions;

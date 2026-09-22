@@ -250,6 +250,129 @@ describe("exchangeInstagramCode (code -> short-lived token)", () => {
     expect(result.providerUserId).toBe("17841400000000000");
   });
 
+  // Compatibilidad: la documentación describe la respuesta envuelta en data[0], pero no
+  // puede descartarse que llegue como objeto plano en la raíz (Production rechazó una
+  // respuesta HTTP 200 real con el parser que solo aceptaba data[0], y no hay forma de
+  // confirmar cuál forma envía Instagram sin repetir el OAuth). Se aceptan ambas de forma
+  // estricta: sin relajar ninguna validación ni permitir que la raíz sirva de "bypass"
+  // cuando data está presente pero es inválido.
+
+  it("B) forma plana válida (sin envoltorio data[]) → funciona igual que la forma envuelta", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        jsonResponse({
+          access_token: "IGAAshort-lived-ficticio",
+          user_id: "17841400000000000",
+          permissions: "instagram_business_basic,instagram_business_manage_comments",
+        }),
+      ),
+    );
+
+    const result = await exchangeInstagramCode(CODE, credentials);
+
+    expect(result).toEqual({
+      accessToken: "IGAAshort-lived-ficticio",
+      providerUserId: "17841400000000000",
+      permissions: "instagram_business_basic,instagram_business_manage_comments",
+    });
+  });
+
+  it("B) forma plana: user_id como number JSON también se acepta (se convierte a string)", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        jsonResponse({ access_token: "IGAAtoken", user_id: 17841400000000000 }),
+      ),
+    );
+    const result = await exchangeInstagramCode(CODE, credentials);
+    expect(result.providerUserId).toBe("17841400000000000");
+    expect(result.permissions).toBe("");
+  });
+
+  it("C) forma plana sin access_token → rechazada", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => jsonResponse({ user_id: "17841400000000000", permissions: "" })),
+    );
+    await expect(exchangeInstagramCode(CODE, credentials)).rejects.toBeInstanceOf(
+      InstagramOAuthError,
+    );
+  });
+
+  it.each([
+    ["ausente", undefined],
+    ["vacío", ""],
+    ["con letras", "abc123"],
+  ])("D) forma plana con user_id inválido (%s) → rechazada", async (_name, userId) => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => jsonResponse({ access_token: "IGAAtoken", user_id: userId })),
+    );
+    await expect(exchangeInstagramCode(CODE, credentials)).rejects.toBeInstanceOf(
+      InstagramOAuthError,
+    );
+  });
+
+  it("E) data es un array vacío: NO cae al body raíz aunque este tenga campos válidos", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        jsonResponse({
+          data: [],
+          // Campos válidos "a la vista" en la raíz: no deben usarse como bypass.
+          access_token: "IGAAtoken-de-la-raiz-no-deberia-usarse",
+          user_id: "17841400000000000",
+        }),
+      ),
+    );
+    await expect(exchangeInstagramCode(CODE, credentials)).rejects.toBeInstanceOf(
+      InstagramOAuthError,
+    );
+  });
+
+  it("F) data[0] existe pero es inválido: NO usa los campos de la raíz como bypass", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        jsonResponse({
+          data: [{ access_token: "", user_id: "no-es-numerico" }],
+          // Campos válidos "a la vista" en la raíz: no deben usarse como bypass.
+          access_token: "IGAAtoken-de-la-raiz-no-deberia-usarse",
+          user_id: "17841400000000000",
+          permissions: "instagram_business_basic",
+        }),
+      ),
+    );
+    await expect(exchangeInstagramCode(CODE, credentials)).rejects.toBeInstanceOf(
+      InstagramOAuthError,
+    );
+  });
+
+  it("data no es un array (objeto suelto) → rechazada, no se trata como forma plana", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        jsonResponse({
+          data: { access_token: "IGAAtoken", user_id: "17841400000000000" },
+        }),
+      ),
+    );
+    await expect(exchangeInstagramCode(CODE, credentials)).rejects.toBeInstanceOf(
+      InstagramOAuthError,
+    );
+  });
+
+  it("data[0] no es un objeto (p. ej. string) → rechazada", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => jsonResponse({ data: ["no-es-un-objeto"] })),
+    );
+    await expect(exchangeInstagramCode(CODE, credentials)).rejects.toBeInstanceOf(
+      InstagramOAuthError,
+    );
+  });
+
   it("Instagram rechaza el code (error_message en el cuerpo) → InstagramOAuthError 502", async () => {
     vi.stubGlobal(
       "fetch",
