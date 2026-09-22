@@ -44,3 +44,7 @@ coverage/
 
 # Local Claude desktop preview config (generated per machine)
 .claude/launch.json
+
+# Secreto de un solo uso generado por scripts/bootstrap-admin-invitation.mjs (Bloque 2B):
+# el enlace de activación bootstrap_admin en texto plano. Nunca debe entrar en Git.
+/scripts/.secrets/

@@ -8,6 +8,7 @@
     "dev": "vite",
     "dev:frontend": "vite",
     "dev:local": "node scripts/dev-local.mjs",
+    "admin:bootstrap-invitation": "node scripts/bootstrap-admin-invitation.mjs",
     "build": "tsc -b && vite build",
     "preview": "vite preview",
     "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
