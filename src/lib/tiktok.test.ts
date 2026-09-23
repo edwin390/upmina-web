@@ -2,19 +2,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 // Los 3 endpoints de TikTok los atiende ahora una única Serverless Function
 // (api/tiktok/[resource].ts, ver vercel.json) por el límite de 12 funciones del plan
-// Hobby de Vercel; la lógica de /api/tiktok-auth y /api/tiktok-callback no cambió, solo
+// Hobby de Vercel; la lógica de /api/tiktok-callback no cambió, solo
 // se movió a exports nombrados en src/lib/tiktok-handlers.ts. Se renombran en el import
 // para no tocar el resto del archivo (mismos nombres locales que ya usaban los tests).
-import {
-  handleTikTokAuth as authHandler,
-  handleTikTokCallback as callbackHandler,
-} from "./tiktok-handlers";
+import { handleTikTokCallback as callbackHandler } from "./tiktok-handlers";
 import {
   TIKTOK_REDIRECT_URI,
   TIKTOK_STATE_COOKIE,
   TIKTOK_STATE_TTL_MS,
   createTikTokState,
-  readStateCookie,
   verifyTikTokState,
 } from "./tiktok-shared";
 
@@ -102,16 +98,11 @@ const tokenBody = {
   token_type: "Bearer",
 };
 
-/** Inicia el flujo y devuelve un state válido con su cookie, como haría el navegador. */
+/** Devuelve un state válido con su cookie, como los que entrega el inicio protegido
+ *  (POST /api/admin/social-connect) al navegador: mismo formato y misma cookie. */
 async function startFlow() {
-  const { res, state } = mockRes();
-  authHandler(req(), res);
-  const setCookie = state.headers["Set-Cookie"];
-  const authUrl = new URL(state.redirectTo!);
-  return {
-    stateParam: authUrl.searchParams.get("state")!,
-    cookie: setCookie.split(";")[0],
-  };
+  const { state, nonce } = createTikTokState(CLIENT_SECRET);
+  return { stateParam: state, cookie: `${TIKTOK_STATE_COOKIE}=${nonce}` };
 }
 
 let errorSpy: ReturnType<typeof vi.spyOn>;
@@ -140,82 +131,6 @@ afterEach(() => {
   vi.unstubAllEnvs();
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
-});
-
-describe("api/tiktok-auth", () => {
-  it("302 a la URL oficial con client_key, solo los scopes previstos y el redirect exacto", () => {
-    const { res, state } = mockRes();
-    authHandler(req(), res);
-
-    expect(state.status).toBe(302);
-    const url = new URL(state.redirectTo!);
-    expect(`${url.origin}${url.pathname}`).toBe(
-      "https://www.tiktok.com/v2/auth/authorize/",
-    );
-    expect(url.searchParams.get("client_key")).toBe(CLIENT_KEY);
-    expect(url.searchParams.get("scope")).toBe("user.info.basic,video.list");
-    expect(url.searchParams.get("response_type")).toBe("code");
-    expect(url.searchParams.get("redirect_uri")).toBe(TIKTOK_REDIRECT_URI);
-    expect(TIKTOK_REDIRECT_URI).toBe("https://upmina-web.vercel.app/api/tiktok-callback");
-    expect(url.searchParams.get("state")).toBeTruthy();
-    expect(state.headers["Cache-Control"]).toBe("no-store");
-  });
-
-  it("no expone el Client Secret ni en la URL ni en las cabeceras", () => {
-    const { res, state } = mockRes();
-    authHandler(req(), res);
-    expect(JSON.stringify([state.redirectTo, state.headers])).not.toContain(
-      CLIENT_SECRET,
-    );
-    expect(new URL(state.redirectTo!).searchParams.has("client_secret")).toBe(false);
-  });
-
-  it("la cookie del state es HttpOnly, Secure, SameSite=Lax y limitada al callback", () => {
-    const { res, state } = mockRes();
-    authHandler(req(), res);
-    const cookie = state.headers["Set-Cookie"];
-    expect(cookie).toMatch(new RegExp(`^${TIKTOK_STATE_COOKIE}=[\\w-]+;`));
-    expect(cookie).toMatch(/HttpOnly/);
-    expect(cookie).toMatch(/Secure/);
-    expect(cookie).toMatch(/SameSite=Lax/);
-    expect(cookie).toMatch(/Path=\/api\/tiktok-callback/);
-    expect(cookie).toMatch(/Max-Age=600/);
-    // El nonce de la cookie es el primer tramo del state.
-    const nonce = readStateCookie(cookie.split(";")[0]);
-    expect(
-      new URL(state.redirectTo!).searchParams.get("state")!.startsWith(`${nonce}.`),
-    ).toBe(true);
-  });
-
-  it("cada inicio genera un state distinto", () => {
-    const a = mockRes();
-    const b = mockRes();
-    authHandler(req(), a.res);
-    authHandler(req(), b.res);
-    expect(new URL(a.state.redirectTo!).searchParams.get("state")).not.toBe(
-      new URL(b.state.redirectTo!).searchParams.get("state"),
-    );
-  });
-
-  it("503 sin redirigir si falta TIKTOK_CLIENT_KEY o TIKTOK_CLIENT_SECRET", () => {
-    for (const name of ["TIKTOK_CLIENT_KEY", "TIKTOK_CLIENT_SECRET"]) {
-      vi.stubEnv(name, "");
-      const { res, state } = mockRes();
-      authHandler(req(), res);
-      expect(state.status).toBe(503);
-      expect(state.redirectTo).toBeUndefined();
-      expect(state.headers["Set-Cookie"]).toBeUndefined();
-      expect(String(state.body)).not.toContain("TIKTOK_CLIENT");
-      vi.stubEnv(name, name === "TIKTOK_CLIENT_KEY" ? CLIENT_KEY : CLIENT_SECRET);
-    }
-  });
-
-  it("405 con métodos distintos de GET", () => {
-    const { res, state } = mockRes();
-    authHandler(req({}, { method: "POST" }), res);
-    expect(state.status).toBe(405);
-    expect(state.redirectTo).toBeUndefined();
-  });
 });
 
 describe("state (anti-CSRF)", () => {

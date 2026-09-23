@@ -1,7 +1,7 @@
 import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 
-// Infraestructura OAuth de TikTok (Login Kit) compartida por api/tiktok-auth.ts y
-// api/tiktok-callback.ts. Vive en src/lib porque Vercel despliega cada archivo de api/
+// Infraestructura OAuth de TikTok (Login Kit) compartida por el inicio protegido
+// (src/lib/social-connect-handlers.ts) y el callback (api/tiktok/[resource].ts). Vive en src/lib porque Vercel despliega cada archivo de api/
 // como una ruta. Solo se ejecuta en servidor: lee TIKTOK_CLIENT_SECRET.
 //
 // Regla de seguridad: access_token / refresh_token / code / client_secret nunca se

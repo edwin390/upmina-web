@@ -3,8 +3,8 @@ import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { createInstagramState } from "./instagram-oauth-shared";
 import { igFakeDb, resetIgFakeDb } from "./instagram-supabase-fake";
 
-// Fijan el contrato de los dos endpoints del OAuth de Instagram: inicio (redirect +
-// cookie), y callback (validación de state, intercambio de tokens, persistencia). Usa el
+// Fijan el contrato del callback del OAuth de Instagram (el inicio ya no es público: ver
+// social-connect-handlers.test.ts): validación de state, intercambio de tokens, persistencia. Usa el
 // mismo estilo que twitch-handlers.test.ts (importa el handler real de api/, con
 // req/res de prueba) y el fake de Supabase ya usado por instagram-connection.test.ts.
 
@@ -13,7 +13,6 @@ vi.mock("@supabase/supabase-js", async () => {
   return { createClient: fakeInstagramCreateClient };
 });
 
-const authHandler = (await import("../../api/instagram-auth")).default;
 const callbackHandler = (await import("../../api/instagram-callback")).default;
 
 const APP_ID = "1234567890";
@@ -140,70 +139,6 @@ afterEach(() => {
   vi.unstubAllEnvs();
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
-});
-
-describe("api/instagram-auth", () => {
-  it("Production: 302 a la URL de autorización con la cookie de state segura", async () => {
-    const { res, state } = mockRes();
-    await authHandler(req(), res);
-
-    expect(state.redirectStatus).toBe(302);
-    const url = new URL(state.redirectedTo!);
-    expect(url.origin + url.pathname).toBe("https://www.instagram.com/oauth/authorize");
-    expect(url.searchParams.get("client_id")).toBe(APP_ID);
-    expect(url.searchParams.get("redirect_uri")).toBe(
-      "https://upmina-web.vercel.app/api/instagram-callback",
-    );
-    expect(url.searchParams.get("response_type")).toBe("code");
-    expect(url.searchParams.get("scope")).toBe(
-      "instagram_business_basic,instagram_business_manage_comments",
-    );
-    expect(url.searchParams.get("state")).toBeTruthy();
-
-    const cookie = state.headers["Set-Cookie"];
-    expect(cookie).toContain("instagram_oauth_state=");
-    expect(cookie).toContain("HttpOnly");
-    expect(cookie).toContain("Secure");
-    expect(cookie).toContain("SameSite=Lax");
-    expect(cookie).toContain("Path=/api/instagram-callback");
-    expect(cookie).toContain("Max-Age=600");
-    expect(state.headers["Cache-Control"]).toBe("no-store");
-  });
-
-  it("Preview: 403 sin generar cookie ni contactar a Meta", async () => {
-    vi.stubEnv("VERCEL_ENV", "preview");
-    const fetchMock = vi.fn();
-    vi.stubGlobal("fetch", fetchMock);
-
-    const { res, state } = mockRes();
-    await authHandler(req(), res);
-
-    expect(state.status).toBe(403);
-    expect(state.headers["Set-Cookie"]).toBeUndefined();
-    expect(fetchMock).not.toHaveBeenCalled();
-  });
-
-  it("Development (VERCEL_ENV ausente): 403", async () => {
-    delete process.env.VERCEL_ENV;
-    const { res, state } = mockRes();
-    await authHandler(req(), res);
-    expect(state.status).toBe(403);
-  });
-
-  it("método distinto de GET → 405", async () => {
-    const { res, state } = mockRes();
-    await authHandler(req({ method: "POST" }), res);
-    expect(state.status).toBe(405);
-    expect(state.headers.Allow).toBe("GET");
-  });
-
-  it("credenciales de Meta faltantes → 503, sin cookie", async () => {
-    vi.stubEnv("INSTAGRAM_APP_SECRET", "");
-    const { res, state } = mockRes();
-    await authHandler(req(), res);
-    expect(state.status).toBe(503);
-    expect(state.headers["Set-Cookie"]).toBeUndefined();
-  });
 });
 
 describe("api/instagram-callback", () => {

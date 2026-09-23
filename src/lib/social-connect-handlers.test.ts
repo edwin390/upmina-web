@@ -536,6 +536,19 @@ describe("éxito: TikTok", () => {
     expect(verifyTikTokState(st, nonce, "otro-secreto")).toBe(false);
   });
 
+  it("cada inicio genera un state y una cookie distintos (por proveedor)", async () => {
+    for (const provider of ["instagram", "tiktok"]) {
+      const a = await call(req({ body: { provider } }));
+      const b = await call(req({ body: { provider } }));
+      const stateOf = (r: Captured) =>
+        new URL(
+          (r.body as { authorization_url: string }).authorization_url,
+        ).searchParams.get("state");
+      expect(stateOf(a)).not.toBe(stateOf(b));
+      expect(a.headers["Set-Cookie"]).not.toBe(b.headers["Set-Cookie"]);
+    }
+  });
+
   it("no cruza proveedores: cookie e identificador de cada uno son los suyos", async () => {
     const ig = await call(req({ body: { provider: "instagram" } }));
     const tt = await call(req({ body: { provider: "tiktok" } }));

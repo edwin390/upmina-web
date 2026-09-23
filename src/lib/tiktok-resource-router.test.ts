@@ -5,18 +5,16 @@ import type { VercelRequest, VercelResponse } from "@vercel/node";
 import router from "../../api/tiktok/[resource]";
 import * as handlers from "./tiktok-handlers";
 
-// Fija el despachador que reemplazó a los 3 archivos api/tiktok-auth.ts,
-// api/tiktok-callback.ts y api/tiktok-videos.ts (motivo: límite de 12 Serverless
-// Functions del plan Hobby de Vercel, mismo patrón que api/instagram/[resource].ts). No
+// Fija el despachador que reemplazó a los archivos api/tiktok-callback.ts y
+// api/tiktok-videos.ts (el inicio público api/tiktok-auth.ts fue retirado). Motivo de la
+// consolidación: límite de 12 Serverless Functions del plan Hobby de Vercel, mismo patrón que
+// api/instagram/[resource].ts. No
 // repite la lógica de cada endpoint (ya cubierta por tiktok-videos.test.ts contra el
 // mismo handler reexportado desde tiktok-handlers.ts): solo comprueba que el `resource`
 // correcto llega al handler correcto, que un resource desconocido no llama a ninguno, y
 // que las reescrituras públicas siguen apuntando aquí.
 
 vi.mock("./tiktok-handlers", () => ({
-  handleTikTokAuth: vi.fn((_req: VercelRequest, res: VercelResponse) =>
-    res.status(200).json("auth"),
-  ),
   handleTikTokCallback: vi.fn(async (_req: VercelRequest, res: VercelResponse) =>
     res.status(200).json("callback"),
   ),
@@ -70,13 +68,12 @@ afterEach(() => {
 });
 
 describe("api/tiktok/[resource] (despachador)", () => {
-  it("resource=auth → solo handleTikTokAuth, con el mismo req/res", async () => {
-    const request = req("auth");
-    const { res } = mockRes();
+  it("resource=auth → 404 normal: el inicio público de TikTok fue retirado y ningún handler se llama", async () => {
+    const { res, state } = mockRes();
 
-    await router(request, res);
+    await router(req("auth"), res);
 
-    expect(handlers.handleTikTokAuth).toHaveBeenCalledWith(request, res);
+    expect(state.status).toBe(404);
     expect(handlers.handleTikTokCallback).not.toHaveBeenCalled();
     expect(handlers.handleTikTokVideos).not.toHaveBeenCalled();
   });
@@ -88,7 +85,6 @@ describe("api/tiktok/[resource] (despachador)", () => {
     await router(request, res);
 
     expect(handlers.handleTikTokCallback).toHaveBeenCalledWith(request, res);
-    expect(handlers.handleTikTokAuth).not.toHaveBeenCalled();
     expect(request.query.code).toBe("AQC-code-ficticio");
     expect(request.query.state).toBe("el-state");
   });
@@ -100,7 +96,6 @@ describe("api/tiktok/[resource] (despachador)", () => {
     await router(request, res);
 
     expect(handlers.handleTikTokVideos).toHaveBeenCalledWith(request, res);
-    expect(handlers.handleTikTokAuth).not.toHaveBeenCalled();
     expect(handlers.handleTikTokCallback).not.toHaveBeenCalled();
   });
 
@@ -110,7 +105,6 @@ describe("api/tiktok/[resource] (despachador)", () => {
     await router(req("algo-inventado"), res);
 
     expect(state.status).toBe(404);
-    expect(handlers.handleTikTokAuth).not.toHaveBeenCalled();
     expect(handlers.handleTikTokCallback).not.toHaveBeenCalled();
     expect(handlers.handleTikTokVideos).not.toHaveBeenCalled();
   });
@@ -125,11 +119,10 @@ describe("api/tiktok/[resource] (despachador)", () => {
 });
 
 describe("vercel.json: reescrituras públicas de TikTok", () => {
-  it("las 3 URLs públicas siguen reescribiendo hacia /api/tiktok/<resource>, sin query string propio en el destino", () => {
+  it("las 2 URLs públicas restantes siguen reescribiendo hacia /api/tiktok/<resource>, sin query string propio en el destino", () => {
     const rewrites = readVercelRewrites();
 
     const expected: Record<string, string> = {
-      "/api/tiktok-auth": "/api/tiktok/auth",
       "/api/tiktok-callback": "/api/tiktok/callback",
       "/api/tiktok-videos": "/api/tiktok/videos",
     };

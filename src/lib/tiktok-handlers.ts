@@ -4,16 +4,13 @@ import type { TikTokVideo } from "../types/index.js";
 import {
   TIKTOK_PAGE_HEADERS,
   TikTokOAuthError,
-  buildTikTokAuthorizeUrl,
   clearStateCookie,
-  createTikTokState,
   exchangeTikTokCode,
   getTikTokCredentials,
   logTikTokError,
   readStateCookie,
   renderTikTokPage,
   safeCode,
-  stateCookie,
   tikTokErrorStatus,
   verifyTikTokState,
 } from "./tiktok-shared.js";
@@ -26,8 +23,10 @@ import {
   saveTikTokConnection,
 } from "./tiktok-connection.js";
 
-// Handlers HTTP de los 3 endpoints de TikTok (auth, callback, videos). Viven aquí (no en
-// api/) porque una única Serverless Function los atiende ahora: api/tiktok/[resource].ts
+// Handlers HTTP de los endpoints públicos de TikTok (callback, videos). El INICIO del OAuth ya
+// no es público: solo existe POST /api/admin/social-connect (ADMIN + AAL2, ver
+// src/lib/social-connect-handlers.ts). Viven aquí (no en api/) porque una única Serverless
+// Function los atiende: api/tiktok/[resource].ts
 // — mismo motivo y mismo patrón que ya usa Instagram (api/instagram/[resource].ts, ver
 // src/lib/instagram-handlers.ts): el plan Hobby de Vercel permite como máximo 12
 // Serverless Functions por deployment.
@@ -36,43 +35,10 @@ import {
 // original (antes de esta consolidación): mismo método permitido, mismos headers,
 // mismas cookies, mismo manejo de errores, mismos status codes. Solo cambió dónde vive
 // el archivo. Ver vercel.json para las reescrituras que mantienen intactas las URLs
-// públicas /api/tiktok-auth, /api/tiktok-callback y /api/tiktok-videos.
+// públicas /api/tiktok-callback y /api/tiktok-videos.
 
 function first(value: string | string[] | undefined): string | undefined {
   return Array.isArray(value) ? value[0] : value;
-}
-
-// ---------- /api/tiktok-auth ----------
-
-// Inicio del OAuth de TikTok: genera un `state` firmado (más su cookie HttpOnly) y
-// redirige a la pantalla oficial de autorización. Solo scopes user.info.basic y video.list.
-export function handleTikTokAuth(req: VercelRequest, res: VercelResponse) {
-  if (req.method !== "GET") {
-    res.setHeader("Allow", "GET");
-    return res.status(405).json({ error: "Método no permitido" });
-  }
-
-  try {
-    const credentials = getTikTokCredentials();
-    const { state, nonce } = createTikTokState(credentials.clientSecret);
-
-    res.setHeader("Set-Cookie", stateCookie(nonce));
-    res.setHeader("Cache-Control", "no-store");
-    return res.redirect(302, buildTikTokAuthorizeUrl(credentials.clientKey, state));
-  } catch (err) {
-    logTikTokError("tiktok-auth", err);
-    for (const [name, value] of Object.entries(TIKTOK_PAGE_HEADERS)) {
-      res.setHeader(name, value);
-    }
-    return res
-      .status(tikTokErrorStatus(err))
-      .send(
-        renderTikTokPage(
-          "No se pudo iniciar la autorización",
-          "La integración con TikTok no está disponible en este momento.",
-        ),
-      );
-  }
 }
 
 // ---------- /api/tiktok-callback ----------

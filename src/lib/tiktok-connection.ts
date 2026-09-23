@@ -176,16 +176,16 @@ export type TikTokConnectionErrorReason =
 const CONNECTION_ERROR_MESSAGES: Record<TikTokConnectionErrorReason, string> = {
   missing: "No hay conexión de TikTok guardada",
   refresh_token_expired:
-    "El refresh token de TikTok ha caducado: hace falta reautorizar en /api/tiktok-auth",
+    "El refresh token de TikTok ha caducado: hace falta reautorizar TikTok desde el panel de administración",
   reauthorization_required:
-    "TikTok rechazó el refresh token (invalid_grant): hace falta reautorizar en /api/tiktok-auth",
+    "TikTok rechazó el refresh token (invalid_grant): hace falta reautorizar TikTok desde el panel de administración",
   refresh_in_progress: "Otra petición está refrescando la conexión de TikTok",
 };
 
 /**
  * La conexión guardada no permite llamar a TikTok. `reason` la hace distinguible en logs
  * y código; el cliente solo recibe un mensaje genérico. `refresh_token_expired` y
- * `reauthorization_required` significan que hay que volver a autorizar con /api/tiktok-auth.
+ * `reauthorization_required` significan que hay que volver a autorizar TikTok desde el panel de administración.
  */
 export class TikTokConnectionError extends Error {
   readonly status = 503;

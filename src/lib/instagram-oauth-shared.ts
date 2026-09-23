@@ -1,7 +1,7 @@
 import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 
-// Infraestructura OAuth de Instagram compartida por api/instagram-auth.ts y
-// api/instagram-callback.ts. Vive en src/lib por la misma razón que tiktok-shared.ts:
+// Infraestructura OAuth de Instagram compartida por el inicio protegido
+// (src/lib/social-connect-handlers.ts) y api/instagram-callback.ts. Vive en src/lib por la misma razón que tiktok-shared.ts:
 // Vercel despliega cada archivo de api/ como una ruta. Solo se ejecuta en servidor: lee
 // INSTAGRAM_APP_SECRET.
 //
