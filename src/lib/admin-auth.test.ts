@@ -3,7 +3,9 @@ import type { VercelRequest } from "@vercel/node";
 import {
   AdminAuthError,
   AdminAuthInfrastructureError,
+  getPrivilegedRoleForUser,
   requireAdmin,
+  requireAdminRoleForUser,
   requireAuthenticated,
   requireModerator,
   requirePrivileged,
@@ -472,5 +474,82 @@ describe("errores nunca filtran datos sensibles", () => {
     expect(serialized).not.toContain(TOKEN);
     expect(serialized).not.toContain("mina@example.com");
     expect(serialized).not.toContain("permission denied");
+  });
+});
+
+describe("requireAdminRoleForUser / getPrivilegedRoleForUser (recomprobación sin sesión)", () => {
+  it("admin → resuelve; consulta admin_roles con el user_id dado y la service_role key", async () => {
+    roles.row = { role: "admin" };
+    await expect(requireAdminRoleForUser(USER_ID)).resolves.toBeUndefined();
+    expect(roles.queries).toEqual([
+      { table: "admin_roles", filters: [["user_id", USER_ID]] },
+    ]);
+    expect(clients.calls).toEqual([{ url: SUPABASE_URL, key: SERVICE_ROLE_KEY }]);
+    expect(auth.getClaimsCalls).toHaveLength(0);
+  });
+
+  it("moderator → 403 (MODERATOR no hereda ADMIN)", async () => {
+    roles.row = { role: "moderator" };
+    const error = await catchError(() => requireAdminRoleForUser(USER_ID));
+    expect(error).toBeInstanceOf(AdminAuthError);
+    expect((error as AdminAuthError).status).toBe(403);
+  });
+
+  it("sin fila en admin_roles → 403", async () => {
+    roles.row = null;
+    const error = await catchError(() => requireAdminRoleForUser(USER_ID));
+    expect(error).toBeInstanceOf(AdminAuthError);
+    expect((error as AdminAuthError).status).toBe(403);
+  });
+
+  it("fila con un rol no reconocido → 403", async () => {
+    roles.row = { role: "superadmin" };
+    const error = await catchError(() => requireAdminRoleForUser(USER_ID));
+    expect((error as AdminAuthError).status).toBe(403);
+  });
+
+  it("error de Supabase → AdminAuthInfrastructureError (fail closed, nunca 'sin rol')", async () => {
+    roles.error = { code: "57014", message: "timeout" };
+    const error = await catchError(() => requireAdminRoleForUser(USER_ID));
+    expect(error).toBeInstanceOf(AdminAuthInfrastructureError);
+    expect(error).not.toBeInstanceOf(AdminAuthError);
+    expect((error as AdminAuthInfrastructureError).code).toBe("57014");
+  });
+
+  it("excepción del cliente (red) → AdminAuthInfrastructureError", async () => {
+    roles.throwWith = new Error("ECONNRESET");
+    const error = await catchError(() => requireAdminRoleForUser(USER_ID));
+    expect(error).toBeInstanceOf(AdminAuthInfrastructureError);
+    expect(error.message).not.toContain("ECONNRESET");
+  });
+
+  it("sin configuración de Supabase → AdminAuthInfrastructureError", async () => {
+    vi.stubEnv("SUPABASE_SERVICE_ROLE_KEY", "");
+    const error = await catchError(() => requireAdminRoleForUser(USER_ID));
+    expect(error).toBeInstanceOf(AdminAuthInfrastructureError);
+  });
+
+  it("userId vacío o no string → 403 sin consultar la base de datos", async () => {
+    for (const bad of ["", undefined, null, 42]) {
+      const error = await catchError(() => requireAdminRoleForUser(bad as never));
+      expect((error as AdminAuthError).status).toBe(403);
+    }
+    expect(roles.queries).toHaveLength(0);
+  });
+
+  it("getPrivilegedRoleForUser distingue admin, moderator y sin rol", async () => {
+    roles.row = { role: "admin" };
+    expect(await getPrivilegedRoleForUser(USER_ID)).toBe("admin");
+    roles.row = { role: "moderator" };
+    expect(await getPrivilegedRoleForUser(USER_ID)).toBe("moderator");
+    roles.row = null;
+    expect(await getPrivilegedRoleForUser(USER_ID)).toBeNull();
+  });
+
+  it("no cambia requireAdmin: sigue exigiendo aal2 aunque exista la recomprobación", async () => {
+    okClaims({ aal: "aal1" });
+    roles.row = { role: "admin" };
+    const error = await catchError(() => requireAdmin(bearer()));
+    expect((error as AdminAuthError).status).toBe(403);
   });
 });

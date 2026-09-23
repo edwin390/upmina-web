@@ -179,7 +179,9 @@ export async function requireAuthenticated(
  *  ocurrir por el CHECK de la migración, pero si ocurriera se trata como "sin rol", no
  *  como error). Un fallo real de Supabase se propaga como AdminAuthInfrastructureError:
  *  nunca se interpreta un fallo de lectura como "sin rol". */
-async function getPrivilegedRole(userId: string): Promise<PrivilegedRole | null> {
+export async function getPrivilegedRoleForUser(
+  userId: string,
+): Promise<PrivilegedRole | null> {
   const client = getRolesLookupClient();
 
   let data: { role?: unknown } | null;
@@ -223,7 +225,7 @@ async function getPrivilegedRole(userId: string): Promise<PrivilegedRole | null>
 export async function requirePrivileged(req: VercelRequest): Promise<PrivilegedIdentity> {
   const { userId, aal } = await requireAuthenticated(req);
 
-  const role = await getPrivilegedRole(userId);
+  const role = await getPrivilegedRoleForUser(userId);
   if (role === null) {
     throw new AdminAuthError("No autorizado", 403);
   }
@@ -245,6 +247,24 @@ export async function requireAdmin(req: VercelRequest): Promise<{ userId: string
     throw new AdminAuthError("No autorizado", 403);
   }
   return { userId };
+}
+
+/**
+ * ¿Sigue `userId` teniendo el rol ADMIN? Para flujos que llegan SIN sesión del navegador
+ * (p. ej. el callback de un OAuth iniciado antes por un ADMIN+AAL2): no hay Bearer, ni
+ * claims ni AAL que comprobar —eso ya se exigió al iniciar—; solo se reconsulta admin_roles
+ * con el user_id ya conocido por el servidor. Resuelve a `void` si es admin; MODERATOR o sin
+ * fila → AdminAuthError 403. Un fallo de Supabase se propaga como
+ * AdminAuthInfrastructureError (fail closed, nunca "sin rol").
+ */
+export async function requireAdminRoleForUser(userId: string): Promise<void> {
+  if (typeof userId !== "string" || userId.length === 0) {
+    throw new AdminAuthError("No autorizado", 403);
+  }
+  const role = await getPrivilegedRoleForUser(userId);
+  if (role !== "admin") {
+    throw new AdminAuthError("No autorizado", 403);
+  }
 }
 
 /**
