@@ -15,6 +15,11 @@ const YouTubeSection = lazy(() => import("./components/youtube/YouTubeSection"))
 const InstagramSection = lazy(() => import("./components/instagram/InstagramSection"));
 const TikTokSection = lazy(() => import("./components/tiktok/TikTokSection"));
 const CommunitySection = lazy(() => import("./components/community/CommunitySection"));
+// Su propio chunk: Supabase Auth y el AuthProvider (src/lib/auth-context.tsx) solo se
+// descargan al entrar a /admin/*, nunca como parte del bundle de Home.
+const AdminAuthLayout = lazy(() => import("./pages/admin/AdminAuthLayout"));
+const AdminLoginPage = lazy(() => import("./pages/admin/AdminLoginPage"));
+const AdminSignupPage = lazy(() => import("./pages/admin/AdminSignupPage"));
 
 function SectionFallback() {
   return (
@@ -102,6 +107,10 @@ function App() {
             <Route path="/comunidad" element={<CommunitySection />} />
             <Route path="/terms" element={<TermsPage />} />
             <Route path="/privacy" element={<PrivacyPage />} />
+            <Route element={<AdminAuthLayout />}>
+              <Route path="/admin/login" element={<AdminLoginPage />} />
+              <Route path="/admin/signup" element={<AdminSignupPage />} />
+            </Route>
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </Suspense>
