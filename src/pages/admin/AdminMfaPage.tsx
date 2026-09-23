@@ -4,6 +4,7 @@ import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/lib/auth-context";
 import AdminAuthCard from "@/components/admin/AdminAuthCard";
 import AdminAuthField from "@/components/admin/AdminAuthField";
+import { buildTotpQrImageSrc } from "@/lib/mfa-qr";
 
 // /admin/mfa (Bloque 3B). Enrolamiento y verificación TOTP mediante la API oficial de
 // MFA de Supabase Auth (`supabase.auth.mfa`). Este contexto solo importa para UX y
@@ -39,7 +40,7 @@ type MfaStep =
   | { kind: "checking" }
   | { kind: "no-session" }
   | { kind: "verified" }
-  | { kind: "need-factor" }
+  | { kind: "need-factor"; abandonedFactorId: string | null }
   | { kind: "enrolling"; factorId: string; qrCode: string; secret: string }
   | { kind: "challenge"; factorId: string }
   | { kind: "fatal"; message: string };
@@ -89,14 +90,28 @@ export default function AdminMfaPage() {
       return;
     }
 
-    // Solo importan factores TOTP ya verificados: uno sin verificar es un enrolamiento
-    // abandonado en un intento anterior, no un factor utilizable para challenge/verify.
-    const verifiedTotp = factorsData.totp.find((factor) => factor.status === "verified");
+    // `factorsData.totp` (contrato real de @supabase/auth-js: ver
+    // AuthMFAListFactorsResponse en node_modules/@supabase/auth-js/dist/main/lib/types.d.ts)
+    // SOLO contiene factores TOTP ya VERIFICADOS por diseño — un factor unverified nunca
+    // aparece ahí. Si existe uno, es utilizable para challenge/verify.
+    const verifiedTotp = factorsData.totp[0];
     if (verifiedTotp) {
       setStep({ kind: "challenge", factorId: verifiedTotp.id });
-    } else {
-      setStep({ kind: "need-factor" });
+      return;
     }
+
+    // Un enrolamiento TOTP interrumpido (se abandonó /admin/mfa antes de verificar el
+    // código) deja un factor `unverified` en el servidor que solo es visible en
+    // `factorsData.all` (la lista sin filtrar por status). No limpiarlo bloquearía
+    // permanentemente al usuario: un enroll() posterior es rechazado por Supabase
+    // (`too_many_enrolled_mfa_factors`, ver @supabase/auth-js/dist/main/lib/error-codes.d.ts)
+    // porque ya existe un factor TOTP sin verificar. Se guarda su id para limpiarlo
+    // recién cuando el usuario pulse explícitamente "Configurar autenticador" — nunca
+    // automáticamente aquí, y nunca se toca un factor que no sea TOTP unverified.
+    const abandonedTotp = factorsData.all.find(
+      (factor) => factor.factor_type === "totp" && factor.status === "unverified",
+    );
+    setStep({ kind: "need-factor", abandonedFactorId: abandonedTotp?.id ?? null });
   }, []);
 
   useEffect(() => {
@@ -111,11 +126,28 @@ export default function AdminMfaPage() {
     void loadStatus();
   }, [sessionLoading, hasSession, loadStatus]);
 
-  async function startEnrollment() {
+  async function startEnrollment(abandonedFactorId: string | null) {
     if (!supabase) return;
     setFormError(null);
     setIsSubmitting(true);
     try {
+      if (abandonedFactorId) {
+        // Limpieza de UN enrolamiento TOTP anterior interrumpido (unverified, detectado
+        // en loadStatus vía factorsData.all) como parte de ESTA misma acción explícita
+        // del usuario — nunca automática, nunca repetida en bucle: como mucho un
+        // unenroll seguido de un enroll por cada clic. Si la limpieza falla, se detiene
+        // aquí sin intentar el enroll (que volvería a fallar por la misma razón).
+        const { error: cleanupError } = await supabase.auth.mfa.unenroll({
+          factorId: abandonedFactorId,
+        });
+        if (cleanupError) {
+          setFormError(
+            "No se pudo limpiar un enrolamiento anterior incompleto. Inténtalo de nuevo.",
+          );
+          return;
+        }
+      }
+
       const { data, error } = await supabase.auth.mfa.enroll({ factorType: "totp" });
       if (error) {
         setFormError("No se pudo iniciar el enrolamiento. Inténtalo de nuevo.");
@@ -152,7 +184,9 @@ export default function AdminMfaPage() {
       setCode("");
       setFormError(null);
       setIsSubmitting(false);
-      setStep({ kind: "need-factor" });
+      // El factor que se acaba de cancelar/unenroll ya no existe: no hay ningún
+      // enrolamiento abandonado pendiente de limpiar.
+      setStep({ kind: "need-factor", abandonedFactorId: null });
     }
   }
 
@@ -268,7 +302,7 @@ export default function AdminMfaPage() {
         ) : null}
         <button
           type="button"
-          onClick={() => void startEnrollment()}
+          onClick={() => void startEnrollment(step.abandonedFactorId)}
           disabled={isSubmitting}
           className="mt-6 inline-flex min-h-11 items-center rounded-md border border-accent-primary/60 bg-accent-primary px-5 py-2.5 text-sm font-bold uppercase tracking-[0.18em] text-text-inverse shadow-glow-primary transition duration-200 ease-bounce hover:-translate-y-1 hover:bg-accent-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-secondary focus-visible:ring-offset-2 focus-visible:ring-offset-bg-surface disabled:pointer-events-none disabled:opacity-50"
         >
@@ -285,8 +319,14 @@ export default function AdminMfaPage() {
         title="Configurar autenticador"
         subtitle="Escanea el código con tu app autenticadora (Google Authenticator, 1Password, Authy…) o introduce la clave manual."
       >
+        {/* La documentación instalada de @supabase/auth-js es internamente inconsistente
+            sobre el formato de qr_code (ver comentario de buildTotpQrImageSrc en
+            src/lib/mfa-qr.ts): puede llegar como data URI ya completa, como SVG crudo
+            sin encodear, o ya percent-encoded sin el prefijo `data:`. El helper detecta
+            el formato real por su forma en vez de asumir uno fijo, evitando tanto el
+            doble encoding como una data URI anidada inválida. */}
         <img
-          src={`data:image/svg+xml;utf-8,${encodeURIComponent(qrCode)}`}
+          src={buildTotpQrImageSrc(qrCode)}
           alt="Código QR para configurar tu app autenticadora"
           className="mx-auto h-40 w-40 rounded-md border border-border-subtle bg-bg-base p-2"
         />

@@ -188,6 +188,8 @@ describe("AdminMfaPage — sesión AAL1 con factor TOTP existente", () => {
     await screen.findByLabelText("Código de verificación");
     expect(mfaFakes.calls.enroll).toHaveLength(0);
     expect(screen.queryByAltText(/código qr/i)).not.toBeInTheDocument();
+    // Un factor TOTP ya verificado JAMÁS se desenrola, ni siquiera implícitamente.
+    expect(mfaFakes.calls.unenroll).toHaveLength(0);
   });
 
   it("challenge usa el factor correcto y verify recibe factor/challenge/código exactos", async () => {
@@ -221,6 +223,8 @@ describe("AdminMfaPage — sesión AAL1 con factor TOTP existente", () => {
     expect(mfaFakes.calls.verify).toEqual([
       { factorId: "factor-existente", challengeId: "challenge-1", code: "123456" },
     ]);
+    // Reutilizado para challenge/verify, jamás desenrolado.
+    expect(mfaFakes.calls.unenroll).toHaveLength(0);
   });
 
   it("verify exitoso vuelve a comprobar el AAL para confirmar el estado aal2", async () => {
@@ -340,12 +344,78 @@ describe("AdminMfaPage — sesión AAL1 sin factor TOTP", () => {
       await screen.findByRole("button", { name: /configurar autenticador/i }),
     );
 
-    await screen.findByAltText(/código qr/i);
+    const qrImg = await screen.findByAltText(/código qr/i);
     expect(mfaFakes.calls.enroll).toEqual([{ factorType: "totp" }]);
     expect(screen.getByLabelText("Código de verificación")).toBeInTheDocument();
     // El secreto está oculto por defecto (input type="password"), nunca expuesto en texto plano sin acción explícita.
     expect(screen.getByLabelText("Clave manual")).toHaveAttribute("type", "password");
     expect(localStorageSpy).not.toHaveBeenCalled();
+    // SVG crudo (no es una data URI ya completa): buildTotpQrImageSrc lo detecta y lo
+    // encodea EXACTAMENTE una vez antes de anteponer el prefijo (ver src/lib/mfa-qr.ts).
+    expect(qrImg).toHaveAttribute(
+      "src",
+      `data:image/svg+xml;utf-8,${encodeURIComponent("<svg>qr</svg>")}`,
+    );
+  });
+
+  it("un qr_code SVG crudo con caracteres especiales (comillas, #, %) se encodea exactamente una vez", async () => {
+    authenticated();
+    mfaFakes.aalResult = { data: { currentLevel: "aal1" }, error: null };
+    mfaFakes.factorsResult = { data: { all: [], totp: [] }, error: null };
+    const rawQrCode = `<svg><text>"quoted" #hash %percent</text></svg>`;
+    mfaFakes.enrollResult = {
+      data: {
+        id: "factor-nuevo",
+        type: "totp",
+        totp: { qr_code: rawQrCode, secret: "SECRETO-TOTP", uri: "otpauth://totp/x" },
+      },
+      error: null,
+    };
+    renderMfaPage();
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: /configurar autenticador/i }),
+    );
+
+    const qrImg = await screen.findByAltText(/código qr/i);
+    const src = qrImg.getAttribute("src") ?? "";
+    expect(src).toBe(`data:image/svg+xml;utf-8,${encodeURIComponent(rawQrCode)}`);
+    // El roundtrip reproduce EXACTAMENTE el SVG original: prueba de que es un solo encoding.
+    expect(decodeURIComponent(src.slice("data:image/svg+xml;utf-8,".length))).toBe(
+      rawQrCode,
+    );
+    // Doble encoding produciría %2522/%253C en vez de %22/%3C una sola vez.
+    expect(src).not.toContain("%2522");
+    expect(src).not.toContain("%253C");
+  });
+
+  it("un qr_code que ya llega como data URI completa se usa tal cual, sin anteponer otro prefijo", async () => {
+    authenticated();
+    mfaFakes.aalResult = { data: { currentLevel: "aal1" }, error: null };
+    mfaFakes.factorsResult = { data: { all: [], totp: [] }, error: null };
+    const completeDataUri = "data:image/svg+xml;utf-8,%3Csvg%3E%3C%2Fsvg%3E";
+    mfaFakes.enrollResult = {
+      data: {
+        id: "factor-nuevo",
+        type: "totp",
+        totp: {
+          qr_code: completeDataUri,
+          secret: "SECRETO-TOTP",
+          uri: "otpauth://totp/x",
+        },
+      },
+      error: null,
+    };
+    renderMfaPage();
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: /configurar autenticador/i }),
+    );
+
+    const qrImg = await screen.findByAltText(/código qr/i);
+    expect(qrImg).toHaveAttribute("src", completeDataUri);
+    // Nunca una data URI anidada (el bug real reportado: "data:...data:...").
+    expect(qrImg.getAttribute("src")?.match(/data:/g)).toHaveLength(1);
   });
 
   it("fallo de enrolamiento muestra un mensaje seguro, sin exponer detalles del proveedor", async () => {
@@ -450,6 +520,151 @@ describe("AdminMfaPage — sesión AAL1 sin factor TOTP", () => {
     expect(mfaFakes.calls.verify).toEqual([
       { factorId: "factor-nuevo", challengeId: "challenge-9", code: "654321" },
     ]);
+  });
+});
+
+describe("AdminMfaPage — enrolamiento TOTP interrumpido (abandonado sin verificar)", () => {
+  // `factorsResult.data.totp` (contrato real: ver AuthMFAListFactorsResponse en
+  // @supabase/auth-js) NUNCA contiene factores unverified — solo aparecen en `data.all`.
+  // Estos tests simulan justamente ese estado real: un factor TOTP unverified visible
+  // únicamente en `all`, como quedaría tras abandonar /admin/mfa sin completar el código.
+  function abandonedFactorsResult(id = "factor-abandonado") {
+    return {
+      data: { all: [totpFactor({ id, status: "unverified" })], totp: [] },
+      error: null,
+    };
+  }
+
+  it("se detecta correctamente y NO bloquea permanentemente: sigue ofreciendo 'Configurar autenticador'", async () => {
+    authenticated();
+    mfaFakes.aalResult = { data: { currentLevel: "aal1" }, error: null };
+    mfaFakes.factorsResult = abandonedFactorsResult();
+    renderMfaPage();
+
+    expect(
+      await screen.findByRole("button", { name: /configurar autenticador/i }),
+    ).toBeInTheDocument();
+    // La detección en sí (listFactors) nunca dispara unenroll/enroll automáticamente.
+    expect(mfaFakes.calls.unenroll).toHaveLength(0);
+    expect(mfaFakes.calls.enroll).toHaveLength(0);
+  });
+
+  it("al pulsar 'Configurar autenticador' limpia ÚNICAMENTE ese factor unverified (unenroll) y después enrolla uno nuevo limpio", async () => {
+    authenticated();
+    mfaFakes.aalResult = { data: { currentLevel: "aal1" }, error: null };
+    mfaFakes.factorsResult = abandonedFactorsResult("factor-abandonado");
+    mfaFakes.enrollResult = {
+      data: {
+        id: "factor-limpio",
+        type: "totp",
+        totp: {
+          qr_code: "<svg>nuevo</svg>",
+          secret: "SECRETO-NUEVO",
+          uri: "otpauth://totp/y",
+        },
+      },
+      error: null,
+    };
+    renderMfaPage();
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: /configurar autenticador/i }),
+    );
+
+    await screen.findByAltText(/código qr/i);
+    // Exactamente un unenroll (el factor abandonado) seguido de exactamente un enroll:
+    // nunca un loop, nunca más de una limpieza por clic.
+    expect(mfaFakes.calls.unenroll).toEqual([{ factorId: "factor-abandonado" }]);
+    expect(mfaFakes.calls.enroll).toEqual([{ factorType: "totp" }]);
+  });
+
+  it("si la limpieza del factor abandonado falla, muestra un error seguro y NO intenta enrollar (sin loop)", async () => {
+    authenticated();
+    mfaFakes.aalResult = { data: { currentLevel: "aal1" }, error: null };
+    mfaFakes.factorsResult = abandonedFactorsResult("factor-abandonado");
+    mfaFakes.unenrollResult = {
+      data: null,
+      error: Object.assign(new Error("factor not found: internal detail"), {
+        code: "mfa_factor_not_found",
+      }),
+    };
+    renderMfaPage();
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: /configurar autenticador/i }),
+    );
+
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toBe(
+      "No se pudo limpiar un enrolamiento anterior incompleto. Inténtalo de nuevo.",
+    );
+    expect(alert.textContent).not.toMatch(/factor not found|internal detail/i);
+    expect(mfaFakes.calls.unenroll).toEqual([{ factorId: "factor-abandonado" }]);
+    expect(mfaFakes.calls.enroll).toHaveLength(0);
+  });
+
+  it("salir de /admin/mfa (desmontaje real) y volver a entrar más tarde no deja al usuario bloqueado", async () => {
+    authenticated();
+    mfaFakes.aalResult = { data: { currentLevel: "aal1" }, error: null };
+    mfaFakes.factorsResult = abandonedFactorsResult("factor-abandonado");
+
+    // Primera entrada: se detecta el enrolamiento abandonado (p. ej. de una sesión de
+    // navegador anterior). Se abandona la página sin actuar (desmontaje real).
+    const firstVisit = renderMfaPage();
+    await screen.findByRole("button", { name: /configurar autenticador/i });
+    firstVisit.unmount();
+
+    // Segunda entrada, más tarde: el estado server-side (listFactors) sigue reportando
+    // el mismo factor abandonado — el componente vuelto a montar debe seguir pudiendo
+    // limpiarlo y continuar, nunca quedar atascado.
+    mfaFakes.enrollResult = {
+      data: {
+        id: "factor-limpio-2",
+        type: "totp",
+        totp: {
+          qr_code: "<svg>otra-vez</svg>",
+          secret: "OTRO-SECRETO",
+          uri: "otpauth://totp/z",
+        },
+      },
+      error: null,
+    };
+    renderMfaPage();
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: /configurar autenticador/i }),
+    );
+
+    await screen.findByAltText(/código qr/i);
+    expect(mfaFakes.calls.unenroll).toEqual([{ factorId: "factor-abandonado" }]);
+    expect(mfaFakes.calls.enroll).toEqual([{ factorType: "totp" }]);
+  });
+
+  it("el secret/QR del enrolamiento de recuperación solo vive en memoria (nunca localStorage/sessionStorage)", async () => {
+    authenticated();
+    mfaFakes.aalResult = { data: { currentLevel: "aal1" }, error: null };
+    mfaFakes.factorsResult = abandonedFactorsResult();
+    mfaFakes.enrollResult = {
+      data: {
+        id: "factor-limpio",
+        type: "totp",
+        totp: {
+          qr_code: "<svg>x</svg>",
+          secret: "SECRETO-EN-MEMORIA",
+          uri: "otpauth://totp/x",
+        },
+      },
+      error: null,
+    };
+    const localStorageSpy = vi.spyOn(Storage.prototype, "setItem");
+    renderMfaPage();
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: /configurar autenticador/i }),
+    );
+    await screen.findByAltText(/código qr/i);
+
+    expect(localStorageSpy).not.toHaveBeenCalled();
   });
 });
 
