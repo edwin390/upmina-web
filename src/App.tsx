@@ -20,6 +20,7 @@ const CommunitySection = lazy(() => import("./components/community/CommunitySect
 const AdminAuthLayout = lazy(() => import("./pages/admin/AdminAuthLayout"));
 const AdminLoginPage = lazy(() => import("./pages/admin/AdminLoginPage"));
 const AdminSignupPage = lazy(() => import("./pages/admin/AdminSignupPage"));
+const AdminMfaPage = lazy(() => import("./pages/admin/AdminMfaPage"));
 
 function SectionFallback() {
   return (
@@ -110,6 +111,7 @@ function App() {
             <Route element={<AdminAuthLayout />}>
               <Route path="/admin/login" element={<AdminLoginPage />} />
               <Route path="/admin/signup" element={<AdminSignupPage />} />
+              <Route path="/admin/mfa" element={<AdminMfaPage />} />
             </Route>
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>

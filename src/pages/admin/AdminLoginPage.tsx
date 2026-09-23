@@ -81,13 +81,21 @@ export default function AdminLoginPage() {
           Sesión iniciada como{" "}
           <span className="font-medium text-text-primary">{session.user.email}</span>.
         </p>
-        <button
-          type="button"
-          onClick={() => void signOut()}
-          className="mt-6 inline-flex min-h-11 items-center rounded-md border border-accent-primary/60 bg-accent-primary px-5 py-2.5 text-sm font-bold uppercase tracking-[0.18em] text-text-inverse shadow-glow-primary transition duration-200 ease-bounce hover:-translate-y-1 hover:bg-accent-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-secondary focus-visible:ring-offset-2 focus-visible:ring-offset-bg-surface"
-        >
-          Cerrar sesión
-        </button>
+        <div className="mt-6 flex flex-wrap gap-3">
+          <Link
+            to="/admin/mfa"
+            className="inline-flex min-h-11 items-center rounded-md border border-accent-primary/60 bg-accent-primary px-5 py-2.5 text-sm font-bold uppercase tracking-[0.18em] text-text-inverse shadow-glow-primary transition duration-200 ease-bounce hover:-translate-y-1 hover:bg-accent-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-secondary focus-visible:ring-offset-2 focus-visible:ring-offset-bg-surface"
+          >
+            Continuar a verificación en dos pasos
+          </Link>
+          <button
+            type="button"
+            onClick={() => void signOut()}
+            className="inline-flex min-h-11 items-center rounded-md border border-border-subtle px-5 py-2.5 text-sm font-semibold text-text-secondary transition-colors duration-200 ease-smooth hover:border-accent-primary/60 hover:text-text-primary"
+          >
+            Cerrar sesión
+          </button>
+        </div>
       </AdminAuthCard>
     );
   }
