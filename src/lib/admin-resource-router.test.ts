@@ -12,6 +12,9 @@ vi.mock("./admin-handlers", () => ({
   handleAdminActivate: vi.fn(async (_req: VercelRequest, res: VercelResponse) =>
     res.status(200).json("activate"),
   ),
+  handleAdminMe: vi.fn(async (_req: VercelRequest, res: VercelResponse) =>
+    res.status(200).json("me"),
+  ),
 }));
 
 function mockRes() {
@@ -81,6 +84,16 @@ describe("api/admin/[action] (despachador)", () => {
     await router(req("Activate"), res);
 
     expect(state.status).toBe(404);
+    expect(handlers.handleAdminActivate).not.toHaveBeenCalled();
+  });
+
+  it("action=me → solo handleAdminMe, con el mismo req/res", async () => {
+    const request = req("me", "GET");
+    const { res } = mockRes();
+
+    await router(request, res);
+
+    expect(handlers.handleAdminMe).toHaveBeenCalledWith(request, res);
     expect(handlers.handleAdminActivate).not.toHaveBeenCalled();
   });
 });

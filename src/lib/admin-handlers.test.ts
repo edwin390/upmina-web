@@ -1,7 +1,7 @@
 import { createHash, randomBytes } from "node:crypto";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { handleAdminActivate } from "./admin-handlers";
+import { handleAdminActivate, handleAdminMe } from "./admin-handlers";
 import { AdminAuthError, AdminAuthInfrastructureError } from "./admin-auth";
 
 // Fija el contrato de seguridad de POST /api/admin/activate (Bloque 2C): consumir una
@@ -29,6 +29,17 @@ const authFakes = vi.hoisted(() => ({
   calls: 0,
 }));
 
+// Fakes independientes de requireAdmin, usados solo por los tests de handleAdminMe (más
+// abajo): handleAdminMe llama a requireAdmin directamente, no a requireAuthenticated, así
+// que reutilizar authFakes mezclaría dos contratos distintos.
+const adminFakes = vi.hoisted(() => ({
+  /** Valor que devuelve requireAdmin, o undefined para usar throwWith. */
+  identity: undefined as { userId: string } | undefined,
+  /** Si está definido, requireAdmin lanza esto en vez de devolver identity. */
+  throwWith: undefined as unknown,
+  calls: 0,
+}));
+
 vi.mock("./admin-auth", async () => {
   const actual = await vi.importActual<typeof import("./admin-auth")>("./admin-auth");
   return {
@@ -40,6 +51,14 @@ vi.mock("./admin-auth", async () => {
         throw new Error("test mal configurado: falta authFakes.identity");
       }
       return authFakes.identity;
+    }),
+    requireAdmin: vi.fn(async () => {
+      adminFakes.calls++;
+      if (adminFakes.throwWith !== undefined) throw adminFakes.throwWith;
+      if (!adminFakes.identity) {
+        throw new Error("test mal configurado: falta adminFakes.identity");
+      }
+      return adminFakes.identity;
     }),
   };
 });
@@ -78,6 +97,9 @@ function resetFakes() {
   rpcFakes.throwWith = undefined;
   rpcFakes.calls = [];
   clientFakes.calls = [];
+  adminFakes.identity = undefined;
+  adminFakes.throwWith = undefined;
+  adminFakes.calls = 0;
 }
 
 function okIdentity(overrides: Partial<{ userId: string; aal: string }> = {}) {
@@ -499,5 +521,121 @@ describe("handleAdminActivate", () => {
       expect(serialized).not.toContain(VALID_TOKEN_HASH);
       expect(serialized).not.toContain("un-jwt-cualquiera");
     }
+  });
+});
+
+// Fija el contrato de seguridad de GET /api/admin/me (Bloque 5A): primera comprobación
+// server-side de la identidad administrativa actual. Deliberadamente NO repite las
+// pruebas de requireAdmin/requirePrivileged/requireAuthenticated en sí (ya cubiertas por
+// admin-auth.test.ts): aquí solo importa cómo handleAdminMe reacciona a lo que
+// requireAdmin devuelve/lanza, y qué expone la respuesta 200.
+function meReq(overrides: Partial<VercelRequest> = {}): VercelRequest {
+  return {
+    method: "GET",
+    headers: { authorization: "Bearer un-jwt-cualquiera" },
+    query: {},
+    ...overrides,
+  } as unknown as VercelRequest;
+}
+
+describe("handleAdminMe", () => {
+  it("GET + ADMIN + aal2 (requireAdmin resuelve) → 200 { role: 'admin' }", async () => {
+    adminFakes.identity = { userId: "11111111-1111-4111-8111-111111111111" };
+    const { res, state } = mockRes();
+
+    await handleAdminMe(meReq(), res);
+
+    expect(state.status).toBe(200);
+    expect(state.body).toEqual({ role: "admin" });
+  });
+
+  it("sin Bearer (requireAdmin lanza 401) → 401", async () => {
+    adminFakes.throwWith = new AdminAuthError("No autenticado", 401);
+    const { res, state } = mockRes();
+
+    await handleAdminMe(meReq({ headers: {} }), res);
+
+    expect(state.status).toBe(401);
+  });
+
+  it("JWT inválido (requireAdmin lanza 401) → 401", async () => {
+    adminFakes.throwWith = new AdminAuthError("No autenticado", 401);
+    const { res, state } = mockRes();
+
+    await handleAdminMe(meReq({ headers: { authorization: "Bearer roto" } }), res);
+
+    expect(state.status).toBe(401);
+  });
+
+  it("ADMIN con aal1 (requireAdmin lanza 403) → 403", async () => {
+    adminFakes.throwWith = new AdminAuthError("No autorizado", 403);
+    const { res, state } = mockRes();
+
+    await handleAdminMe(meReq(), res);
+
+    expect(state.status).toBe(403);
+  });
+
+  it("USER sin fila en admin_roles, aal2 (requireAdmin lanza 403) → 403", async () => {
+    adminFakes.throwWith = new AdminAuthError("No autorizado", 403);
+    const { res, state } = mockRes();
+
+    await handleAdminMe(meReq(), res);
+
+    expect(state.status).toBe(403);
+  });
+
+  it("MODERATOR con aal2 (requireAdmin lanza 403: no hereda ADMIN) → 403", async () => {
+    adminFakes.throwWith = new AdminAuthError("No autorizado", 403);
+    const { res, state } = mockRes();
+
+    await handleAdminMe(meReq(), res);
+
+    expect(state.status).toBe(403);
+  });
+
+  it("fallo de infraestructura (requireAdmin lanza AdminAuthInfrastructureError) → 500 genérico, sin filtrar detalles", async () => {
+    adminFakes.throwWith = new AdminAuthInfrastructureError(
+      "Faltan VITE_SUPABASE_URL o SUPABASE_SERVICE_ROLE_KEY",
+    );
+    const { res, state } = mockRes();
+
+    await handleAdminMe(meReq(), res);
+
+    expect(state.status).toBe(500);
+    expect(JSON.stringify(state.body)).not.toMatch(/VITE_SUPABASE|SERVICE_ROLE/);
+  });
+
+  it("fallo inesperado (requireAdmin lanza un Error genérico) → 500 genérico, sin filtrar detalles", async () => {
+    adminFakes.throwWith = new Error("ECONNRESET: fallo de red hacia Supabase");
+    const { res, state } = mockRes();
+
+    await handleAdminMe(meReq(), res);
+
+    expect(state.status).toBe(500);
+    expect(state.body).toEqual({ error: "Error interno" });
+    expect(JSON.stringify(state.body)).not.toMatch(/ECONNRESET|Supabase/);
+  });
+
+  it("POST /api/admin/me → 405 + Allow: GET, sin llamar a requireAdmin", async () => {
+    const { res, state } = mockRes();
+
+    await handleAdminMe(meReq({ method: "POST" }), res);
+
+    expect(state.status).toBe(405);
+    expect(state.headers.Allow).toBe("GET");
+    expect(adminFakes.calls).toBe(0);
+  });
+
+  it("respuesta 200 no expone userId/email/JWT ni información de invitaciones", async () => {
+    adminFakes.identity = { userId: "22222222-2222-4222-8222-222222222222" };
+    const { res, state } = mockRes();
+
+    await handleAdminMe(meReq(), res);
+
+    expect(state.body).toEqual({ role: "admin" });
+    const serialized = JSON.stringify(state.body);
+    expect(serialized).not.toContain("22222222-2222-4222-8222-222222222222");
+    expect(serialized).not.toMatch(/email|jwt|token|invitation/i);
   });
 });

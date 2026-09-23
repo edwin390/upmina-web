@@ -4,6 +4,7 @@ import type { VercelRequest, VercelResponse } from "@vercel/node";
 import {
   AdminAuthError,
   AdminAuthInfrastructureError,
+  requireAdmin,
   requireAuthenticated,
 } from "./admin-auth.js";
 
@@ -224,4 +225,37 @@ export async function handleAdminActivate(
   } catch {
     return res.status(500).json(INFRASTRUCTURE_ERROR_BODY);
   }
+}
+
+// Handler HTTP de GET /api/admin/me (Bloque 5A). Primera comprobación server-side de la
+// identidad administrativa actual: reutiliza requireAdmin (admin-auth.ts) sin duplicar
+// ninguna lógica de verificación de JWT/AAL/rol aquí. requireAdmin ya exige, en orden,
+// (1) un JWT válido, (2) aal2, (3) una fila admin_roles con role='admin' — MODERATOR con
+// aal2 válido sigue recibiendo 403 desde ahí, igual que cualquier usuario sin fila.
+//
+// La respuesta es deliberadamente mínima: nunca expone userId, email, el JWT ni datos de
+// invitaciones. `userId` de requireAdmin se descarta a propósito (no hay necesidad
+// técnica demostrada de devolverlo al frontend).
+export async function handleAdminMe(
+  req: VercelRequest,
+  res: VercelResponse,
+): Promise<VercelResponse> {
+  if (req.method !== "GET") {
+    res.setHeader("Allow", "GET");
+    return res.status(405).json({ error: "Método no permitido" });
+  }
+
+  try {
+    await requireAdmin(req);
+  } catch (err) {
+    // AdminAuthError (401/403) se propaga tal cual. Cualquier otro caso
+    // (AdminAuthInfrastructureError u otra excepción inesperada) es un fallo real de
+    // infraestructura: genérico 500, nunca su mensaje interno.
+    if (err instanceof AdminAuthError) {
+      return res.status(err.status).json({ error: err.message });
+    }
+    return res.status(500).json(INFRASTRUCTURE_ERROR_BODY);
+  }
+
+  return res.status(200).json({ role: "admin" });
 }
