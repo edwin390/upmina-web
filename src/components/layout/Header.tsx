@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link, NavLink } from "react-router-dom";
 import clsx from "clsx";
+import { useAuth } from "@/lib/auth-context";
 
 const NAV_LINKS = [
   { to: "/", label: "Inicio" },
@@ -10,6 +11,41 @@ const NAV_LINKS = [
   { to: "/tiktok", label: "TikTok" },
   { to: "/comunidad", label: "Comunidad" },
 ];
+
+// Estado de sesión en la navegación (Bloque 6B). Solo conoce session == null o != null
+// del AuthProvider global: no distingue USER/MODERATOR/ADMIN, no muestra datos de la
+// cuenta y no es autorización de nada (eso es server-side, ver /api/admin/me). Mientras
+// loading=true reserva el espacio sin mostrar ninguna etiqueta, para no parpadear
+// "Iniciar sesión" -> "Cuenta" ni desplazar el layout.
+// Por ahora es un <span> deliberadamente NO interactivo (sin button/link, sin foco, sin
+// hover): los flujos públicos de login/cuenta llegan en un bloque posterior y aquí no se
+// inventan rutas ni controles inertes.
+function SessionAction({ variant }: { variant: "desktop" | "mobile" }) {
+  const { session, loading } = useAuth();
+
+  if (loading) {
+    return (
+      <span
+        aria-hidden="true"
+        className={
+          variant === "desktop" ? "hidden h-9 w-32 md:inline-block" : "block h-9"
+        }
+      />
+    );
+  }
+
+  return (
+    <span
+      className={
+        variant === "desktop"
+          ? "hidden min-h-9 items-center rounded-md border border-border-subtle px-4 py-2 text-sm font-semibold text-text-secondary md:inline-flex"
+          : "block rounded-md px-3 py-2 text-sm text-text-secondary"
+      }
+    >
+      {session ? "Cuenta" : "Iniciar sesión"}
+    </span>
+  );
+}
 
 interface HeaderProps {
   onLogoDoubleClick: () => void;
@@ -88,6 +124,7 @@ export default function Header({ onLogoDoubleClick }: HeaderProps) {
         </nav>
 
         <div className="flex items-center gap-2">
+          <SessionAction variant="desktop" />
           <a
             href="https://twitch.tv/upminaa"
             target="_blank"
@@ -150,6 +187,7 @@ export default function Header({ onLogoDoubleClick }: HeaderProps) {
               {link.label}
             </NavLink>
           ))}
+          <SessionAction variant="mobile" />
         </nav>
       )}
     </header>
