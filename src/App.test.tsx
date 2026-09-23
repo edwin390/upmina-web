@@ -1,7 +1,12 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { cleanup, render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import App from "./App";
+
+// /admin/* usa Supabase (VITE_SUPABASE_URL/VITE_SUPABASE_ANON_KEY) solo si está
+// configurado; en el entorno de test esas env vars no existen, así que src/lib/supabase.ts
+// ya resuelve `supabase` como null y AuthProvider se resuelve como "sin sesión" de
+// inmediato (ver auth-context.tsx) sin necesidad de mockear nada aquí.
 
 describe("rutas legales", () => {
   beforeEach(() => {
@@ -39,5 +44,62 @@ describe("rutas legales", () => {
     expect(legalNav.querySelector('a[href="/privacy"]')).not.toBeNull();
     const headerNav = document.querySelector("header nav");
     expect(headerNav?.querySelector('a[href="/terms"], a[href="/privacy"]')).toBeNull();
+  });
+});
+
+describe("/admin (Bloque 5C)", () => {
+  afterEach(() => {
+    cleanup();
+  });
+
+  it("sigue lazy-loaded: se muestra el fallback de Suspense antes del contenido de /admin", async () => {
+    render(
+      <MemoryRouter initialEntries={["/admin"]}>
+        <App />
+      </MemoryRouter>,
+    );
+
+    // Recién montado, el chunk de /admin (AdminDashboardPage + AdminAuthLayout) todavía
+    // no resolvió: ni el shell ni el CTA de "sin sesión" están presentes todavía.
+    expect(screen.queryByRole("heading", { name: "Panel de administración" })).toBeNull();
+    expect(screen.queryByRole("link", { name: /iniciar sesión/i })).toBeNull();
+
+    expect(
+      await screen.findByRole("link", { name: /iniciar sesión/i }),
+    ).toBeInTheDocument();
+  });
+
+  it.each([
+    ["/admin/login", "Acceso admin"],
+    ["/admin/signup", "Crear cuenta"],
+  ])("%s sigue funcionando junto a la nueva ruta /admin", async (path, headingName) => {
+    render(
+      <MemoryRouter initialEntries={[path]}>
+        <App />
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByRole("heading", { name: headingName })).toBeInTheDocument();
+  });
+
+  it("/admin/mfa y /admin/activate siguen funcionando junto a la nueva ruta /admin", async () => {
+    render(
+      <MemoryRouter initialEntries={["/admin/mfa"]}>
+        <App />
+      </MemoryRouter>,
+    );
+    expect(
+      await screen.findByRole("heading", { name: "Verificación en dos pasos" }),
+    ).toBeInTheDocument();
+    cleanup();
+
+    render(
+      <MemoryRouter initialEntries={["/admin/activate"]}>
+        <App />
+      </MemoryRouter>,
+    );
+    expect(
+      await screen.findByRole("heading", { name: "Activar acceso" }),
+    ).toBeInTheDocument();
   });
 });
