@@ -306,3 +306,144 @@ describe("comentarios y ausencia de secretos", () => {
     expect(sql).not.toMatch(/service_role_key|sk_live|BEGIN (RSA|PRIVATE)/i);
   });
 });
+
+// ---------------------------------------------------------------------------------------
+// Privilegios EFECTIVOS finales (Bloque 7B.3). El estado final de public.profiles depende
+// de la migración histórica 20260924120000_profiles.sql MÁS la correctiva
+// 20260924130000_profiles_service_role_privileges.sql (la histórica ya está aplicada en
+// remoto y no se modifica). La verificación real mostró que service_role conservaba
+// TRUNCATE/REFERENCES/TRIGGER: los default privileges de Supabase en `public` conceden
+// todos los privilegios a anon/authenticated/service_role sobre tablas nuevas, y la
+// migración histórica solo revocaba `all` a public/anon/authenticated.
+// ---------------------------------------------------------------------------------------
+
+const FIX_PATH = resolve(
+  __dirname,
+  "../../supabase/migrations/20260924130000_profiles_service_role_privileges.sql",
+);
+const fixSql = readFileSync(FIX_PATH, "utf8");
+const fixCode = fixSql
+  .split("\n")
+  .map((line) => line.replace(/--.*$/, ""))
+  .join("\n");
+
+const ALL_TABLE_PRIVILEGES = [
+  "select",
+  "insert",
+  "update",
+  "delete",
+  "truncate",
+  "references",
+  "trigger",
+];
+
+/** Simula los GRANT/REVOKE sobre public.profiles de las migraciones dadas, en orden,
+ *  partiendo de los default privileges de Supabase (todo a anon/authenticated/service_role,
+ *  nada a PUBLIC). Solo entiende sentencias `grant|revoke <privs|all> on table
+ *  public.profiles to|from <roles>`. */
+function effectivePrivileges(...sources: string[]): Record<string, Set<string>> {
+  const acl: Record<string, Set<string>> = {
+    public: new Set(),
+    anon: new Set(ALL_TABLE_PRIVILEGES),
+    authenticated: new Set(ALL_TABLE_PRIVILEGES),
+    service_role: new Set(ALL_TABLE_PRIVILEGES),
+  };
+  for (const source of sources) {
+    for (const statement of source.split(";")) {
+      const match =
+        /^\s*(grant|revoke)\s+([\s\S]+?)\s+on table public\.profiles\s+(?:to|from)\s+([\s\S]+)$/i.exec(
+          statement,
+        );
+      if (!match) continue;
+      const [, verb, rawPrivileges, rawRoles] = match;
+      const privileges = /^all$/i.test(rawPrivileges.trim())
+        ? ALL_TABLE_PRIVILEGES
+        : rawPrivileges.split(",").map((p) => p.trim().toLowerCase());
+      for (const role of rawRoles.split(",").map((r) => r.trim().toLowerCase())) {
+        acl[role] ??= new Set();
+        for (const privilege of privileges) {
+          if (verb.toLowerCase() === "grant") acl[role].add(privilege);
+          else acl[role].delete(privilege);
+        }
+      }
+    }
+  }
+  return acl;
+}
+
+function expectPrivileges(
+  acl: Record<string, Set<string>>,
+  role: string,
+  granted: string[],
+) {
+  for (const privilege of ALL_TABLE_PRIVILEGES) {
+    expect(
+      acl[role].has(privilege),
+      `${role} ${privilege.toUpperCase()} debería ser ${granted.includes(privilege)}`,
+    ).toBe(granted.includes(privilege));
+  }
+}
+
+describe("migración correctiva 20260924130000_profiles_service_role_privileges.sql", () => {
+  it("solo revoca TRUNCATE, REFERENCES y TRIGGER de service_role sobre public.profiles", () => {
+    const statements = fixCode
+      .split(";")
+      .map((s) => s.trim())
+      .filter(Boolean);
+    expect(statements).toHaveLength(1);
+    expect(statements[0].replace(/\s+/g, " ")).toBe(
+      "revoke truncate, references, trigger on table public.profiles from service_role",
+    );
+  });
+
+  it("no toca anon, authenticated, PUBLIC, RLS, policies, trigger, función, columnas ni datos", () => {
+    expect(fixCode).not.toMatch(
+      /\b(anon|authenticated|public\s*;|to public|from public)\b/i,
+    );
+    expect(fixCode).not.toMatch(
+      /\b(grant|alter|create|drop|insert|update|delete|truncate\s+table|policy|trigger\s+\w+\s+(before|after)|function)\b/i,
+    );
+    expect(fixCode).not.toMatch(/revoke\s+all/i);
+  });
+
+  it("no revoca SELECT/INSERT/UPDATE/DELETE de service_role", () => {
+    const revoked = /revoke\s+([^;]+?)\s+on table/i.exec(fixCode)![1];
+    for (const kept of ["select", "insert", "update", "delete"]) {
+      expect(revoked.toLowerCase()).not.toContain(kept);
+    }
+  });
+
+  it("no contiene secretos", () => {
+    expect(fixSql).not.toMatch(/eyJ[A-Za-z0-9_-]{20,}|sk_live|BEGIN (RSA|PRIVATE)/i);
+  });
+});
+
+describe("estado final efectivo = migración histórica + correctiva", () => {
+  const acl = effectivePrivileges(code, fixCode);
+
+  it("anon: solo SELECT", () => expectPrivileges(acl, "anon", ["select"]));
+  it("authenticated: solo SELECT", () =>
+    expectPrivileges(acl, "authenticated", ["select"]));
+  it("PUBLIC: ningún privilegio", () => expectPrivileges(acl, "public", []));
+  it("service_role: SELECT, INSERT, UPDATE y DELETE; sin TRUNCATE, REFERENCES ni TRIGGER", () =>
+    expectPrivileges(acl, "service_role", ["select", "insert", "update", "delete"]));
+
+  it("documenta el hallazgo: solo con la migración histórica service_role conservaba TRUNCATE/REFERENCES/TRIGGER", () => {
+    const historicalOnly = effectivePrivileges(code);
+    expect([...historicalOnly.service_role].sort()).toEqual(
+      [...ALL_TABLE_PRIVILEGES].sort(),
+    );
+    // Y la correctiva elimina exactamente esos tres, nada más.
+    const removed = [...historicalOnly.service_role].filter(
+      (p) => !acl.service_role.has(p),
+    );
+    expect(removed.sort()).toEqual(["references", "trigger", "truncate"]);
+  });
+
+  it("la migración histórica sigue intacta: no menciona la corrección", () => {
+    expect(sql).not.toMatch(/truncate|references, trigger/i);
+    expect(sql).toMatch(
+      /grant select, insert, update, delete on table public\.profiles to service_role;/,
+    );
+  });
+});

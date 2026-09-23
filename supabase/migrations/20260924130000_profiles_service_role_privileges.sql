@@ -1,0 +1,14 @@
+-- Corrección de privilegios de service_role sobre public.profiles (migración correctiva
+-- posterior a 20260924120000_profiles.sql, que ya está aplicada y NO se modifica).
+--
+-- Hallazgo (verificación real contra Supabase tras aplicar profiles): service_role
+-- conservaba, además de SELECT/INSERT/UPDATE/DELETE, los privilegios TRUNCATE, REFERENCES
+-- y TRIGGER. Vienen de los default privileges de Supabase en el esquema `public` (que
+-- conceden todos los privilegios a service_role sobre tablas nuevas): la migración
+-- original revocó `all` solo a public/anon/authenticated y concedió explícitamente los
+-- cuatro privilegios previstos, pero no quitaba lo heredado por defecto a service_role.
+--
+-- Esta migración revoca ÚNICAMENTE esos tres privilegios inesperados. service_role
+-- conserva SELECT, INSERT, UPDATE y DELETE. No toca anon, authenticated ni PUBLIC, ni
+-- RLS/FORCE RLS, policies, constraints, trigger, función, columnas o datos.
+revoke truncate, references, trigger on table public.profiles from service_role;
