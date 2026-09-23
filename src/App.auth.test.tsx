@@ -8,11 +8,12 @@ import { MemoryRouter } from "react-router-dom";
 // AdminAuthLayout, AdminDashboardPage y el routing de App son los reales.
 
 const authFakes = vi.hoisted(() => ({
-  session: null as null | { access_token: string; user: { id: string } },
+  session: null as null | { access_token: string; user: { id: string; email?: string } },
   getSessionCalls: 0,
   onAuthStateChangeCalls: 0,
   unsubscribeCalls: 0,
   signInCalls: [] as { email: string; password: string }[],
+  signOutCalls: 0,
   emit: undefined as ((session: unknown) => void) | undefined,
 }));
 
@@ -25,6 +26,12 @@ vi.mock("@/lib/supabase", () => ({
       },
       async signInWithPassword(credentials: { email: string; password: string }) {
         authFakes.signInCalls.push(credentials);
+        return { error: null };
+      },
+      async signOut() {
+        authFakes.signOutCalls++;
+        // Efecto real de Supabase: el listener global recibe SIGNED_OUT.
+        authFakes.emit?.(null);
         return { error: null };
       },
       onAuthStateChange(callback: (event: string, session: unknown) => void) {
@@ -92,6 +99,7 @@ beforeEach(() => {
   authFakes.onAuthStateChangeCalls = 0;
   authFakes.unsubscribeCalls = 0;
   authFakes.signInCalls = [];
+  authFakes.signOutCalls = 0;
   authFakes.emit = undefined;
   vi.stubGlobal("fetch", vi.fn());
 });
@@ -250,6 +258,75 @@ describe("/signup público (Bloque 6D)", () => {
     fireEvent.click(await screen.findByRole("link", { name: "Crear cuenta" }));
 
     expect(await screen.findByLabelText("Confirmar contraseña")).toBeInTheDocument();
+    expect(authFakes.onAuthStateChangeCalls).toBe(1);
+    expect(adminMeCalls()).toHaveLength(0);
+    expect(fetch).not.toHaveBeenCalled();
+  });
+});
+
+describe("/account privado (Bloque 6E)", () => {
+  it("sigue lazy-loaded: el contenido solo aparece cuando carga el chunk de /account", async () => {
+    authFakes.session = {
+      access_token: "at-sintetico",
+      user: { id: "u1", email: "fan@example.com" },
+    };
+    renderAt("/account");
+
+    expect(screen.queryByRole("button", { name: "Cerrar sesión" })).toBeNull();
+    expect(
+      await screen.findByRole("button", { name: "Cerrar sesión" }),
+    ).toBeInTheDocument();
+  });
+
+  it("sin sesión: /account redirige a /login", async () => {
+    renderAt("/account");
+
+    expect(await screen.findByLabelText("Email")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Cerrar sesión" })).toBeNull();
+  });
+
+  it("flujo real: login → Header 'Cuenta' → /account → logout → visitante, con un solo listener y sin /api/admin/me", async () => {
+    renderAt("/terms");
+    await waitFor(() =>
+      expect(screen.getByTestId("probe")).toHaveTextContent("sin-sesion"),
+    );
+
+    // login
+    fireEvent.click(screen.getByRole("link", { name: /iniciar sesión/i }));
+    fireEvent.change(await screen.findByLabelText("Email"), {
+      target: { value: "fan@example.com" },
+    });
+    fireEvent.change(screen.getByLabelText("Contraseña"), {
+      target: { value: "clave-sintetica-1" },
+    });
+    fireEvent.submit(screen.getByLabelText("Email").closest("form")!);
+    expect(await screen.findByText("Home stub")).toBeInTheDocument();
+
+    // la sesión llega por el listener global → Header pasa a "Cuenta" (enlace a /account)
+    act(() =>
+      authFakes.emit?.({
+        access_token: "at-sintetico",
+        user: { id: "u1", email: "fan@example.com" },
+      }),
+    );
+    const accountLink = await screen.findByRole("link", { name: "Cuenta" });
+    expect(accountLink).toHaveAttribute("href", "/account");
+
+    // /account
+    fireEvent.click(accountLink);
+    expect(await screen.findByRole("status")).toHaveTextContent(
+      "Sesión activa como fan@example.com.",
+    );
+
+    // logout → estado visitante (redirige a /login y el Header vuelve a "Iniciar sesión")
+    fireEvent.click(screen.getByRole("button", { name: "Cerrar sesión" }));
+    expect(await screen.findByLabelText("Email")).toBeInTheDocument();
+    expect(authFakes.signOutCalls).toBe(1);
+    expect(screen.queryByRole("link", { name: "Cuenta" })).toBeNull();
+    expect(
+      screen.getAllByRole("link", { name: /iniciar sesión/i }).length,
+    ).toBeGreaterThan(0);
+
     expect(authFakes.onAuthStateChangeCalls).toBe(1);
     expect(adminMeCalls()).toHaveLength(0);
     expect(fetch).not.toHaveBeenCalled();

@@ -64,12 +64,6 @@ function renderHeader() {
 const LOGIN = /iniciar sesión/i;
 const ACCOUNT = /^cuenta$/i;
 
-// "Cuenta" (sin /account todavía) no debe exponerse como control interactivo.
-function expectAccountNotInteractive(scope: Pick<typeof screen, "queryByRole"> = screen) {
-  expect(scope.queryByRole("button", { name: ACCOUNT })).toBeNull();
-  expect(scope.queryByRole("link", { name: ACCOUNT })).toBeNull();
-}
-
 beforeEach(() => {
   authFakes.session = null;
   authFakes.sessionGate = null;
@@ -123,26 +117,26 @@ describe("Header — estado de sesión (Bloque 6B)", () => {
     expect(screen.getByTestId("location")).toHaveTextContent("/login");
   });
 
-  it("sesión autenticada: muestra 'Cuenta' y no 'Iniciar sesión', sin control interactivo", async () => {
+  it("sesión autenticada: 'Cuenta' es un enlace SPA a /account y no aparece 'Iniciar sesión'", async () => {
     authFakes.session = fakeSession();
     renderHeader();
     await act(async () => {});
 
-    expect(screen.getByText(ACCOUNT)).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: ACCOUNT })).toHaveAttribute(
+      "href",
+      "/account",
+    );
     expect(screen.queryByText(LOGIN)).toBeNull();
-    expectAccountNotInteractive();
   });
 
-  it("'Cuenta' es un elemento no interactivo: span sin tabindex, sin role y fuera de button/a", async () => {
+  it("sesión autenticada: hacer click en 'Cuenta' navega a /account", async () => {
     authFakes.session = fakeSession();
     renderHeader();
     await act(async () => {});
 
-    const el = screen.getByText(ACCOUNT);
-    expect(el.tagName).toBe("SPAN");
-    expect(el).not.toHaveAttribute("tabindex");
-    expect(el).not.toHaveAttribute("role");
-    expect(el.closest("button, a")).toBeNull();
+    fireEvent.click(screen.getByRole("link", { name: ACCOUNT }));
+
+    expect(screen.getByTestId("location")).toHaveTextContent("/account");
   });
 
   it("cambio de sesión: responde al contexto global con un único listener", async () => {
@@ -159,7 +153,7 @@ describe("Header — estado de sesión (Bloque 6B)", () => {
     expect(authFakes.onAuthStateChangeCalls).toBe(1);
   });
 
-  it("menú móvil: mismo estado dentro de #mobile-nav (enlace a /login para visitante, 'Cuenta' no interactivo)", async () => {
+  it("menú móvil: mismo estado dentro de #mobile-nav (enlace a /login para visitante, a /account para autenticado)", async () => {
     renderHeader();
     await act(async () => {});
     fireEvent.click(screen.getByRole("button", { name: "Abrir menú" }));
@@ -171,9 +165,24 @@ describe("Header — estado de sesión (Bloque 6B)", () => {
     );
 
     act(() => authFakes.emit?.(fakeSession()));
-    expect(within(mobileNav).getByText(ACCOUNT)).toBeInTheDocument();
+    expect(within(mobileNav).getByRole("link", { name: ACCOUNT })).toHaveAttribute(
+      "href",
+      "/account",
+    );
     expect(within(mobileNav).queryByText(LOGIN)).toBeNull();
-    expectAccountNotInteractive(within(mobileNav));
+  });
+
+  it("menú móvil autenticado: pulsar 'Cuenta' navega a /account y cierra el menú", async () => {
+    authFakes.session = fakeSession();
+    renderHeader();
+    await act(async () => {});
+    fireEvent.click(screen.getByRole("button", { name: "Abrir menú" }));
+    const mobileNav = document.getElementById("mobile-nav") as HTMLElement;
+
+    fireEvent.click(within(mobileNav).getByRole("link", { name: ACCOUNT }));
+
+    expect(screen.getByTestId("location")).toHaveTextContent("/account");
+    expect(document.getElementById("mobile-nav")).toBeNull();
   });
 
   it("menú móvil: pulsar 'Iniciar sesión' navega a /login y cierra el menú", async () => {

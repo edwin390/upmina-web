@@ -19,6 +19,7 @@ const CommunitySection = lazy(() => import("./components/community/CommunitySect
 // Su propio chunk: las páginas /admin/* solo se descargan al entrar a /admin/*.
 const LoginPage = lazy(() => import("./pages/LoginPage"));
 const SignupPage = lazy(() => import("./pages/SignupPage"));
+const AccountPage = lazy(() => import("./pages/AccountPage"));
 const AdminAuthLayout = lazy(() => import("./pages/admin/AdminAuthLayout"));
 const AdminLoginPage = lazy(() => import("./pages/admin/AdminLoginPage"));
 const AdminSignupPage = lazy(() => import("./pages/admin/AdminSignupPage"));
@@ -114,6 +115,7 @@ function AppShell() {
             <Route path="/privacy" element={<PrivacyPage />} />
             <Route path="/login" element={<LoginPage />} />
             <Route path="/signup" element={<SignupPage />} />
+            <Route path="/account" element={<AccountPage />} />
             <Route element={<AdminAuthLayout />}>
               <Route path="/admin" element={<AdminDashboardPage />} />
               <Route path="/admin/login" element={<AdminLoginPage />} />

@@ -12,14 +12,12 @@ const NAV_LINKS = [
   { to: "/comunidad", label: "Comunidad" },
 ];
 
-// Estado de sesión en la navegación (Bloque 6B). Solo conoce session == null o != null
-// del AuthProvider global: no distingue USER/MODERATOR/ADMIN, no muestra datos de la
-// cuenta y no es autorización de nada (eso es server-side, ver /api/admin/me). Mientras
-// loading=true reserva el espacio sin mostrar ninguna etiqueta, para no parpadear
-// "Iniciar sesión" -> "Cuenta" ni desplazar el layout.
-// Visitante (Bloque 6C): "Iniciar sesión" es un enlace SPA a /login. Autenticado:
-// "Cuenta" es un <span> deliberadamente NO interactivo (sin button/link, sin foco, sin
-// hover) hasta que exista una página de cuenta; no se inventan controles inertes.
+// Estado de sesión en la navegación (Bloques 6B/6C/6E): visitante -> "Iniciar sesión"
+// (/login); autenticado -> "Cuenta" (/account). Ambos son enlaces SPA.
+// Solo conoce session == null o != null del AuthProvider global: no distingue
+// USER/MODERATOR/ADMIN, no muestra datos de la cuenta y no es autorización de nada
+// (eso es server-side, ver /api/admin/me). Mientras loading=true reserva el espacio
+// sin mostrar ninguna etiqueta, para no parpadear ni desplazar el layout.
 function SessionAction({
   variant,
   onNavigate,
@@ -40,32 +38,19 @@ function SessionAction({
     );
   }
 
-  if (!session) {
-    return (
-      <Link
-        to="/login"
-        onClick={onNavigate}
-        className={
-          variant === "desktop"
-            ? "hidden min-h-9 items-center rounded-md border border-border-subtle px-4 py-2 text-sm font-semibold text-text-secondary transition-colors duration-200 ease-smooth hover:border-accent-primary/60 hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-secondary md:inline-flex"
-            : "block rounded-md px-3 py-2 text-sm text-text-secondary transition-colors duration-200 ease-smooth hover:bg-bg-elevated hover:text-accent-primary"
-        }
-      >
-        Iniciar sesión
-      </Link>
-    );
-  }
-
+  // Visitante -> /login; autenticado -> /account. Solo distingue session == null o != null.
   return (
-    <span
+    <Link
+      to={session ? "/account" : "/login"}
+      onClick={onNavigate}
       className={
         variant === "desktop"
-          ? "hidden min-h-9 items-center rounded-md border border-border-subtle px-4 py-2 text-sm font-semibold text-text-secondary md:inline-flex"
-          : "block rounded-md px-3 py-2 text-sm text-text-secondary"
+          ? "hidden min-h-9 items-center rounded-md border border-border-subtle px-4 py-2 text-sm font-semibold text-text-secondary transition-colors duration-200 ease-smooth hover:border-accent-primary/60 hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-secondary md:inline-flex"
+          : "block rounded-md px-3 py-2 text-sm text-text-secondary transition-colors duration-200 ease-smooth hover:bg-bg-elevated hover:text-accent-primary"
       }
     >
-      Cuenta
-    </span>
+      {session ? "Cuenta" : "Iniciar sesión"}
+    </Link>
   );
 }
 
