@@ -6,6 +6,12 @@ import type { VercelRequest, VercelResponse } from "@vercel/node";
 // se movió a exports nombrados en src/lib/tiktok-handlers.ts. Se renombran en el import
 // para no tocar el resto del archivo (mismos nombres locales que ya usaban los tests).
 import { handleTikTokCallback as callbackHandler } from "./tiktok-handlers";
+import { flowFake, resetFlowFake } from "./social-flow-supabase-fake";
+import {
+  SOCIAL_OAUTH_FLOW_TTL_MS,
+  claimSocialOAuthFlow,
+  createSocialOAuthFlow,
+} from "./social-oauth-flow";
 import {
   TIKTOK_REDIRECT_URI,
   TIKTOK_STATE_COOKIE,
@@ -17,18 +23,27 @@ import {
 // Fijan el flujo OAuth de TikTok (inicio, callback, intercambio de tokens, guardado en
 // Supabase) y que ningún secreto/token salga en respuestas, redirecciones ni logs.
 
-// Cliente de Supabase simulado: el único punto de I/O de la persistencia.
+// Cliente de Supabase simulado: el único punto de I/O de la persistencia de social_connections.
+// social_oauth_flows y admin_roles (capability del callback, Bloque 8D) usan el fake compartido,
+// con los módulos REALES encima.
 const db = vi.hoisted(() => ({ upsert: vi.fn(), createClient: vi.fn() }));
-vi.mock("@supabase/supabase-js", () => ({
-  createClient: (...args: unknown[]) => {
-    db.createClient(...args);
-    return {
-      from: (table: string) => ({
-        upsert: (row: unknown, options: unknown) => db.upsert(table, row, options),
-      }),
-    };
-  },
-}));
+vi.mock("@supabase/supabase-js", async () => {
+  const { flowFake, flowTableFor } = await import("./social-flow-supabase-fake");
+  return {
+    createClient: (...args: unknown[]) => {
+      db.createClient(...args);
+      return {
+        from: (table: string) =>
+          flowTableFor(table) ?? {
+            upsert: (row: unknown, options: unknown) => {
+              flowFake.events.push("persist");
+              return db.upsert(table, row, options);
+            },
+          },
+      };
+    },
+  };
+});
 
 const CLIENT_KEY = "ck-ficticio";
 const CLIENT_SECRET = "cs-secreto-ficticio";
@@ -98,11 +113,15 @@ const tokenBody = {
   token_type: "Bearer",
 };
 
-/** Devuelve un state válido con su cookie, como los que entrega el inicio protegido
- *  (POST /api/admin/social-connect) al navegador: mismo formato y misma cookie. */
-async function startFlow() {
-  const { state, nonce } = createTikTokState(CLIENT_SECRET);
-  return { stateParam: state, cookie: `${TIKTOK_STATE_COOKIE}=${nonce}` };
+const ADMIN_ID = "11111111-1111-4111-8111-111111111111";
+
+/** Simula un inicio autorizado (POST /api/admin/social-connect): state + cookie + flujo real. */
+async function startFlow(now?: number, admin = ADMIN_ID) {
+  const { state, nonce } = createTikTokState(CLIENT_SECRET, now);
+  await createSocialOAuthFlow("tiktok", nonce, admin, now);
+  // Crear el flujo es parte del inicio, no del callback: no cuenta como cliente del callback.
+  db.createClient.mockClear();
+  return { stateParam: state, cookie: `${TIKTOK_STATE_COOKIE}=${nonce}`, nonce };
 }
 
 let errorSpy: ReturnType<typeof vi.spyOn>;
@@ -118,12 +137,15 @@ function leaked(state: MockState) {
 }
 
 beforeEach(() => {
+  vi.stubEnv("VERCEL_ENV", "production");
   vi.stubEnv("TIKTOK_CLIENT_KEY", CLIENT_KEY);
   vi.stubEnv("TIKTOK_CLIENT_SECRET", CLIENT_SECRET);
   vi.stubEnv("VITE_SUPABASE_URL", SUPABASE_URL);
   vi.stubEnv("SUPABASE_SERVICE_ROLE_KEY", SERVICE_ROLE_KEY);
   db.upsert.mockReset().mockResolvedValue({ error: null });
   db.createClient.mockReset();
+  resetFlowFake();
+  flowFake.roles[ADMIN_ID] = "admin";
   errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 });
 
@@ -438,7 +460,6 @@ describe("api/tiktok-callback", () => {
   });
 
   it("respuesta de tokens incompleta o no JSON → 502 sin filtrar lo recibido", async () => {
-    const { stateParam, cookie } = await startFlow();
     const { refresh_token: _drop, ...incomplete } = tokenBody;
     void _drop;
 
@@ -451,6 +472,8 @@ describe("api/tiktok-callback", () => {
         "fetch",
         vi.fn(async () => response()),
       );
+      // Cada intento necesita su propio inicio autorizado: el flujo se consume al reclamarlo.
+      const { stateParam, cookie } = await startFlow();
       const { res, state } = mockRes();
       await callbackHandler(req({ code: CODE, state: stateParam }, { cookie }), res);
       expect(state.status).toBe(502);
@@ -506,5 +529,384 @@ describe("api/tiktok-callback", () => {
 
     expect(state.redirectTo).toBeUndefined();
     expect(leaked(state)).toBe(false);
+  });
+});
+
+describe("api/tiktok-callback: capability server-side (Bloque 8D)", () => {
+  const TTL = SOCIAL_OAUTH_FLOW_TTL_MS;
+  const GENERIC_400 = "La solicitud de autorización no es válida o caducó";
+
+  type Started = { stateParam: string; cookie: string; nonce: string };
+  const callbackFor = (started: Pick<Started, "stateParam" | "cookie">) =>
+    req({ code: CODE, state: started.stateParam }, { cookie: started.cookie });
+
+  /** Fetch de TikTok que registra el intercambio en la cronología. */
+  function exchangeFetch(onExchange?: () => void | Promise<void>) {
+    return vi.fn(async () => {
+      flowFake.events.push("exchange");
+      await onExchange?.();
+      return jsonResponse(tokenBody);
+    });
+  }
+
+  function expectNoExchangeNoPersist(fetchMock: ReturnType<typeof vi.fn>) {
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(db.upsert).not.toHaveBeenCalled();
+    expect(flowFake.events).not.toContain("exchange");
+    expect(flowFake.events).not.toContain("persist");
+  }
+
+  it("fuera de Production → 403 ANTES de reclamar el flujo (sin claim, roles, exchange ni escritura)", async () => {
+    const started = await startFlow();
+    flowFake.events = [];
+    const fetchMock = exchangeFetch();
+    vi.stubGlobal("fetch", fetchMock);
+
+    for (const env of ["preview", "development", ""]) {
+      vi.stubEnv("VERCEL_ENV", env);
+      const { res, state } = mockRes();
+      await callbackHandler(callbackFor(started), res);
+      expect(state.status).toBe(403);
+      expect(String(state.body)).toContain("solo puede completarse en Production");
+    }
+    expect(flowFake.events).toEqual([]);
+    expect(flowFake.flows.get("tiktok")?.consumed_at).toBeNull();
+    expectNoExchangeNoPersist(fetchMock);
+    expect(db.createClient).not.toHaveBeenCalled();
+  });
+
+  it("el guard de Production no rompe el routing: método incorrecto sigue dando 405 en cualquier entorno", async () => {
+    vi.stubEnv("VERCEL_ENV", "preview");
+    const { res, state } = mockRes();
+    await callbackHandler(req({}, { method: "POST" }), res);
+    expect(state.status).toBe(405);
+  });
+
+  it("state con firma inválida → 400 sin reclamar el flujo; el flujo sigue intacto", async () => {
+    const started = await startFlow();
+    const [n, expires] = started.stateParam.split(".");
+    const fetchMock = exchangeFetch();
+    vi.stubGlobal("fetch", fetchMock);
+    flowFake.events = [];
+
+    const { res, state } = mockRes();
+    await callbackHandler(
+      req(
+        { code: CODE, state: `${n}.${expires}.firma-falsa` },
+        { cookie: started.cookie },
+      ),
+      res,
+    );
+
+    expect(state.status).toBe(400);
+    expect(flowFake.events).toEqual([]);
+    expect(flowFake.flows.get("tiktok")?.consumed_at).toBeNull();
+    expectNoExchangeNoPersist(fetchMock);
+  });
+
+  it("cookie ausente o distinta → 400 sin reclamar el flujo", async () => {
+    const started = await startFlow();
+    const fetchMock = exchangeFetch();
+    vi.stubGlobal("fetch", fetchMock);
+    flowFake.events = [];
+
+    for (const cookie of [undefined, `${TIKTOK_STATE_COOKIE}=otro-nonce`]) {
+      const { res, state } = mockRes();
+      await callbackHandler(
+        req({ code: CODE, state: started.stateParam }, { cookie }),
+        res,
+      );
+      expect(state.status).toBe(400);
+    }
+    expect(flowFake.events).toEqual([]);
+    expectNoExchangeNoPersist(fetchMock);
+  });
+
+  it("flujo inexistente (state y cookie válidos, sin inicio autorizado) → 400, sin exchange ni escritura", async () => {
+    const { state: st, nonce } = createTikTokState(CLIENT_SECRET);
+    const fetchMock = exchangeFetch();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { res, state } = mockRes();
+    await callbackHandler(
+      req({ code: CODE, state: st }, { cookie: `${TIKTOK_STATE_COOKIE}=${nonce}` }),
+      res,
+    );
+
+    expect(state.status).toBe(400);
+    expect(String(state.body)).toContain(GENERIC_400);
+    expect(flowFake.events).toEqual(["claim"]);
+    expectNoExchangeNoPersist(fetchMock);
+  });
+
+  it("flujo expirado antes del claim → 400, sin exchange ni escritura", async () => {
+    const { state: st, nonce } = createTikTokState(CLIENT_SECRET);
+    await createSocialOAuthFlow("tiktok", nonce, ADMIN_ID, Date.now() - TTL - 1_000);
+    const fetchMock = exchangeFetch();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { res, state } = mockRes();
+    await callbackHandler(
+      req({ code: CODE, state: st }, { cookie: `${TIKTOK_STATE_COOKIE}=${nonce}` }),
+      res,
+    );
+
+    expect(state.status).toBe(400);
+    expect(flowFake.flows.get("tiktok")?.consumed_at).toBeNull();
+    expectNoExchangeNoPersist(fetchMock);
+  });
+
+  it("flujo ya consumido → 400, sin exchange ni escritura", async () => {
+    const started = await startFlow();
+    await claimSocialOAuthFlow("tiktok", started.nonce);
+    const fetchMock = exchangeFetch();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { res, state } = mockRes();
+    await callbackHandler(callbackFor(started), res);
+
+    expect(state.status).toBe(400);
+    expectNoExchangeNoPersist(fetchMock);
+  });
+
+  it("flujo reemplazado antes del claim (latest-wins) → 400 sin exchange, y NO consume el flujo nuevo", async () => {
+    const a = await startFlow();
+    const b = await startFlow();
+    const fetchMock = exchangeFetch();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { res, state } = mockRes();
+    await callbackHandler(callbackFor(a), res);
+
+    expect(state.status).toBe(400);
+    expect(flowFake.flows.get("tiktok")?.consumed_at).toBeNull();
+    expectNoExchangeNoPersist(fetchMock);
+
+    const ok = mockRes();
+    await callbackHandler(callbackFor(b), ok.res);
+    expect(ok.state.status).toBe(200);
+  });
+
+  it("el admin que se comprueba es el del FLUJO (no uno fijo): otro ADMIN con rol → 200", async () => {
+    const OTHER_ADMIN = "55555555-5555-4555-8555-555555555555";
+    flowFake.roles = { [OTHER_ADMIN]: "admin" }; // ADMIN_ID ya no tiene rol
+    const started = await startFlow(undefined, OTHER_ADMIN);
+    vi.stubGlobal("fetch", exchangeFetch());
+
+    const { res, state } = mockRes();
+    await callbackHandler(callbackFor(started), res);
+
+    expect(state.status).toBe(200);
+    expect(db.upsert).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    ["admin revocado (sin rol)", undefined],
+    ["degradado a MODERATOR", "moderator"],
+  ])(
+    "%s → 400 genérico, sin exchange ni escritura; el flujo queda consumido",
+    async (_n, role) => {
+      const started = await startFlow();
+      flowFake.roles[ADMIN_ID] = role;
+      const fetchMock = exchangeFetch();
+      vi.stubGlobal("fetch", fetchMock);
+      flowFake.events = [];
+
+      const { res, state } = mockRes();
+      await callbackHandler(callbackFor(started), res);
+
+      expect(state.status).toBe(400);
+      expect(String(state.body)).toContain(GENERIC_400);
+      expect(flowFake.events).toEqual(["claim", "roles"]);
+      expect(flowFake.flows.get("tiktok")?.consumed_at).not.toBeNull();
+      expectNoExchangeNoPersist(fetchMock);
+    },
+  );
+
+  it("error de base de datos al comprobar el rol → 500 fail-closed, sin exchange ni escritura", async () => {
+    const started = await startFlow();
+    flowFake.failOn.roles = { code: "57014", message: "detalle interno" };
+    const fetchMock = exchangeFetch();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { res, state } = mockRes();
+    await callbackHandler(callbackFor(started), res);
+
+    expect(state.status).toBe(500);
+    expect(String(state.body)).not.toContain("detalle interno");
+    expectNoExchangeNoPersist(fetchMock);
+  });
+
+  it("error de base de datos en el claim → 500 fail-closed, sin exchange ni escritura", async () => {
+    const started = await startFlow();
+    flowFake.failOn.claim = { code: "42501", message: "detalle interno" };
+    const fetchMock = exchangeFetch();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { res, state } = mockRes();
+    await callbackHandler(callbackFor(started), res);
+
+    expect(state.status).toBe(500);
+    expectNoExchangeNoPersist(fetchMock);
+  });
+
+  it("si el intercambio falla tras el claim, el flujo queda consumido y un reintento no puede reclamarlo", async () => {
+    const started = await startFlow();
+    const failing = vi.fn(async () => jsonResponse({ error: "invalid_grant" }, 400));
+    vi.stubGlobal("fetch", failing);
+
+    const first = mockRes();
+    await callbackHandler(callbackFor(started), first.res);
+    expect(first.state.status).toBe(502);
+    expect(db.upsert).not.toHaveBeenCalled();
+    expect(flowFake.flows.get("tiktok")?.consumed_at).not.toBeNull();
+    const callsAfterFirst = failing.mock.calls.length;
+
+    const retry = mockRes();
+    await callbackHandler(callbackFor(started), retry.res);
+    expect(retry.state.status).toBe(400);
+    expect(failing.mock.calls.length).toBe(callsAfterFirst);
+  });
+
+  it("callback repetido con éxito: el segundo intento no puede reclamar ni contactar a TikTok", async () => {
+    const started = await startFlow();
+    const fetchMock = exchangeFetch();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const first = mockRes();
+    await callbackHandler(callbackFor(started), first.res);
+    expect(first.state.status).toBe(200);
+    const calls = fetchMock.mock.calls.length;
+
+    const second = mockRes();
+    await callbackHandler(callbackFor(started), second.res);
+    expect(second.state.status).toBe(400);
+    expect(fetchMock.mock.calls.length).toBe(calls);
+    expect(db.upsert).toHaveBeenCalledTimes(1);
+  });
+
+  it("dos callbacks concurrentes del mismo flujo: solo uno completa", async () => {
+    const started = await startFlow();
+    vi.stubGlobal("fetch", exchangeFetch());
+
+    const a = mockRes();
+    const b = mockRes();
+    await Promise.all([
+      callbackHandler(callbackFor(started), a.res),
+      callbackHandler(callbackFor(started), b.res),
+    ]);
+
+    expect([a.state.status, b.state.status].sort()).toEqual([200, 400]);
+    expect(db.upsert).toHaveBeenCalledTimes(1);
+  });
+
+  it("flujo reemplazado DURANTE el intercambio → current=false, no se persiste", async () => {
+    const a = await startFlow();
+    vi.stubGlobal(
+      "fetch",
+      exchangeFetch(async () => {
+        await createSocialOAuthFlow("tiktok", "nonce-de-B-durante-el-exchange", ADMIN_ID);
+      }),
+    );
+
+    const { res, state } = mockRes();
+    await callbackHandler(callbackFor(a), res);
+
+    expect(state.status).toBe(400);
+    expect(String(state.body)).toContain(GENERIC_400);
+    expect(db.upsert).not.toHaveBeenCalled();
+    expect(flowFake.events).not.toContain("persist");
+  });
+
+  it("orquestación: claim → rol → exchange → current → persistencia, en ese orden", async () => {
+    const started = await startFlow();
+    flowFake.events = [];
+    vi.stubGlobal("fetch", exchangeFetch());
+
+    const { res, state } = mockRes();
+    await callbackHandler(callbackFor(started), res);
+
+    expect(state.status).toBe(200);
+    expect(flowFake.events).toEqual(["claim", "roles", "exchange", "current", "persist"]);
+  });
+
+  it("cruzar el TTL DURANTE el intercambio no invalida el flujo ya reclamado (current no exige expires_at)", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      vi.setSystemTime(Date.UTC(2026, 8, 25, 12, 0, 0));
+      const started = await startFlow();
+      vi.stubGlobal(
+        "fetch",
+        exchangeFetch(() => {
+          vi.setSystemTime(Date.now() + TTL + 60_000);
+        }),
+      );
+
+      const { res, state } = mockRes();
+      await callbackHandler(callbackFor(started), res);
+
+      expect(state.status).toBe(200);
+      expect(db.upsert).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("todos los rechazos de la capability tienen la MISMA respuesta pública y limpian la cookie", async () => {
+    vi.stubGlobal("fetch", exchangeFetch());
+    const pages: string[] = [];
+    const results: MockState[] = [];
+
+    const { state: st1, nonce: n1 } = createTikTokState(CLIENT_SECRET);
+    const r1 = mockRes();
+    await callbackHandler(
+      req({ code: CODE, state: st1 }, { cookie: `${TIKTOK_STATE_COOKIE}=${n1}` }),
+      r1.res,
+    );
+    results.push(r1.state);
+
+    const s2 = await startFlow();
+    await claimSocialOAuthFlow("tiktok", s2.nonce);
+    const r2 = mockRes();
+    await callbackHandler(callbackFor(s2), r2.res);
+    results.push(r2.state);
+
+    const s3 = await startFlow();
+    await startFlow();
+    const r3 = mockRes();
+    await callbackHandler(callbackFor(s3), r3.res);
+    results.push(r3.state);
+
+    const s4 = await startFlow();
+    flowFake.roles = {};
+    const r4 = mockRes();
+    await callbackHandler(callbackFor(s4), r4.res);
+    results.push(r4.state);
+
+    for (const r of results) {
+      expect(r.status).toBe(400);
+      pages.push(String(r.body));
+      expect(r.headers["Set-Cookie"]).toContain("Max-Age=0");
+    }
+    expect(new Set(pages).size).toBe(1);
+  });
+
+  it("ni las respuestas ni los logs contienen nonce, state, id del admin ni el rol", async () => {
+    const started = await startFlow();
+    flowFake.roles = {};
+    vi.stubGlobal("fetch", exchangeFetch());
+    const { res, state } = mockRes();
+    await callbackHandler(callbackFor(started), res);
+
+    const wire = `${JSON.stringify(state)}${JSON.stringify(errorSpy.mock.calls)}`;
+    for (const secret of [
+      started.nonce,
+      started.stateParam,
+      ADMIN_ID,
+      "moderator",
+      "aal2",
+    ]) {
+      expect(wire).not.toContain(secret);
+    }
   });
 });

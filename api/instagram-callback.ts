@@ -17,13 +17,28 @@ import {
 import {
   InstagramStorageError,
   assertInstagramStorageConfigured,
-  claimInstagramOAuthNonce,
   logInstagramStorageError,
   saveInstagramConnection,
 } from "../src/lib/instagram-connection.js";
+import { AdminAuthError, requireAdminRoleForUser } from "../src/lib/admin-auth.js";
+import {
+  claimSocialOAuthFlow,
+  isSocialOAuthFlowCurrent,
+} from "../src/lib/social-oauth-flow.js";
 
 function first(value: string | string[] | undefined): string | undefined {
   return Array.isArray(value) ? value[0] : value;
+}
+
+/** Un fallo de infraestructura de la capability server-side (Supabase, admin_roles) es
+ *  siempre fail-closed y sale como un 500 genérico: nunca como "no autorizado" ni con detalle. */
+async function failClosed<T>(operation: () => Promise<T>): Promise<T> {
+  try {
+    return await operation();
+  } catch (err) {
+    if (err instanceof InstagramOAuthError) throw err;
+    throw new InstagramOAuthError("infraestructura del flujo OAuth no disponible", 500);
+  }
 }
 
 function page(res: VercelResponse, status: number, title: string, message: string) {
@@ -89,22 +104,50 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     // ANTES de gastarlo en el intercambio.
     assertInstagramStorageConfigured();
 
-    // Reclama el nonce de forma ATÓMICA antes de tocar Meta o Supabase: una repetición
-    // de este mismo callback (mismo state) o dos peticiones concurrentes deben fallar
-    // aquí, sin depender de que Instagram rechace un authorization code ya usado.
-    const claim = await claimInstagramOAuthNonce(
-      verifiedState.nonce,
-      verifiedState.expiresAt,
+    // Capability server-side (Bloque 8D): el callback solo puede completarse si nació de un
+    // inicio autorizado por un ADMIN+AAL2 (POST /api/admin/social-connect). El flujo se
+    // reclama de forma ATÓMICA (un solo uso, vigencia, proveedor y que siga siendo el mas
+    // reciente) ANTES de tocar Meta o Supabase; sustituye a la antigua barrera
+    // instagram_oauth_nonces. Todos los rechazos comparten el mismo 400 genérico: no se
+    // distingue inexistente/expirado/consumido/sustituido ni admin revocado.
+    const claim = await failClosed(() =>
+      claimSocialOAuthFlow("instagram", verifiedState.nonce),
     );
-    if (claim === "already_used") {
-      throw new InstagramOAuthError("Esta autorización ya se procesó", 409);
+    if (claim.status !== "claimed") {
+      throw new InstagramOAuthError("flujo OAuth no reclamable", 400);
     }
+    // El AAL2 se exigió al iniciar; aquí solo se comprueba que ese usuario SIGUE siendo ADMIN.
+    // El flujo ya queda consumido aunque falle.
+    await failClosed(async () => {
+      try {
+        await requireAdminRoleForUser(claim.adminUserId);
+      } catch (err) {
+        if (err instanceof AdminAuthError) {
+          throw new InstagramOAuthError("administrador ya no autorizado", 400);
+        }
+        throw err;
+      }
+    });
 
     const shortLived = await exchangeInstagramCode(code, credentials);
     const longLived = await exchangeForLongLivedToken(
       shortLived.accessToken,
       credentials,
     );
+
+    // Justo antes de persistir: si un inicio más reciente sustituyó el flujo durante el
+    // intercambio, esta autorización ya no es la vigente y NO puede sobrescribir la conexión.
+    // (No se vuelve a exigir expires_at: la vigencia se comprobó al reclamar.) Riesgo residual
+    // R1 aceptado: la ventana entre esta comprobación y el upsert no es atómica.
+    const stillCurrent = await failClosed(() =>
+      isSocialOAuthFlowCurrent("instagram", verifiedState.nonce),
+    );
+    if (!stillCurrent) {
+      throw new InstagramOAuthError(
+        "flujo OAuth reemplazado durante el intercambio",
+        400,
+      );
+    }
 
     try {
       await saveInstagramConnection({

@@ -14,6 +14,9 @@ import {
   tikTokErrorStatus,
   verifyTikTokState,
 } from "./tiktok-shared.js";
+import { AdminAuthError, requireAdminRoleForUser } from "./admin-auth.js";
+import { isProductionEnvironment } from "./instagram-oauth-shared.js";
+import { claimSocialOAuthFlow, isSocialOAuthFlowCurrent } from "./social-oauth-flow.js";
 import {
   TikTokConnectionError,
   TikTokStorageError,
@@ -43,6 +46,17 @@ function first(value: string | string[] | undefined): string | undefined {
 
 // ---------- /api/tiktok-callback ----------
 
+/** Un fallo de infraestructura de la capability server-side (Supabase, admin_roles) es
+ *  siempre fail-closed y sale como un 500 genérico: nunca como "no autorizado" ni con detalle. */
+async function failClosed<T>(operation: () => Promise<T>): Promise<T> {
+  try {
+    return await operation();
+  } catch (err) {
+    if (err instanceof TikTokOAuthError) throw err;
+    throw new TikTokOAuthError("infraestructura del flujo OAuth no disponible", 500);
+  }
+}
+
 function callbackPage(
   res: VercelResponse,
   status: number,
@@ -64,6 +78,17 @@ export async function handleTikTokCallback(req: VercelRequest, res: VercelRespon
   if (req.method !== "GET") {
     res.setHeader("Allow", "GET");
     return res.status(405).json({ error: "Método no permitido" });
+  }
+
+  // Mismo guard que el callback de Instagram: Preview comparte Supabase con Production y no
+  // debe poder completar (ni reclamar el flujo de) una autorización.
+  if (!isProductionEnvironment()) {
+    return callbackPage(
+      res,
+      403,
+      "No disponible",
+      "La conexión de TikTok solo puede completarse en Production.",
+    );
   }
 
   try {
@@ -96,7 +121,41 @@ export async function handleTikTokCallback(req: VercelRequest, res: VercelRespon
     // ANTES de gastarlo en el intercambio.
     assertTikTokStorageConfigured();
 
+    // Capability server-side (Bloque 8D): el callback solo puede completarse si nació de un
+    // inicio autorizado por un ADMIN+AAL2 (POST /api/admin/social-connect). El flujo se
+    // reclama de forma ATÓMICA (un solo uso, vigencia, proveedor y que siga siendo el mas
+    // reciente) ANTES de gastar el code. verifyTikTokState ya comprobó que el nonce del
+    // state es el de la cookie. Todos los rechazos comparten el mismo 400 genérico.
+    const nonce = cookieNonce as string;
+    const claim = await failClosed(() => claimSocialOAuthFlow("tiktok", nonce));
+    if (claim.status !== "claimed") {
+      throw new TikTokOAuthError("flujo OAuth no reclamable", 400);
+    }
+    // El AAL2 se exigió al iniciar; aquí solo se comprueba que ese usuario SIGUE siendo ADMIN.
+    // El flujo ya queda consumido aunque falle.
+    await failClosed(async () => {
+      try {
+        await requireAdminRoleForUser(claim.adminUserId);
+      } catch (err) {
+        if (err instanceof AdminAuthError) {
+          throw new TikTokOAuthError("administrador ya no autorizado", 400);
+        }
+        throw err;
+      }
+    });
+
     const tokens = await exchangeTikTokCode(code, credentials);
+
+    // Justo antes de persistir: si un inicio más reciente sustituyó el flujo durante el
+    // intercambio, esta autorización ya no es la vigente y NO puede sobrescribir la conexión.
+    // (No se vuelve a exigir expires_at: la vigencia se comprobó al reclamar.) Riesgo residual
+    // R1 aceptado: la ventana entre esta comprobación y el upsert no es atómica.
+    const stillCurrent = await failClosed(() =>
+      isSocialOAuthFlowCurrent("tiktok", nonce),
+    );
+    if (!stillCurrent) {
+      throw new TikTokOAuthError("flujo OAuth reemplazado durante el intercambio", 400);
+    }
 
     try {
       await saveTikTokConnection(tokens);
