@@ -12,6 +12,8 @@ const authFakes = vi.hoisted(() => ({
   getSessionCalls: 0,
   onAuthStateChangeCalls: 0,
   unsubscribeCalls: 0,
+  signInCalls: [] as { email: string; password: string }[],
+  emit: undefined as ((session: unknown) => void) | undefined,
 }));
 
 vi.mock("@/lib/supabase", () => ({
@@ -21,8 +23,13 @@ vi.mock("@/lib/supabase", () => ({
         authFakes.getSessionCalls++;
         return { data: { session: authFakes.session } };
       },
-      onAuthStateChange() {
+      async signInWithPassword(credentials: { email: string; password: string }) {
+        authFakes.signInCalls.push(credentials);
+        return { error: null };
+      },
+      onAuthStateChange(callback: (event: string, session: unknown) => void) {
         authFakes.onAuthStateChangeCalls++;
+        authFakes.emit = (session) => callback("SIGNED_IN", session);
         return {
           data: {
             subscription: {
@@ -41,6 +48,8 @@ vi.mock("@/lib/supabase", () => ({
     },
   },
 }));
+
+vi.mock("./pages/HomePage", () => ({ default: () => <p>Home stub</p> }));
 
 // /terms se sustituye por una sonda que consume useAuth() desde una ruta PÚBLICA y
 // ofrece un enlace hacia /admin para probar la navegación pública → admin.
@@ -82,6 +91,8 @@ beforeEach(() => {
   authFakes.getSessionCalls = 0;
   authFakes.onAuthStateChangeCalls = 0;
   authFakes.unsubscribeCalls = 0;
+  authFakes.signInCalls = [];
+  authFakes.emit = undefined;
   vi.stubGlobal("fetch", vi.fn());
 });
 
@@ -147,9 +158,10 @@ describe("AuthProvider global (Bloque 6A)", () => {
 
     fireEvent.click(screen.getByRole("link", { name: "Ir a admin" }));
 
-    expect(
-      await screen.findByRole("link", { name: /iniciar sesión/i }),
-    ).toBeInTheDocument();
+    // El CTA del dashboard apunta a /admin/login (el del Header, a /login).
+    await waitFor(() =>
+      expect(document.querySelector('main a[href="/admin/login"]')).not.toBeNull(),
+    );
     expect(authFakes.onAuthStateChangeCalls).toBe(1);
     expect(adminMeCalls()).toHaveLength(0);
   });
@@ -171,5 +183,51 @@ describe("AuthProvider global (Bloque 6A)", () => {
       await screen.findByRole("heading", { name: "Acceso admin" }),
     ).toBeInTheDocument();
     expect(authFakes.onAuthStateChangeCalls).toBe(1);
+  });
+});
+
+describe("/login público (Bloque 6C)", () => {
+  it("sigue lazy-loaded: el formulario solo aparece cuando carga el chunk de /login", async () => {
+    renderAt("/login");
+
+    expect(screen.queryByLabelText("Email")).toBeNull();
+    expect(await screen.findByLabelText("Email")).toBeInTheDocument();
+  });
+
+  it("flujo completo: Header → /login → login correcto → / con 'Cuenta', un solo listener y sin /api/admin/me", async () => {
+    renderAt("/terms");
+    await waitFor(() =>
+      expect(screen.getByTestId("probe")).toHaveTextContent("sin-sesion"),
+    );
+
+    fireEvent.click(screen.getByRole("link", { name: /iniciar sesión/i }));
+    fireEvent.change(await screen.findByLabelText("Email"), {
+      target: { value: "fan@example.com" },
+    });
+    fireEvent.change(screen.getByLabelText("Contraseña"), {
+      target: { value: "clave-sintetica-1" },
+    });
+    fireEvent.submit(
+      screen.getByRole("button", { name: /^iniciar sesión$/i }).closest("form")!,
+    );
+
+    expect(await screen.findByText("Home stub")).toBeInTheDocument();
+    expect(authFakes.signInCalls).toEqual([
+      { email: "fan@example.com", password: "clave-sintetica-1" },
+    ]);
+
+    // La sesión llega por el listener global y el Header pasa a "Cuenta" (no interactivo).
+    act(() =>
+      authFakes.emit?.({
+        access_token: "at-sintetico",
+        user: { id: "u1", email: "x@y.z" },
+      }),
+    );
+    expect(await screen.findByText("Cuenta")).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /iniciar sesión/i })).toBeNull();
+
+    expect(authFakes.onAuthStateChangeCalls).toBe(1);
+    expect(adminMeCalls()).toHaveLength(0);
+    expect(fetch).not.toHaveBeenCalled();
   });
 });

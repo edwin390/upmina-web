@@ -17,10 +17,16 @@ const NAV_LINKS = [
 // cuenta y no es autorización de nada (eso es server-side, ver /api/admin/me). Mientras
 // loading=true reserva el espacio sin mostrar ninguna etiqueta, para no parpadear
 // "Iniciar sesión" -> "Cuenta" ni desplazar el layout.
-// Por ahora es un <span> deliberadamente NO interactivo (sin button/link, sin foco, sin
-// hover): los flujos públicos de login/cuenta llegan en un bloque posterior y aquí no se
-// inventan rutas ni controles inertes.
-function SessionAction({ variant }: { variant: "desktop" | "mobile" }) {
+// Visitante (Bloque 6C): "Iniciar sesión" es un enlace SPA a /login. Autenticado:
+// "Cuenta" es un <span> deliberadamente NO interactivo (sin button/link, sin foco, sin
+// hover) hasta que exista una página de cuenta; no se inventan controles inertes.
+function SessionAction({
+  variant,
+  onNavigate,
+}: {
+  variant: "desktop" | "mobile";
+  onNavigate?: () => void;
+}) {
   const { session, loading } = useAuth();
 
   if (loading) {
@@ -34,6 +40,22 @@ function SessionAction({ variant }: { variant: "desktop" | "mobile" }) {
     );
   }
 
+  if (!session) {
+    return (
+      <Link
+        to="/login"
+        onClick={onNavigate}
+        className={
+          variant === "desktop"
+            ? "hidden min-h-9 items-center rounded-md border border-border-subtle px-4 py-2 text-sm font-semibold text-text-secondary transition-colors duration-200 ease-smooth hover:border-accent-primary/60 hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-secondary md:inline-flex"
+            : "block rounded-md px-3 py-2 text-sm text-text-secondary transition-colors duration-200 ease-smooth hover:bg-bg-elevated hover:text-accent-primary"
+        }
+      >
+        Iniciar sesión
+      </Link>
+    );
+  }
+
   return (
     <span
       className={
@@ -42,7 +64,7 @@ function SessionAction({ variant }: { variant: "desktop" | "mobile" }) {
           : "block rounded-md px-3 py-2 text-sm text-text-secondary"
       }
     >
-      {session ? "Cuenta" : "Iniciar sesión"}
+      Cuenta
     </span>
   );
 }
@@ -187,7 +209,7 @@ export default function Header({ onLogoDoubleClick }: HeaderProps) {
               {link.label}
             </NavLink>
           ))}
-          <SessionAction variant="mobile" />
+          <SessionAction variant="mobile" onNavigate={closeMenu} />
         </nav>
       )}
     </header>
