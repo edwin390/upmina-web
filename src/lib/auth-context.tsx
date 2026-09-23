@@ -7,7 +7,6 @@ import {
   type ReactNode,
 } from "react";
 import type { Session, User } from "@supabase/supabase-js";
-import { supabase } from "./supabase";
 
 // Fuente única y centralizada de "¿hay una sesión de Supabase Auth activa en este
 // navegador?" para el área /admin (Bloque 3A). Deliberadamente NO decide autorización:
@@ -16,9 +15,14 @@ import { supabase } from "./supabase";
 // (ver src/lib/admin-auth.ts) — este contexto es "¿quién eres, según Supabase Auth?",
 // no "¿qué puedes hacer?".
 //
-// Un único listener: se suscribe una vez en el <AuthProvider> más alto de la subruta
-// /admin (ver src/pages/admin/AdminAuthLayout.tsx), no en cada página. Login y signup
-// comparten la misma instancia sin duplicar la suscripción a onAuthStateChange.
+// Un único listener (Bloque 6A): AuthProvider se monta una sola vez, en la raíz de la
+// app (ver src/App.tsx), y toda ruta —pública o /admin/*— consume esa misma instancia
+// vía useAuth(), sin duplicar la suscripción a onAuthStateChange. Sigue sin ser
+// autoridad de nada: ADMIN/MODERATOR solo se deciden server-side (GET /api/admin/me).
+//
+// supabase-js (~227 kB) se importa dinámicamente dentro del efecto, después del primer
+// render, para que montar el provider globalmente no meta esa dependencia en el bundle
+// crítico de Home ni retrase su primer paint.
 
 interface AuthContextValue {
   /** Sesión completa de Supabase Auth, o null si no hay ninguna. */
@@ -35,39 +39,60 @@ const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
-  // Sin supabase configurado no hay nada que esperar: se resuelve como "sin sesión" de
-  // inmediato en vez de quedar cargando para siempre.
-  const [loading, setLoading] = useState(supabase !== null);
+  // loading=true hasta resolver la sesión inicial (incluye la carga diferida de
+  // supabase-js). Sin supabase configurado se resuelve como "sin sesión" en cuanto el
+  // módulo carga, en vez de quedar cargando para siempre.
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    if (!supabase) return;
-
     let isMounted = true;
+    let unsubscribe: (() => void) | undefined;
 
-    supabase.auth.getSession().then(({ data }) => {
-      if (!isMounted) return;
-      setSession(data.session);
-      setLoading(false);
-    });
+    void import("./supabase")
+      .then(({ supabase }) => {
+        // Desmontado mientras cargaba el módulo: no se suscribe nada.
+        if (!isMounted) return;
+        if (!supabase) {
+          setLoading(false);
+          return;
+        }
 
-    // onAuthStateChange también dispara con el estado inicial en algunos casos, pero
-    // getSession() de arriba es quien resuelve `loading`: este listener solo importa
-    // para los cambios posteriores (login, logout, refresh de token).
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, nextSession) => {
-      if (!isMounted) return;
-      setSession(nextSession);
-      setLoading(false);
-    });
+        supabase.auth
+          .getSession()
+          .then(({ data }) => {
+            if (!isMounted) return;
+            setSession(data.session);
+            setLoading(false);
+          })
+          .catch(() => {
+            // Fail closed: sin sesión conocida, sin quedar cargando para siempre.
+            if (isMounted) setLoading(false);
+          });
+
+        // onAuthStateChange también dispara con el estado inicial en algunos casos, pero
+        // getSession() de arriba es quien resuelve `loading`: este listener solo importa
+        // para los cambios posteriores (login, logout, refresh de token).
+        const {
+          data: { subscription },
+        } = supabase.auth.onAuthStateChange((_event, nextSession) => {
+          if (!isMounted) return;
+          setSession(nextSession);
+          setLoading(false);
+        });
+        unsubscribe = () => subscription.unsubscribe();
+      })
+      .catch(() => {
+        if (isMounted) setLoading(false);
+      });
 
     return () => {
       isMounted = false;
-      subscription.unsubscribe();
+      unsubscribe?.();
     };
   }, []);
 
   async function signOut() {
+    const { supabase } = await import("./supabase");
     if (!supabase) return;
     await supabase.auth.signOut();
   }

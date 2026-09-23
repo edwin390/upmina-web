@@ -37,6 +37,7 @@ vi.mock("@/lib/supabase", () => ({
   },
 }));
 
+import { AuthProvider } from "@/lib/auth-context";
 import AdminAuthLayout from "./AdminAuthLayout";
 import AdminMfaPage from "./AdminMfaPage";
 
@@ -49,12 +50,14 @@ describe("/admin/mfa dentro del área AuthProvider (routing real)", () => {
   it("se sirve bajo AdminAuthLayout y, sin sesión, no ejecuta ninguna operación MFA", async () => {
     render(
       <MemoryRouter initialEntries={["/admin/mfa"]}>
-        <Routes>
-          <Route element={<AdminAuthLayout />}>
-            <Route path="/admin/mfa" element={<AdminMfaPage />} />
-            <Route path="/admin/login" element={<p>Login stub</p>} />
-          </Route>
-        </Routes>
+        <AuthProvider>
+          <Routes>
+            <Route element={<AdminAuthLayout />}>
+              <Route path="/admin/mfa" element={<AdminMfaPage />} />
+              <Route path="/admin/login" element={<p>Login stub</p>} />
+            </Route>
+          </Routes>
+        </AuthProvider>
       </MemoryRouter>,
     );
 

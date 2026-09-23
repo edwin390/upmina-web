@@ -173,6 +173,19 @@ describe("AuthProvider / useAuth", () => {
     expect(authFakes.unsubscribeCalls).toBe(1);
   });
 
+  it("desmontar antes de que cargue supabase-js (import diferido) no deja ninguna suscripción", async () => {
+    const { unmount } = render(
+      <AuthProvider>
+        <Probe />
+      </AuthProvider>,
+    );
+    unmount();
+    await act(async () => {});
+
+    expect(authFakes.onAuthStateChangeCalls).toBe(0);
+    expect(authFakes.getSessionCalls).toBe(0);
+  });
+
   it("signOut() llama a supabase.auth.signOut()", async () => {
     authFakes.session = fakeSession();
     render(

@@ -8,6 +8,7 @@ import PrivacyPage from "./pages/PrivacyPage";
 import AmbientBackground from "./components/ui/AmbientBackground";
 import ScrollProgress from "./components/ui/ScrollProgress";
 import ScrollToTop from "./components/ui/ScrollToTop";
+import { AuthProvider } from "./lib/auth-context";
 
 // Cada sección es una ruta con su propio chunk: solo se descarga y renderiza la que se visita.
 const TwitchSection = lazy(() => import("./components/twitch/TwitchSection"));
@@ -15,8 +16,7 @@ const YouTubeSection = lazy(() => import("./components/youtube/YouTubeSection"))
 const InstagramSection = lazy(() => import("./components/instagram/InstagramSection"));
 const TikTokSection = lazy(() => import("./components/tiktok/TikTokSection"));
 const CommunitySection = lazy(() => import("./components/community/CommunitySection"));
-// Su propio chunk: Supabase Auth y el AuthProvider (src/lib/auth-context.tsx) solo se
-// descargan al entrar a /admin/*, nunca como parte del bundle de Home.
+// Su propio chunk: las páginas /admin/* solo se descargan al entrar a /admin/*.
 const AdminAuthLayout = lazy(() => import("./pages/admin/AdminAuthLayout"));
 const AdminLoginPage = lazy(() => import("./pages/admin/AdminLoginPage"));
 const AdminSignupPage = lazy(() => import("./pages/admin/AdminSignupPage"));
@@ -30,7 +30,7 @@ function SectionFallback() {
   );
 }
 
-function App() {
+function AppShell() {
   const [sukunaMode, setSukunaMode] = useState(false);
   const [easterEgg, setEasterEgg] = useState<{
     message: string;
@@ -145,6 +145,17 @@ function App() {
         </div>
       ) : null}
     </div>
+  );
+}
+
+// Único AuthProvider de la app (Bloque 6A): una sola fuente de sesión y un solo listener
+// de Supabase Auth para rutas públicas y /admin/*. supabase-js se carga de forma diferida
+// dentro del provider, así que no entra en el bundle crítico de Home.
+function App() {
+  return (
+    <AuthProvider>
+      <AppShell />
+    </AuthProvider>
   );
 }
 

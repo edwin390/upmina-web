@@ -1,15 +1,9 @@
 import { Outlet } from "react-router-dom";
-import { AuthProvider } from "@/lib/auth-context";
 
-// Layout de ruta para /admin/login y /admin/signup: monta un único <AuthProvider> (un
-// único listener de Supabase Auth) compartido por ambas páginas mientras se navega
-// entre ellas, sin tocar el resto del sitio. Vive en su propio chunk (ver App.tsx: se
-// importa con lazy()) para que Supabase y el contexto de auth nunca formen parte del
-// bundle principal de Home — solo se descargan al entrar a /admin/*.
+// Layout de ruta de /admin/*. Desde el Bloque 6A NO monta un AuthProvider propio: la
+// sesión vive en el <AuthProvider> global de src/App.tsx y todas las páginas admin la
+// consumen con useAuth() (una sola fuente de sesión, un solo listener de Supabase Auth).
+// Solo conserva el agrupamiento de rutas /admin/* en su propio chunk lazy.
 export default function AdminAuthLayout() {
-  return (
-    <AuthProvider>
-      <Outlet />
-    </AuthProvider>
-  );
+  return <Outlet />;
 }

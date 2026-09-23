@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, render, screen } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
+import { AuthProvider } from "@/lib/auth-context";
 import AdminAuthLayout from "./AdminAuthLayout";
 import AdminActivatePage from "./AdminActivatePage";
 
@@ -62,12 +63,14 @@ describe("/admin/activate dentro del área AuthProvider (routing real)", () => {
 
     render(
       <MemoryRouter initialEntries={["/admin/activate"]}>
-        <Routes>
-          <Route element={<AdminAuthLayout />}>
-            <Route path="/admin/activate" element={<AdminActivatePage />} />
-            <Route path="/admin/login" element={<p>Login stub</p>} />
-          </Route>
-        </Routes>
+        <AuthProvider>
+          <Routes>
+            <Route element={<AdminAuthLayout />}>
+              <Route path="/admin/activate" element={<AdminActivatePage />} />
+              <Route path="/admin/login" element={<p>Login stub</p>} />
+            </Route>
+          </Routes>
+        </AuthProvider>
       </MemoryRouter>,
     );
 

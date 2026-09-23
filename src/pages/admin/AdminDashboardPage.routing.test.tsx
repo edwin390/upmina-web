@@ -27,6 +27,7 @@ vi.mock("@/lib/supabase", () => ({
   },
 }));
 
+import { AuthProvider } from "@/lib/auth-context";
 import AdminAuthLayout from "./AdminAuthLayout";
 import AdminDashboardPage from "./AdminDashboardPage";
 
@@ -42,12 +43,14 @@ describe("/admin dentro del área AuthProvider (routing real)", () => {
 
     render(
       <MemoryRouter initialEntries={["/admin"]}>
-        <Routes>
-          <Route element={<AdminAuthLayout />}>
-            <Route path="/admin" element={<AdminDashboardPage />} />
-            <Route path="/admin/login" element={<p>Login stub</p>} />
-          </Route>
-        </Routes>
+        <AuthProvider>
+          <Routes>
+            <Route element={<AdminAuthLayout />}>
+              <Route path="/admin" element={<AdminDashboardPage />} />
+              <Route path="/admin/login" element={<p>Login stub</p>} />
+            </Route>
+          </Routes>
+        </AuthProvider>
       </MemoryRouter>,
     );
 
