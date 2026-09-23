@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import router from "../../api/admin/[action]";
 import * as handlers from "./admin-handlers";
+import * as socialHandlers from "./social-connect-handlers";
 
 // Fija el despachador api/admin/[action].ts (Bloque 2C): comprueba que la acción
 // correcta llega al handler correcto y que una acción desconocida nunca se resuelve
@@ -14,6 +15,12 @@ vi.mock("./admin-handlers", () => ({
   ),
   handleAdminMe: vi.fn(async (_req: VercelRequest, res: VercelResponse) =>
     res.status(200).json("me"),
+  ),
+}));
+
+vi.mock("./social-connect-handlers", () => ({
+  handleAdminSocialConnect: vi.fn(async (_req: VercelRequest, res: VercelResponse) =>
+    res.status(200).json("social-connect"),
   ),
 }));
 
@@ -95,5 +102,23 @@ describe("api/admin/[action] (despachador)", () => {
 
     expect(handlers.handleAdminMe).toHaveBeenCalledWith(request, res);
     expect(handlers.handleAdminActivate).not.toHaveBeenCalled();
+  });
+  it("action=social-connect → solo handleAdminSocialConnect, con el mismo req/res", async () => {
+    const request = req("social-connect");
+    const { res } = mockRes();
+
+    await router(request, res);
+
+    expect(socialHandlers.handleAdminSocialConnect).toHaveBeenCalledWith(request, res);
+    expect(handlers.handleAdminActivate).not.toHaveBeenCalled();
+    expect(handlers.handleAdminMe).not.toHaveBeenCalled();
+  });
+
+  it("las demás acciones no disparan handleAdminSocialConnect", async () => {
+    const { res } = mockRes();
+    await router(req("activate"), res);
+    await router(req("me", "GET"), res);
+    await router(req("Social-Connect"), res);
+    expect(socialHandlers.handleAdminSocialConnect).not.toHaveBeenCalled();
   });
 });
