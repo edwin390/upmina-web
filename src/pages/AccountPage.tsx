@@ -3,14 +3,16 @@ import { Navigate } from "react-router-dom";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/lib/auth-context";
 import AdminAuthCard from "@/components/admin/AdminAuthCard";
+import ProfileSection from "@/components/account/ProfileSection";
 
 // /account (Bloque 6E). Punto de entrada privado mínimo: solo requiere una sesión
 // autenticada normal, la misma que expone el AuthProvider global (un solo listener). No
 // exige ADMIN/MODERATOR/MFA, no llama a /api/admin/me, no consulta roles ni muestra si la
 // cuenta es administrativa: la autoridad de /admin sigue siendo server-side y separada.
 //
-// Solo se muestra el email de la sesión ya existente (sin llamadas adicionales). Nunca
-// user_id, tokens, claims ni metadata.
+// Solo se muestra el email de la sesión ya existente. Nunca user_id, tokens, claims ni
+// metadata. Debajo, ProfileSection (Bloque 7C.2) gestiona el perfil público: lectura de
+// public.profiles y onboarding de username; queda visualmente separado de la sesión.
 //
 // Logout: supabase.auth.signOut() del cliente existente. Si sale bien, el AuthProvider
 // refleja la desaparición de la sesión y esta misma página redirige a /login (no hay
@@ -87,6 +89,8 @@ export default function AccountPage() {
         ) : null}
         .
       </p>
+
+      <ProfileSection />
 
       {error ? (
         <p role="alert" className="mt-4 text-sm text-accent-live">

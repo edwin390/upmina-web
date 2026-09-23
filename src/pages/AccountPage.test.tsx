@@ -37,6 +37,16 @@ const supabaseFakes = vi.hoisted(() => ({
 
 vi.mock("@/lib/supabase", () => ({
   supabase: {
+    from: () => ({
+      select: () => ({
+        eq: () => ({
+          maybeSingle: async () => ({
+            data: { username: "fan_sintetico", display_name: null, bio: null },
+            error: null,
+          }),
+        }),
+      }),
+    }),
     auth: {
       async signOut() {
         supabaseFakes.signOutCalls++;
