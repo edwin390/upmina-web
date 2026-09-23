@@ -90,7 +90,9 @@ export default function AccountPage() {
         .
       </p>
 
-      <ProfileSection />
+      {/* key por cuenta: un cambio A → B desmonta por completo la instancia de A (borradores,
+          modo edición, errores, locks) y crea una limpia para B. */}
+      <ProfileSection key={session.user.id} />
 
       {error ? (
         <p role="alert" className="mt-4 text-sm text-accent-live">
