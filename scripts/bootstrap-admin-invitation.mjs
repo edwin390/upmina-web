@@ -9,6 +9,7 @@ import {
   hashBootstrapToken,
   readSupabaseServiceConfig,
 } from "./lib/admin-bootstrap-invitation.mjs";
+import { loadLocalEnvFiles } from "./lib/load-env.mjs";
 
 // Script OPERATOR-SIDE (Bloque 2B): crea la invitación bootstrap_admin real en
 // Supabase. Se ejecuta EXPLÍCITAMENTE con `npm run admin:bootstrap-invitation` —
@@ -55,6 +56,12 @@ function secretFileContents(activationUrl, expiresAtIso) {
 }
 
 async function main() {
+  // Completa process.env desde .env.local/.env (Bloque 4B) ANTES de validar la
+  // configuración: nunca sobrescribe una variable ya exportada explícitamente en el
+  // shell. Sin esto, había que exportar SUPABASE_SERVICE_ROLE_KEY a mano en cada
+  // terminal — el mismo problema que dev-local.mjs ya resolvía para `npm run dev:local`.
+  loadLocalEnvFiles();
+
   let config;
   try {
     config = readSupabaseServiceConfig(process.env);
