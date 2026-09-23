@@ -496,6 +496,19 @@ async function renewInstagramConnectionUnderLease(
 }
 
 /**
+ * Regla ÚNICA de "el token guardado ya no sirve y hace falta reconectar": caducado o a
+ * ≤ 60 s de caducar (Meta no renueva un token ya expirado). La usan tanto el feed
+ * (getUsableInstagramAccessToken) como el panel de conexiones (estado reauth_required), para
+ * que ambos nunca discrepen. `accessTokenExpiresAt` es el valor ISO absoluto persistido.
+ */
+export function isInstagramAccessTokenExpired(
+  accessTokenExpiresAt: string,
+  now: number,
+): boolean {
+  return Date.parse(accessTokenExpiresAt) - ACCESS_TOKEN_EXPIRY_SKEW_MS <= now;
+}
+
+/**
  * Resuelve el access token a partir de una conexión ya validada como no expirada
  * (`getUsableInstagramAccessToken` ya comprobó el margen duro antes de llamar aquí).
  */
@@ -565,8 +578,7 @@ export async function getUsableInstagramAccessToken(
     return fallback;
   }
 
-  const expiresAt = Date.parse(connection.accessTokenExpiresAt);
-  if (expiresAt - ACCESS_TOKEN_EXPIRY_SKEW_MS <= now) {
+  if (isInstagramAccessTokenExpired(connection.accessTokenExpiresAt, now)) {
     throw new InstagramConnectionError("expired");
   }
 

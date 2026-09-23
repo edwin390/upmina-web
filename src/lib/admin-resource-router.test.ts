@@ -3,6 +3,7 @@ import type { VercelRequest, VercelResponse } from "@vercel/node";
 import router from "../../api/admin/[action]";
 import * as handlers from "./admin-handlers";
 import * as socialHandlers from "./social-connect-handlers";
+import * as statusHandlers from "./social-status-handlers";
 
 // Fija el despachador api/admin/[action].ts (Bloque 2C): comprueba que la acción
 // correcta llega al handler correcto y que una acción desconocida nunca se resuelve
@@ -15,6 +16,12 @@ vi.mock("./admin-handlers", () => ({
   ),
   handleAdminMe: vi.fn(async (_req: VercelRequest, res: VercelResponse) =>
     res.status(200).json("me"),
+  ),
+}));
+
+vi.mock("./social-status-handlers", () => ({
+  handleAdminSocialStatus: vi.fn(async (_req: VercelRequest, res: VercelResponse) =>
+    res.status(200).json("social-status"),
   ),
 }));
 
@@ -120,5 +127,15 @@ describe("api/admin/[action] (despachador)", () => {
     await router(req("me", "GET"), res);
     await router(req("Social-Connect"), res);
     expect(socialHandlers.handleAdminSocialConnect).not.toHaveBeenCalled();
+  });
+  it("action=social-status → solo handleAdminSocialStatus, con el mismo req/res", async () => {
+    const request = req("social-status", "GET");
+    const { res } = mockRes();
+
+    await router(request, res);
+
+    expect(statusHandlers.handleAdminSocialStatus).toHaveBeenCalledWith(request, res);
+    expect(socialHandlers.handleAdminSocialConnect).not.toHaveBeenCalled();
+    expect(handlers.handleAdminMe).not.toHaveBeenCalled();
   });
 });

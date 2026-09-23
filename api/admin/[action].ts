@@ -1,6 +1,7 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { handleAdminActivate, handleAdminMe } from "../../src/lib/admin-handlers.js";
 import { handleAdminSocialConnect } from "../../src/lib/social-connect-handlers.js";
+import { handleAdminSocialStatus } from "../../src/lib/social-status-handlers.js";
 
 // Despachador de acciones admin server-side por segmento dinámico `action`. Mismo
 // patrón que api/instagram/[resource].ts y api/tiktok/[resource].ts: un único
@@ -18,6 +19,8 @@ import { handleAdminSocialConnect } from "../../src/lib/social-connect-handlers.
 // (Bloque 5A — primera comprobación server-side de la identidad administrativa actual).
 // "social-connect" (Bloque 8C.2 — inicio protegido del OAuth de Instagram/TikTok, ADMIN+AAL2,
 // lógica en src/lib/social-connect-handlers.ts).
+// "social-status" (Bloque 8E — estado de las conexiones sociales para el panel /admin, ADMIN+AAL2,
+// lógica en src/lib/social-status-handlers.ts).
 // La lógica de cada una vive en src/lib/admin-handlers.ts, no aquí, siguiendo el mismo
 // patrón que los otros dos dispatchers.
 export default function handler(req: VercelRequest, res: VercelResponse) {
@@ -28,6 +31,8 @@ export default function handler(req: VercelRequest, res: VercelResponse) {
       return handleAdminMe(req, res);
     case "social-connect":
       return handleAdminSocialConnect(req, res);
+    case "social-status":
+      return handleAdminSocialStatus(req, res);
     default:
       return res.status(404).json({ error: "No encontrado" });
   }

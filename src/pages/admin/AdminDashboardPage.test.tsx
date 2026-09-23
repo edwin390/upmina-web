@@ -452,3 +452,78 @@ describe("AdminDashboardPage — carreras asíncronas", () => {
     expect(errorSpy).not.toHaveBeenCalled();
   });
 });
+
+// Sección "Redes sociales" (Bloque 8E): solo existe dentro del shell verificado por
+// /api/admin/me, y sus llamadas privilegiadas las resuelve el backend.
+describe("AdminDashboardPage — sección Redes sociales", () => {
+  function routeFetch(handlers: Record<string, () => unknown>) {
+    (fetch as Mock).mockImplementation(async (url: string) => {
+      const handler = handlers[url];
+      if (!handler) throw new Error(`fetch inesperado a ${url}`);
+      return handler();
+    });
+  }
+
+  it("shell verificado (200 de /api/admin/me): muestra la sección y consulta el estado", async () => {
+    authFakes.session = { access_token: "at-s1", user: { id: "u1" } };
+    routeFetch({
+      "/api/admin/me": () => okMeResponse(),
+      "/api/admin/social-status": () => ({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          connections: {
+            instagram: { status: "connected" },
+            tiktok: { status: "not_connected" },
+          },
+        }),
+      }),
+    });
+
+    renderPage();
+
+    expect(
+      await screen.findByRole("heading", { name: "Redes sociales" }),
+    ).toBeInTheDocument();
+    expect(await screen.findByText("Conectado")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Conectar TikTok" })).toBeInTheDocument();
+    const urls = (fetch as Mock).mock.calls.map((c) => c[0]);
+    expect(urls).toEqual(["/api/admin/me", "/api/admin/social-status"]);
+  });
+
+  it("sin 200 de /api/admin/me (403) la sección NO existe y nunca se llama a social-status", async () => {
+    authFakes.session = { access_token: "at-s2", user: { id: "u1" } };
+    (fetch as Mock).mockResolvedValue({ ok: false, status: 403, json: async () => ({}) });
+    supabaseFakes.getAuthenticatorAssuranceLevel.mockResolvedValue({
+      data: { currentLevel: "aal1" },
+      error: null,
+    });
+
+    renderPage();
+
+    await waitFor(() => expect(fetch).toHaveBeenCalledTimes(1));
+    expect(screen.queryByRole("heading", { name: "Redes sociales" })).toBeNull();
+    expect(screen.queryByText(/Conectar/)).toBeNull();
+    expect((fetch as Mock).mock.calls.map((c) => c[0])).toEqual(["/api/admin/me"]);
+  });
+
+  it("un error del estado social no rompe el shell ni se presenta como 'No conectado'", async () => {
+    authFakes.session = { access_token: "at-s3", user: { id: "u1" } };
+    routeFetch({
+      "/api/admin/me": () => okMeResponse(),
+      "/api/admin/social-status": () => ({
+        ok: false,
+        status: 500,
+        json: async () => ({}),
+      }),
+    });
+
+    renderPage();
+
+    expect(
+      await screen.findByText("Sesión administrativa verificada."),
+    ).toBeInTheDocument();
+    expect(await screen.findByRole("alert")).toHaveTextContent("No se pudo cargar");
+    expect(screen.queryByText("No conectado")).toBeNull();
+  });
+});

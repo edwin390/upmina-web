@@ -361,6 +361,19 @@ async function refreshUnderLease(
 }
 
 /**
+ * Regla ÚNICA de "el refresh token guardado ya caducó y hace falta reautorizar" (no se puede
+ * renovar). La usan tanto el feed (getUsableTikTokAccessToken) como el panel de conexiones
+ * (estado reauth_required), para que ambos nunca discrepen. `refreshTokenExpiresAt` es el valor
+ * ISO absoluto persistido.
+ */
+export function isTikTokRefreshTokenExpired(
+  refreshTokenExpiresAt: string,
+  now: number,
+): boolean {
+  return Date.parse(refreshTokenExpiresAt) <= now;
+}
+
+/**
  * Access token de la conexión guardada, listo para llamar a TikTok (solo servidor).
  * - Vigente (con más de 60 s de margen) → se usa tal cual, sin refresh.
  * - Vencido o dentro del margen → refresh con el refresh token guardado, guardando el
@@ -388,7 +401,9 @@ export async function getUsableTikTokAccessToken(
     if (Number.isNaN(refreshExpiresAt)) {
       throw new TikTokStorageError("Conexión guardada con formato inválido", 500);
     }
-    if (refreshExpiresAt <= now) throw new TikTokConnectionError("refresh_token_expired");
+    if (isTikTokRefreshTokenExpired(connection.refreshTokenExpiresAt, now)) {
+      throw new TikTokConnectionError("refresh_token_expired");
+    }
 
     const accessToken = await refreshUnderLease(connection, now);
     if (accessToken) return accessToken;
