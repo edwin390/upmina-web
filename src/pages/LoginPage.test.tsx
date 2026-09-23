@@ -55,6 +55,7 @@ function loginTree() {
           }
         />
         <Route path="/otra" element={<p>Otra stub</p>} />
+        <Route path="/signup" element={<p>Signup stub</p>} />
       </Routes>
     </MemoryRouter>
   );
@@ -101,6 +102,16 @@ describe("/login — estados", () => {
     expect(screen.getByLabelText("Email")).toBeInTheDocument();
     expect(screen.getByLabelText("Contraseña")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /iniciar sesión/i })).toBeInTheDocument();
+  });
+
+  it("'Crear cuenta' es un enlace SPA a /signup", () => {
+    renderLogin();
+
+    const link = screen.getByRole("link", { name: "Crear cuenta" });
+    expect(link).toHaveAttribute("href", "/signup");
+    fireEvent.click(link);
+
+    expect(screen.getByText("Signup stub")).toBeInTheDocument();
   });
 
   it("sesión ya existente: redirige a / sin mostrar el formulario", () => {

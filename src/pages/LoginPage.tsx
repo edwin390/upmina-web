@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import { Navigate, useNavigate } from "react-router-dom";
+import { Link, Navigate, useNavigate } from "react-router-dom";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/lib/auth-context";
 import AdminAuthCard from "@/components/admin/AdminAuthCard";
@@ -92,7 +92,14 @@ export default function LoginPage() {
   }
 
   return (
-    <AdminAuthCard title="Iniciar sesión">
+    <AdminAuthCard
+      title="Iniciar sesión"
+      footer={
+        <Link to="/signup" className="font-medium text-accent-primary hover:underline">
+          Crear cuenta
+        </Link>
+      }
+    >
       <form onSubmit={handleSubmit} className="flex flex-col gap-4">
         <AdminAuthField
           label="Email"

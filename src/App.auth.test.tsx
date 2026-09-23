@@ -231,3 +231,27 @@ describe("/login público (Bloque 6C)", () => {
     expect(fetch).not.toHaveBeenCalled();
   });
 });
+
+describe("/signup público (Bloque 6D)", () => {
+  it("sigue lazy-loaded: el formulario solo aparece cuando carga el chunk de /signup", async () => {
+    renderAt("/signup");
+
+    expect(screen.queryByLabelText("Confirmar contraseña")).toBeNull();
+    expect(await screen.findByLabelText("Confirmar contraseña")).toBeInTheDocument();
+  });
+
+  it("flujo Header → /login → Crear cuenta → /signup, sin listeners duplicados ni /api/admin/me", async () => {
+    renderAt("/terms");
+    await waitFor(() =>
+      expect(screen.getByTestId("probe")).toHaveTextContent("sin-sesion"),
+    );
+
+    fireEvent.click(screen.getByRole("link", { name: /iniciar sesión/i }));
+    fireEvent.click(await screen.findByRole("link", { name: "Crear cuenta" }));
+
+    expect(await screen.findByLabelText("Confirmar contraseña")).toBeInTheDocument();
+    expect(authFakes.onAuthStateChangeCalls).toBe(1);
+    expect(adminMeCalls()).toHaveLength(0);
+    expect(fetch).not.toHaveBeenCalled();
+  });
+});
