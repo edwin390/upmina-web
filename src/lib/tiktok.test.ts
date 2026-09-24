@@ -357,6 +357,9 @@ describe("api/tiktok-callback", () => {
 
     expect(state.status).toBe(200);
     expect(String(state.body)).toContain("Autorización completada");
+    // Regreso directo al panel admin (no al inicio).
+    expect(String(state.body)).toContain('<a href="/admin">Volver al panel</a>');
+    expect(String(state.body)).not.toContain('href="/"');
     expect(state.headers["Content-Type"]).toMatch(/text\/html/);
     expect(state.headers["Cache-Control"]).toBe("no-store");
     expect(state.headers["Referrer-Policy"]).toBe("no-referrer");

@@ -317,7 +317,7 @@ a{color:#7dd3fc}
 <main>
 <h1>${escapeHtml(title)}</h1>
 <p>${escapeHtml(message)}</p>
-<p><a href="/">Volver al inicio</a></p>
+<p><a href="/admin">Volver al panel</a></p>
 </main>
 </body>
 </html>

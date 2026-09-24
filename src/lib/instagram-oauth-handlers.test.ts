@@ -201,6 +201,9 @@ describe("api/instagram-callback", () => {
 
     expect(state.status).toBe(200);
     expect(state.html).toContain("Instagram conectado correctamente");
+    // Regreso directo al panel admin (no al inicio).
+    expect(state.html).toContain('<a href="/admin">Volver al panel</a>');
+    expect(state.html).not.toContain('href="/"');
     expect(state.headers["Set-Cookie"]).toContain("instagram_oauth_state=;");
     expect(state.headers["Set-Cookie"]).toContain("Max-Age=0");
     expect(igFakeDb.upserts).toHaveLength(1);
