@@ -527,3 +527,86 @@ describe("AdminDashboardPage — sección Redes sociales", () => {
     expect(screen.queryByText("No conectado")).toBeNull();
   });
 });
+
+// Sección "Invitaciones del equipo" (Bloque 9E): solo PRESENTACIÓN. Se muestra únicamente si
+// /api/admin/me declara la capacidad team_admin (nunca por role === "admin"); la autoridad real
+// de cada llamada es el servidor.
+describe("AdminDashboardPage — sección Invitaciones del equipo (capability team_admin)", () => {
+  const social = () => ({
+    ok: true,
+    status: 200,
+    json: async () => ({
+      connections: {
+        instagram: { status: "connected" },
+        tiktok: { status: "connected" },
+      },
+    }),
+  });
+  const team = () => ({ ok: true, status: 200, json: async () => ({ invitations: [] }) });
+
+  function routeFetch(meBody: unknown) {
+    (fetch as Mock).mockImplementation(async (url: string) => {
+      if (url === "/api/admin/me") {
+        return { ok: true, status: 200, json: async () => meBody };
+      }
+      if (url === "/api/admin/social-status") return social();
+      if (url === "/api/admin/team-invitations") return team();
+      throw new Error(`fetch inesperado a ${url}`);
+    });
+  }
+
+  it("capabilities incluye team_admin → muestra la sección y consulta el listado", async () => {
+    authFakes.session = { access_token: "at-t1", user: { id: "u1" } };
+    routeFetch({
+      role: "admin",
+      capabilities: ["moderation", "technical", "social_admin", "team_admin"],
+    });
+
+    renderPage();
+
+    expect(
+      await screen.findByRole("heading", { name: "Invitaciones del equipo" }),
+    ).toBeInTheDocument();
+    expect(await screen.findByText("Todavía no hay invitaciones.")).toBeInTheDocument();
+    expect((fetch as Mock).mock.calls.map((c) => c[0])).toContain(
+      "/api/admin/team-invitations",
+    );
+  });
+
+  it.each([
+    ["sin team_admin", { role: "admin", capabilities: ["moderation", "social_admin"] }],
+    ["capabilities vacío", { role: "admin", capabilities: [] }],
+    ["sin campo capabilities (solo role: admin)", { role: "admin" }],
+    ["capabilities con forma inesperada", { role: "admin", capabilities: "team_admin" }],
+    [
+      "team_admin como valor no string",
+      { role: "admin", capabilities: [{ team_admin: true }] },
+    ],
+  ])("%s → la sección NO se muestra ni se consulta el listado", async (_n, body) => {
+    authFakes.session = { access_token: "at-t2", user: { id: "u1" } };
+    routeFetch(body);
+
+    renderPage();
+
+    expect(
+      await screen.findByText("Sesión administrativa verificada."),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Invitaciones del equipo" })).toBeNull();
+    expect((fetch as Mock).mock.calls.map((c) => c[0])).not.toContain(
+      "/api/admin/team-invitations",
+    );
+  });
+
+  it("role distinto de admin con team_admin declarado NO abre el shell (el gate previo se mantiene)", async () => {
+    authFakes.session = { access_token: "at-t3", user: { id: "u1" } };
+    routeFetch({ role: "developer", capabilities: ["team_admin"] });
+
+    renderPage();
+
+    expect(await screen.findByRole("alert")).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Invitaciones del equipo" })).toBeNull();
+    expect((fetch as Mock).mock.calls.map((c) => c[0])).not.toContain(
+      "/api/admin/team-invitations",
+    );
+  });
+});

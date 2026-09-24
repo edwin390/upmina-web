@@ -4,6 +4,7 @@ import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/lib/auth-context";
 import AdminAuthCard from "@/components/admin/AdminAuthCard";
 import SocialConnectionsSection from "@/components/admin/SocialConnectionsSection";
+import TeamInvitationsSection from "@/components/admin/TeamInvitationsSection";
 
 // /admin (Bloque 5C). Primer shell administrativo, protegido exclusivamente mediante
 // GET /api/admin/me (ver src/lib/admin-handlers.ts): el frontend nunca decide por sí
@@ -26,7 +27,7 @@ type DashboardStep =
   | { kind: "checking" }
   | { kind: "no-session" }
   | { kind: "denied"; canGoToMfa: boolean }
-  | { kind: "verified" };
+  | { kind: "verified"; capabilities: string[] };
 
 export default function AdminDashboardPage() {
   const { session, loading: sessionLoading, signOut } = useAuth();
@@ -125,7 +126,17 @@ export default function AdminDashboardPage() {
         return;
       }
 
-      setStep({ kind: "verified" });
+      // Las capacidades de /me sirven SOLO para decidir qué secciones PRESENTAR; cada endpoint
+      // vuelve a exigir su capacidad en el servidor. Cualquier valor que no sea una lista de
+      // strings se trata como "sin capacidades".
+      const rawCapabilities =
+        body && typeof body === "object"
+          ? (body as { capabilities?: unknown }).capabilities
+          : undefined;
+      const capabilities = Array.isArray(rawCapabilities)
+        ? rawCapabilities.filter((c): c is string => typeof c === "string")
+        : [];
+      setStep({ kind: "verified", capabilities });
     }
 
     void resolveAccess();
@@ -216,6 +227,8 @@ export default function AdminDashboardPage() {
         </p>
 
         <SocialConnectionsSection />
+
+        {step.capabilities.includes("team_admin") ? <TeamInvitationsSection /> : null}
 
         <nav className="mt-8 grid gap-3" aria-label="Herramientas administrativas">
           <span className="rounded-md border border-border-subtle px-4 py-3 text-sm text-text-secondary">
