@@ -102,7 +102,9 @@ export async function handleProfileCreate(
   }
 
   const check = checkUsername(body.username);
-  if (!check.ok) {
+  // `in` (y no `!check.ok`) estrecha la unión también sin strictNullChecks: una compilación
+  // no estricta de api/profile.ts (tsconfig raíz sin compilerOptions) falla con `!check.ok`.
+  if ("reason" in check) {
     return res.status(422).json({
       error: check.reason === "reserved" ? "Username no disponible" : "Username inválido",
     });
