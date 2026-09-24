@@ -1,18 +1,18 @@
 import { createClient } from "@supabase/supabase-js";
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { AdminAuthError, requireAdmin } from "./admin-auth.js";
+import { AdminAuthError, requireCapability } from "./admin-auth.js";
 import { isInstagramAccessTokenExpired } from "./instagram-connection.js";
 import { isTikTokRefreshTokenExpired } from "./tiktok-connection.js";
 
 // Handler HTTP de GET /api/admin/social-status (Bloque 8E): estado de las conexiones
-// sociales globales para el panel /admin. SOLO ADMIN con AAL2 (requireAdmin); solo después
+// sociales globales para el panel /admin. SOLO ADMIN con AAL2 (requireCapability social_admin); solo después
 // se usa service_role para leer social_connections, y solo las columnas de expiración: nunca
 // se seleccionan ni se devuelven tokens, identificadores de cuenta, scopes ni filas crudas.
 //
 // Contrato:
 //   200 : { connections: { instagram: { status }, tiktok: { status } } } con
 //         status ∈ "connected" | "not_connected" | "reauth_required" (Cache-Control: no-store).
-//   401/403 : requireAdmin.   405 : método distinto de GET (Allow: GET).
+//   401/403 : requireCapability social_admin.   405 : método distinto de GET (Allow: GET).
 //   500 : cualquier fallo (auth infra, configuración, lectura) sin detalles. NUNCA se
 //         interpreta un fallo de lectura como "not_connected".
 //
@@ -84,7 +84,7 @@ export async function handleAdminSocialStatus(
   }
 
   try {
-    await requireAdmin(req);
+    await requireCapability(req, "social_admin");
   } catch (err) {
     if (err instanceof AdminAuthError) {
       return res.status(err.status).json({ error: err.message });

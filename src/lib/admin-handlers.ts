@@ -4,8 +4,10 @@ import type { VercelRequest, VercelResponse } from "@vercel/node";
 import {
   AdminAuthError,
   AdminAuthInfrastructureError,
-  requireAdmin,
+  capabilitiesForRole,
   requireAuthenticated,
+  requirePrivileged,
+  type PrivilegedIdentity,
 } from "./admin-auth.js";
 
 // Handler HTTP de POST /api/admin/activate (Bloque 2C). Vive aquí (no en api/) por el
@@ -19,7 +21,7 @@ import {
 // user_id que se le pasa a esa RPC viene EXCLUSIVAMENTE del JWT ya verificado por
 // requireAuthenticated — nunca del body del request, aunque el cliente lo envíe.
 //
-// Deliberadamente NO usa requireAdmin/requirePrivileged: en el momento de activar la
+// Deliberadamente NO usa requireCapability/requirePrivileged: en el momento de activar la
 // invitación bootstrap el usuario todavía no tiene ninguna fila en admin_roles (esa fila
 // es precisamente lo que esta operación va a crear). La única condición de assurance
 // exigida aquí es aal2 sobre una identidad ya autenticada.
@@ -172,7 +174,7 @@ export async function handleAdminActivate(
   }
 
   // La activación bootstrap ocurre ANTES de que exista cualquier fila en admin_roles
-  // para este usuario: requireAdmin/requirePrivileged no aplican (siempre darían 403).
+  // para este usuario: requireCapability/requirePrivileged no aplican (siempre darían 403).
   // aal2 es la única assurance exigible sobre la identidad ya verificada.
   if (identity.aal !== "aal2") {
     return res.status(403).json({ error: "No autorizado" });
@@ -233,14 +235,14 @@ export async function handleAdminActivate(
 }
 
 // Handler HTTP de GET /api/admin/me (Bloque 5A). Primera comprobación server-side de la
-// identidad administrativa actual: reutiliza requireAdmin (admin-auth.ts) sin duplicar
-// ninguna lógica de verificación de JWT/AAL/rol aquí. requireAdmin ya exige, en orden,
-// (1) un JWT válido, (2) aal2, (3) una fila admin_roles con role='admin' — MODERATOR con
-// aal2 válido sigue recibiendo 403 desde ahí, igual que cualquier usuario sin fila.
+// identidad administrativa actual: reutiliza requirePrivileged (admin-auth.ts) sin duplicar
+// ninguna lógica de verificación de JWT/AAL/rol aquí. requirePrivileged exige, en orden,
+// (1) un JWT válido, (2) una fila admin_roles con rol reconocido (admin/moderator/developer),
+// (3) aal2. Sin fila o rol desconocido → 403.
 //
-// La respuesta es deliberadamente mínima: nunca expone userId, email, el JWT ni datos de
-// invitaciones. `userId` de requireAdmin se descarta a propósito (no hay necesidad
-// técnica demostrada de devolverlo al frontend).
+// La respuesta describe el rol y las capacidades derivadas server-side para PRESENTACIÓN:
+// el cliente no las usa como autoridad (cada endpoint vuelve a exigir su capacidad). Nunca
+// expone userId, email, el JWT ni datos de invitaciones.
 export async function handleAdminMe(
   req: VercelRequest,
   res: VercelResponse,
@@ -250,8 +252,9 @@ export async function handleAdminMe(
     return res.status(405).json({ error: "Método no permitido" });
   }
 
+  let me: PrivilegedIdentity;
   try {
-    await requireAdmin(req);
+    me = await requirePrivileged(req);
   } catch (err) {
     // AdminAuthError (401/403) se propaga tal cual. Cualquier otro caso
     // (AdminAuthInfrastructureError u otra excepción inesperada) es un fallo real de
@@ -262,5 +265,8 @@ export async function handleAdminMe(
     return res.status(500).json(INFRASTRUCTURE_ERROR_BODY);
   }
 
-  return res.status(200).json({ role: "admin" });
+  return res.status(200).json({
+    role: me.role,
+    capabilities: capabilitiesForRole(me.role),
+  });
 }

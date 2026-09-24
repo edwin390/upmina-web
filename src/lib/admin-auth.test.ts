@@ -4,15 +4,19 @@ import {
   AdminAuthError,
   AdminAuthInfrastructureError,
   getPrivilegedRoleForUser,
-  requireAdmin,
-  requireAdminRoleForUser,
+  requireCapability,
+  requireCapabilityForUser,
   requireAuthenticated,
+  capabilitiesForRole,
+  roleHasCapability,
   requireModerator,
+  type Capability,
+  type PrivilegedRole,
   requirePrivileged,
 } from "./admin-auth";
 
 // Fijan la frontera de seguridad de Auth/AuthZ server-side: requireAuthenticated (¿quién
-// eres?, solo verificación criptográfica del JWT) y requirePrivileged/requireAdmin/
+// eres?, solo verificación criptográfica del JWT) y requirePrivileged/requireCapability
 // requireModerator (¿qué puedes hacer?, solo admin_roles + AAL). Ningún endpoint existe
 // todavía: estos tests son la única red de seguridad de este bloque.
 
@@ -294,31 +298,34 @@ describe("requirePrivileged", () => {
   });
 });
 
-describe("requireAdmin", () => {
+describe("requireCapability(social_admin)", () => {
   it("16) admin + aal2 → PASS", async () => {
     okClaims();
     roles.row = { role: "admin" };
-    await expect(requireAdmin(bearer())).resolves.toEqual({ userId: USER_ID });
+    await expect(requireCapability(bearer(), "social_admin")).resolves.toMatchObject({
+      userId: USER_ID,
+      role: "admin",
+    });
   });
 
   it("17) moderator + aal2 → 403", async () => {
     okClaims();
     roles.row = { role: "moderator" };
-    const error = await catchError(() => requireAdmin(bearer()));
+    const error = await catchError(() => requireCapability(bearer(), "social_admin"));
     expect(error).toBeInstanceOf(AdminAuthError);
     expect((error as AdminAuthError).status).toBe(403);
   });
 
   it("sin fila → 403 (no se confunde con moderator)", async () => {
     okClaims();
-    const error = await catchError(() => requireAdmin(bearer()));
+    const error = await catchError(() => requireCapability(bearer(), "social_admin"));
     expect((error as AdminAuthError).status).toBe(403);
   });
 
   it("fallo de infraestructura se propaga sin convertirse en 403", async () => {
     okClaims();
     roles.throwWith = new Error("boom");
-    const error = await catchError(() => requireAdmin(bearer()));
+    const error = await catchError(() => requireCapability(bearer(), "social_admin"));
     expect(error).toBeInstanceOf(AdminAuthInfrastructureError);
   });
 });
@@ -330,6 +337,7 @@ describe("requireModerator", () => {
     await expect(requireModerator(bearer())).resolves.toEqual({
       userId: USER_ID,
       role: "moderator",
+      capabilities: ["moderation"],
     });
   });
 
@@ -339,6 +347,7 @@ describe("requireModerator", () => {
     await expect(requireModerator(bearer())).resolves.toEqual({
       userId: USER_ID,
       role: "admin",
+      capabilities: ["moderation", "technical", "social_admin", "team_admin"],
     });
   });
 
@@ -381,7 +390,7 @@ describe("seguridad: nada enviado por el request afecta la autorización", () =>
       body: { role: "admin" },
     } as never);
 
-    const error = await catchError(() => requireAdmin(attackerReq));
+    const error = await catchError(() => requireCapability(attackerReq, "social_admin"));
     expect((error as AdminAuthError).status).toBe(403);
   });
 
@@ -477,10 +486,12 @@ describe("errores nunca filtran datos sensibles", () => {
   });
 });
 
-describe("requireAdminRoleForUser / getPrivilegedRoleForUser (recomprobación sin sesión)", () => {
+describe("requireCapabilityForUser(social_admin) / getPrivilegedRoleForUser (recomprobación sin sesión)", () => {
   it("admin → resuelve; consulta admin_roles con el user_id dado y la service_role key", async () => {
     roles.row = { role: "admin" };
-    await expect(requireAdminRoleForUser(USER_ID)).resolves.toBeUndefined();
+    await expect(
+      requireCapabilityForUser(USER_ID, "social_admin"),
+    ).resolves.toBeUndefined();
     expect(roles.queries).toEqual([
       { table: "admin_roles", filters: [["user_id", USER_ID]] },
     ]);
@@ -490,27 +501,35 @@ describe("requireAdminRoleForUser / getPrivilegedRoleForUser (recomprobación si
 
   it("moderator → 403 (MODERATOR no hereda ADMIN)", async () => {
     roles.row = { role: "moderator" };
-    const error = await catchError(() => requireAdminRoleForUser(USER_ID));
+    const error = await catchError(() =>
+      requireCapabilityForUser(USER_ID, "social_admin"),
+    );
     expect(error).toBeInstanceOf(AdminAuthError);
     expect((error as AdminAuthError).status).toBe(403);
   });
 
   it("sin fila en admin_roles → 403", async () => {
     roles.row = null;
-    const error = await catchError(() => requireAdminRoleForUser(USER_ID));
+    const error = await catchError(() =>
+      requireCapabilityForUser(USER_ID, "social_admin"),
+    );
     expect(error).toBeInstanceOf(AdminAuthError);
     expect((error as AdminAuthError).status).toBe(403);
   });
 
   it("fila con un rol no reconocido → 403", async () => {
     roles.row = { role: "superadmin" };
-    const error = await catchError(() => requireAdminRoleForUser(USER_ID));
+    const error = await catchError(() =>
+      requireCapabilityForUser(USER_ID, "social_admin"),
+    );
     expect((error as AdminAuthError).status).toBe(403);
   });
 
   it("error de Supabase → AdminAuthInfrastructureError (fail closed, nunca 'sin rol')", async () => {
     roles.error = { code: "57014", message: "timeout" };
-    const error = await catchError(() => requireAdminRoleForUser(USER_ID));
+    const error = await catchError(() =>
+      requireCapabilityForUser(USER_ID, "social_admin"),
+    );
     expect(error).toBeInstanceOf(AdminAuthInfrastructureError);
     expect(error).not.toBeInstanceOf(AdminAuthError);
     expect((error as AdminAuthInfrastructureError).code).toBe("57014");
@@ -518,20 +537,26 @@ describe("requireAdminRoleForUser / getPrivilegedRoleForUser (recomprobación si
 
   it("excepción del cliente (red) → AdminAuthInfrastructureError", async () => {
     roles.throwWith = new Error("ECONNRESET");
-    const error = await catchError(() => requireAdminRoleForUser(USER_ID));
+    const error = await catchError(() =>
+      requireCapabilityForUser(USER_ID, "social_admin"),
+    );
     expect(error).toBeInstanceOf(AdminAuthInfrastructureError);
     expect(error.message).not.toContain("ECONNRESET");
   });
 
   it("sin configuración de Supabase → AdminAuthInfrastructureError", async () => {
     vi.stubEnv("SUPABASE_SERVICE_ROLE_KEY", "");
-    const error = await catchError(() => requireAdminRoleForUser(USER_ID));
+    const error = await catchError(() =>
+      requireCapabilityForUser(USER_ID, "social_admin"),
+    );
     expect(error).toBeInstanceOf(AdminAuthInfrastructureError);
   });
 
   it("userId vacío o no string → 403 sin consultar la base de datos", async () => {
     for (const bad of ["", undefined, null, 42]) {
-      const error = await catchError(() => requireAdminRoleForUser(bad as never));
+      const error = await catchError(() =>
+        requireCapabilityForUser(bad as never, "social_admin"),
+      );
       expect((error as AdminAuthError).status).toBe(403);
     }
     expect(roles.queries).toHaveLength(0);
@@ -546,10 +571,131 @@ describe("requireAdminRoleForUser / getPrivilegedRoleForUser (recomprobación si
     expect(await getPrivilegedRoleForUser(USER_ID)).toBeNull();
   });
 
-  it("no cambia requireAdmin: sigue exigiendo aal2 aunque exista la recomprobación", async () => {
+  it("no cambia requireCapability(social_admin): sigue exigiendo aal2 aunque exista la recomprobación", async () => {
     okClaims({ aal: "aal1" });
     roles.row = { role: "admin" };
-    const error = await catchError(() => requireAdmin(bearer()));
+    const error = await catchError(() => requireCapability(bearer(), "social_admin"));
     expect((error as AdminAuthError).status).toBe(403);
+  });
+});
+
+describe("9C — capacidades explícitas (matriz rol → capacidad)", () => {
+  const ALL: Capability[] = ["moderation", "technical", "social_admin", "team_admin"];
+  // undefined = USER (sin fila en admin_roles)
+  const MATRIX: Record<
+    Capability,
+    Record<"admin" | "developer" | "moderator" | "user", boolean>
+  > = {
+    moderation: { admin: true, developer: true, moderator: true, user: false },
+    technical: { admin: true, developer: true, moderator: false, user: false },
+    social_admin: { admin: true, developer: false, moderator: false, user: false },
+    team_admin: { admin: true, developer: false, moderator: false, user: false },
+  };
+
+  for (const capability of ALL) {
+    for (const who of ["admin", "developer", "moderator", "user"] as const) {
+      const allowed = MATRIX[capability][who];
+      it(`requireCapability(${capability}) con ${who} + aal2 → ${allowed ? "permitido" : "403"}`, async () => {
+        okClaims();
+        roles.row = who === "user" ? null : { role: who };
+        if (allowed) {
+          const id = await requireCapability(bearer(), capability);
+          expect(id.userId).toBe(USER_ID);
+          expect(id.role).toBe(who);
+          expect(id.capabilities).toContain(capability);
+        } else {
+          const error = await catchError(() => requireCapability(bearer(), capability));
+          expect(error).toBeInstanceOf(AdminAuthError);
+          expect((error as AdminAuthError).status).toBe(403);
+        }
+      });
+
+      it(`requireCapability(${capability}) con ${who} + aal1 → 403 siempre`, async () => {
+        okClaims({ aal: "aal1" });
+        roles.row = who === "user" ? null : { role: who };
+        const error = await catchError(() => requireCapability(bearer(), capability));
+        expect((error as AdminAuthError).status).toBe(403);
+      });
+
+      if (who !== "user") {
+        it(`requireCapabilityForUser(${capability}) con ${who} → ${allowed ? "resuelve" : "403"}`, async () => {
+          roles.row = { role: who };
+          if (allowed) {
+            await expect(
+              requireCapabilityForUser(USER_ID, capability),
+            ).resolves.toBeUndefined();
+          } else {
+            const error = await catchError(() =>
+              requireCapabilityForUser(USER_ID, capability),
+            );
+            expect((error as AdminAuthError).status).toBe(403);
+          }
+        });
+      }
+    }
+  }
+
+  it("la matriz exportada coincide con la requerida (sin jerarquía implícita)", () => {
+    for (const cap of ALL) {
+      for (const role of ["admin", "developer", "moderator"] as PrivilegedRole[]) {
+        expect(roleHasCapability(role, cap)).toBe(MATRIX[cap][role]);
+      }
+    }
+    expect(capabilitiesForRole("developer")).toEqual(["moderation", "technical"]);
+    expect(capabilitiesForRole("moderator")).toEqual(["moderation"]);
+  });
+
+  it("capabilitiesForRole devuelve una copia: mutarla no altera la matriz", () => {
+    capabilitiesForRole("moderator").push("team_admin");
+    expect(roleHasCapability("moderator", "team_admin")).toBe(false);
+    expect(capabilitiesForRole("moderator")).toEqual(["moderation"]);
+  });
+
+  it("requireModerator = capacidad moderation: developer permitido, USER 403", async () => {
+    okClaims();
+    roles.row = { role: "developer" };
+    await expect(requireModerator(bearer())).resolves.toMatchObject({
+      role: "developer",
+    });
+    roles.row = null;
+    const error = await catchError(() => requireModerator(bearer()));
+    expect((error as AdminAuthError).status).toBe(403);
+  });
+
+  it("resolución de rol: reconoce developer; valores inesperados fail-closed (null, nunca un rol válido)", async () => {
+    roles.row = { role: "developer" };
+    expect(await getPrivilegedRoleForUser(USER_ID)).toBe("developer");
+    for (const bad of [
+      "superadmin",
+      "ADMIN",
+      "Developer",
+      "",
+      " admin",
+      null,
+      undefined,
+      1,
+      {},
+    ]) {
+      roles.row = { role: bad };
+      expect(await getPrivilegedRoleForUser(USER_ID)).toBeNull();
+    }
+    roles.row = null;
+    expect(await getPrivilegedRoleForUser(USER_ID)).toBeNull();
+  });
+
+  it("rol inesperado con aal2 → 403 en cualquier capacidad", async () => {
+    okClaims();
+    roles.row = { role: "owner" };
+    for (const cap of ALL) {
+      const error = await catchError(() => requireCapability(bearer(), cap));
+      expect((error as AdminAuthError).status).toBe(403);
+    }
+  });
+
+  it("un solo acceso a admin_roles por autorización (sin consultas duplicadas)", async () => {
+    okClaims();
+    roles.row = { role: "admin" };
+    await requireCapability(bearer(), "team_admin");
+    expect(roles.queries).toHaveLength(1);
   });
 });

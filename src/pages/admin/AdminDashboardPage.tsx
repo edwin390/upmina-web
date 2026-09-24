@@ -8,8 +8,9 @@ import SocialConnectionsSection from "@/components/admin/SocialConnectionsSectio
 // /admin (Bloque 5C). Primer shell administrativo, protegido exclusivamente mediante
 // GET /api/admin/me (ver src/lib/admin-handlers.ts): el frontend nunca decide por sí
 // mismo que una sesión es ADMIN. La única autoridad es la respuesta del backend
-// (requireAdmin: JWT verificado → aal2 → fila admin_roles con role='admin'); este
-// componente solo interpreta status/body de esa respuesta para elegir qué UI mostrar,
+// (requirePrivileged: JWT verificado → aal2 → rol de admin_roles; /me ya no es ADMIN-only:
+// también responde a moderator/developer). Este shell solo PRESENTA el panel cuando el rol
+// devuelto es "admin"; la autorización real de cada acción sigue en el servidor. Solo interpreta status/body de esa respuesta para elegir qué UI mostrar,
 // nunca consulta admin_roles directamente, no decodifica el JWT manualmente y no deriva
 // ningún rol de email/metadata/localStorage/la mera existencia de una sesión.
 //

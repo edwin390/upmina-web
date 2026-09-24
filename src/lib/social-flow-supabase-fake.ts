@@ -1,6 +1,6 @@
 // Doble de prueba de las tablas que usa la capability de los callbacks OAuth (Bloque 8D):
 // `social_oauth_flows` (módulo REAL social-oauth-flow) y `admin_roles` (lectura del rol por
-// requireAdminRoleForUser, también REAL). Solo tests. Aplica la misma semántica que Postgres
+// requireCapabilityForUser, también REAL). Solo tests. Aplica la misma semántica que Postgres
 // para lo que usan esos módulos: upsert por PK que solo sobrescribe las columnas enviadas,
 // UPDATE condicional con RETURNING evaluado de forma atómica en un único paso síncrono y los
 // CHECK relevantes de la migración. NO prueba el motor real (eso se verificó en 8B contra

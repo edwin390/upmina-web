@@ -1,5 +1,5 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { AdminAuthError, requireAdmin } from "./admin-auth.js";
+import { AdminAuthError, requireCapability } from "./admin-auth.js";
 import {
   INSTAGRAM_AUTHORIZE_URL,
   INSTAGRAM_REDIRECT_URI,
@@ -20,7 +20,7 @@ import {
 } from "./tiktok-shared.js";
 
 // Handler HTTP de POST /api/admin/social-connect (Bloque 8C.2): el ÚNICO inicio protegido del
-// OAuth de Instagram/TikTok. Solo un ADMIN con AAL2 (requireAdmin) puede obtener una URL de
+// OAuth de Instagram/TikTok. Solo un ADMIN con AAL2 (requireCapability social_admin) puede obtener una URL de
 // autorización; el navegador navega a ella después (este endpoint NO redirige).
 //
 // Contrato:
@@ -28,16 +28,16 @@ import {
 //             { "provider": "instagram" | "tiktok" }. Cualquier otra forma → 400.
 //   200     : { "authorization_url": "https://…" } + `Set-Cookie` (cookie de correlación del
 //             proveedor, la misma que ya entienden los callbacks) + `Cache-Control: no-store`.
-//   400     : cuerpo/provider inválido.       401/403 : requireAdmin (sin distinguir causa).
+//   400     : cuerpo/provider inválido.       401/403 : requireCapability social_admin (sin distinguir causa).
 //   403     : fuera de Production (solo tras autenticar).
 //   405     : método distinto de POST (con Allow: POST).
 //   500     : cualquier fallo inesperado, sin detalles.  503 : credenciales del proveedor ausentes.
 //
-// El user_id del flujo sale EXCLUSIVAMENTE de requireAdmin (JWT verificado); el `state` conserva
+// El user_id del flujo sale EXCLUSIVAMENTE de requireCapability (JWT verificado); el `state` conserva
 // el formato actual `<nonce>.<expiraMs>.<HMAC>` y NO contiene ninguna identidad. Redirect URI,
 // scopes y URL base son constantes del servidor: nada de eso se acepta del cliente.
 //
-// Orden de efectos (el único con efecto persistente es el penúltimo): método, requireAdmin,
+// Orden de efectos (el único con efecto persistente es el penúltimo): método, requireCapability,
 // body, guard de entorno, credenciales, cálculo puro de nonce/state/cookie/URL, validación
 // defensiva de la URL, createSocialOAuthFlow, respuesta. Un fallo anterior a la persistencia no
 // deja ningún flujo; si falla la persistencia no se envía cookie ni URL.
@@ -142,7 +142,7 @@ export async function handleAdminSocialConnect(
   // infraestructura NUNCA se interpreta como "sin rol": 500 genérico.
   let userId: string;
   try {
-    ({ userId } = await requireAdmin(req));
+    ({ userId } = await requireCapability(req, "social_admin"));
   } catch (err) {
     if (err instanceof AdminAuthError) {
       return res.status(err.status).json({ error: err.message });

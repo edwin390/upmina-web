@@ -14,7 +14,7 @@ import type { VercelRequest } from "@vercel/node";
 //     criptográficamente el JWT de Supabase Auth con supabase.auth.getClaims(). Nunca
 //     se confía en un user_id/aal que el request afirme por su cuenta (header, query,
 //     body): solo cuentan las claims ya verificadas por el SDK.
-//   - AUTORIZACIÓN (requirePrivileged/requireAdmin/requireModerator): "¿qué puedes
+//   - AUTORIZACIÓN (requirePrivileged/requireCapability): "¿qué puedes
 //     hacer?" — se resuelve consultando admin_roles con el user_id YA verificado, usando
 //     el cliente service_role. Una sesión de Supabase Auth válida (incluso con MFA) NO
 //     concede privilegios por sí sola: hace falta una fila en admin_roles.
@@ -25,7 +25,31 @@ import type { VercelRequest } from "@vercel/node";
 // Quien llame a estos helpers debe distinguir ese caso de un AdminAuthError (401/403)
 // legítimo si quiere responder 500/503 en vez de 401/403.
 
-export type PrivilegedRole = "admin" | "moderator";
+export type PrivilegedRole = "admin" | "moderator" | "developer";
+
+/** Capacidades explícitas. Ninguna jerarquía implícita ADMIN > DEVELOPER > MODERATOR: cada
+ *  operación privilegiada declara la capacidad que necesita y solo esta matriz decide. */
+export type Capability = "moderation" | "technical" | "social_admin" | "team_admin";
+
+/** ÚNICA fuente de verdad rol → capacidades (server-side). Añadir un rol o una capacidad
+ *  exige tocar solo esta tabla; el Record fuerza que ningún rol quede sin definir. */
+const ROLE_CAPABILITIES: Readonly<Record<PrivilegedRole, readonly Capability[]>> = {
+  moderator: ["moderation"],
+  developer: ["moderation", "technical"],
+  admin: ["moderation", "technical", "social_admin", "team_admin"],
+};
+
+export function capabilitiesForRole(role: PrivilegedRole): Capability[] {
+  return [...ROLE_CAPABILITIES[role]];
+}
+
+export function roleHasCapability(role: PrivilegedRole, capability: Capability): boolean {
+  return ROLE_CAPABILITIES[role].includes(capability);
+}
+
+function isPrivilegedRole(value: unknown): value is PrivilegedRole {
+  return value === "admin" || value === "moderator" || value === "developer";
+}
 
 /** Identidad autenticada: solo lo que devuelven las claims YA verificadas del JWT. */
 export interface AuthenticatedIdentity {
@@ -38,6 +62,11 @@ export interface AuthenticatedIdentity {
 export interface PrivilegedIdentity {
   userId: string;
   role: PrivilegedRole;
+}
+
+/** Identidad privilegiada que además superó una comprobación de capacidad concreta. */
+export interface CapabilityIdentity extends PrivilegedIdentity {
+  capabilities: Capability[];
 }
 
 /** No hay identidad válida (401) o hay identidad pero sin autorización suficiente (403).
@@ -175,7 +204,7 @@ export async function requireAuthenticated(
 }
 
 /** Lee el rol privilegiado de `userId` (ya verificado). `null` = sin fila, o fila con un
- *  valor de `role` que no es exactamente "admin"/"moderator" (defensivo: nunca debería
+ *  valor de `role` que no es exactamente "admin"/"moderator"/"developer" (defensivo: nunca debería
  *  ocurrir por el CHECK de la migración, pero si ocurriera se trata como "sin rol", no
  *  como error). Un fallo real de Supabase se propaga como AdminAuthInfrastructureError:
  *  nunca se interpreta un fallo de lectura como "sin rol". */
@@ -208,7 +237,7 @@ export async function getPrivilegedRoleForUser(
   }
   if (!data) return null;
 
-  return data.role === "admin" || data.role === "moderator" ? data.role : null;
+  return isPrivilegedRole(data.role) ? data.role : null;
 }
 
 /**
@@ -238,40 +267,43 @@ export async function requirePrivileged(req: VercelRequest): Promise<PrivilegedI
 }
 
 /**
- * Solo ADMIN. MODERATOR con aal2 válido sigue recibiendo 403: MFA no convierte un
- * MODERATOR en ADMIN.
+ * Autorización por capacidad: (1) autentica, (2) lee el rol autoritativo en admin_roles,
+ * (3) exige aal2, (4) exige que el rol tenga `capability` según ROLE_CAPABILITIES. Un rol
+ * privilegiado válido sin la capacidad recibe 403 (MFA no añade capacidades). Fallos de
+ * infraestructura se propagan como AdminAuthInfrastructureError, nunca como 403.
  */
-export async function requireAdmin(req: VercelRequest): Promise<{ userId: string }> {
+export async function requireCapability(
+  req: VercelRequest,
+  capability: Capability,
+): Promise<CapabilityIdentity> {
   const { userId, role } = await requirePrivileged(req);
-  if (role !== "admin") {
+  if (!roleHasCapability(role, capability)) {
     throw new AdminAuthError("No autorizado", 403);
   }
-  return { userId };
+  return { userId, role, capabilities: capabilitiesForRole(role) };
 }
 
 /**
- * ¿Sigue `userId` teniendo el rol ADMIN? Para flujos que llegan SIN sesión del navegador
- * (p. ej. el callback de un OAuth iniciado antes por un ADMIN+AAL2): no hay Bearer, ni
- * claims ni AAL que comprobar —eso ya se exigió al iniciar—; solo se reconsulta admin_roles
- * con el user_id ya conocido por el servidor. Resuelve a `void` si es admin; MODERATOR o sin
- * fila → AdminAuthError 403. Un fallo de Supabase se propaga como
- * AdminAuthInfrastructureError (fail closed, nunca "sin rol").
+ * ¿Sigue `userId` teniendo la capacidad `capability`? Para flujos que llegan SIN sesión del
+ * navegador (p. ej. el callback de un OAuth iniciado antes por un ADMIN+AAL2): no hay Bearer,
+ * ni claims ni AAL que comprobar —eso ya se exigió al iniciar—; solo se reconsulta admin_roles
+ * con el user_id ya conocido por el servidor. Sin fila o sin la capacidad → AdminAuthError 403.
+ * Un fallo de Supabase se propaga como AdminAuthInfrastructureError (fail closed).
  */
-export async function requireAdminRoleForUser(userId: string): Promise<void> {
+export async function requireCapabilityForUser(
+  userId: string,
+  capability: Capability,
+): Promise<void> {
   if (typeof userId !== "string" || userId.length === 0) {
     throw new AdminAuthError("No autorizado", 403);
   }
   const role = await getPrivilegedRoleForUser(userId);
-  if (role !== "admin") {
+  if (role === null || !roleHasCapability(role, capability)) {
     throw new AdminAuthError("No autorizado", 403);
   }
 }
 
-/**
- * ADMIN o MODERATOR: "puede realizar operaciones de moderación". Un ADMIN hereda la
- * capacidad de moderar; requirePrivileged ya solo devuelve exactamente estos dos roles,
- * así que no hace falta ninguna comprobación adicional aquí.
- */
-export async function requireModerator(req: VercelRequest): Promise<PrivilegedIdentity> {
-  return requirePrivileged(req);
+/** Moderación: MODERATOR, DEVELOPER y ADMIN, únicamente mediante la capacidad `moderation`. */
+export async function requireModerator(req: VercelRequest): Promise<CapabilityIdentity> {
+  return requireCapability(req, "moderation");
 }

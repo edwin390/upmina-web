@@ -18,15 +18,21 @@ const SERVICE_ROLE_KEY = "srk-service-role-ficticia";
 const ADMIN_ID = "11111111-1111-4111-8111-111111111111";
 const MOD_ID = "22222222-2222-4222-8222-222222222222";
 const USER_ID = "33333333-3333-4333-8333-333333333333";
+const DEV_ID = "55555555-5555-4555-8555-555555555555";
 const OTHER_ID = "44444444-4444-4444-8444-444444444444";
 
 const TOKENS: Record<string, { sub: string; aal: string }> = {
   "jwt-admin-aal2": { sub: ADMIN_ID, aal: "aal2" },
   "jwt-admin-aal1": { sub: ADMIN_ID, aal: "aal1" },
   "jwt-moderator-aal2": { sub: MOD_ID, aal: "aal2" },
+  "jwt-developer-aal2": { sub: DEV_ID, aal: "aal2" },
   "jwt-user-aal2": { sub: USER_ID, aal: "aal2" },
 };
-const ROLES: Record<string, string> = { [ADMIN_ID]: "admin", [MOD_ID]: "moderator" };
+const ROLES: Record<string, string> = {
+  [ADMIN_ID]: "admin",
+  [MOD_ID]: "moderator",
+  [DEV_ID]: "developer",
+};
 
 const fake = vi.hoisted(() => ({
   flows: new Map<string, Record<string, unknown>>(),
@@ -216,7 +222,7 @@ describe("routing y método", () => {
   });
 });
 
-describe("autorización (requireAdmin real)", () => {
+describe("autorización (requireCapability social_admin real)", () => {
   it("sin Authorization → 401, sin llegar a verificar ni a crear nada", async () => {
     const state = await call(req({ token: null }));
     expect(state.status).toBe(401);
@@ -247,6 +253,13 @@ describe("autorización (requireAdmin real)", () => {
   it("MODERATOR con AAL2 → 403", async () => {
     const state = await call(req({ token: "jwt-moderator-aal2" }));
     expect(state.status).toBe(403);
+    assertNothingCreated(state);
+  });
+
+  it("DEVELOPER con AAL2 → 403 (technical no concede social_admin)", async () => {
+    const state = await call(req({ token: "jwt-developer-aal2" }));
+    expect(state.status).toBe(403);
+    expect(state.body).toEqual({ error: "No autorizado" });
     assertNothingCreated(state);
   });
 

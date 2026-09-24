@@ -150,9 +150,28 @@ describe("global: POST /api/admin/social-connect es la única vía de inicio", (
     );
   });
 
-  it("el handler exige requireAdmin ANTES de generar state o crear el flujo", () => {
+  it("9C: toda autorización social exige EXACTAMENTE la capacidad social_admin (nunca moderation/technical/requirePrivileged)", () => {
+    const files = [
+      "src/lib/social-connect-handlers.ts",
+      "src/lib/social-status-handlers.ts",
+      "src/lib/tiktok-handlers.ts",
+      "api/instagram-callback.ts",
+    ];
+    for (const f of files) {
+      const src = read(join(ROOT, f));
+      expect(src, f).toMatch(
+        /requireCapability(ForUser)?\(\s*(req|claim\.adminUserId),\s*"social_admin",?\s*\)/,
+      );
+      expect(src, f).not.toMatch(
+        /requirePrivileged|requireModerator|"moderation"|"technical"|"team_admin"/,
+      );
+      expect(src, f).not.toMatch(/requireAdmin\b|requireAdminRoleForUser/);
+    }
+  });
+
+  it("el handler exige requireCapability(social_admin) ANTES de generar state o crear el flujo", () => {
     const handler = read(join(ROOT, "src/lib/social-connect-handlers.ts"));
-    const auth = handler.indexOf("await requireAdmin(req)");
+    const auth = handler.indexOf('await requireCapability(req, "social_admin")');
     expect(auth).toBeGreaterThan(-1);
     for (const call of ["adapter.createState(", "await createSocialOAuthFlow("]) {
       const at = handler.indexOf(call);

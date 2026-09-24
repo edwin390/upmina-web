@@ -10,14 +10,20 @@ import router from "../../api/admin/[action]";
 const ADMIN_ID = "11111111-1111-4111-8111-111111111111";
 const MOD_ID = "22222222-2222-4222-8222-222222222222";
 const USER_ID = "33333333-3333-4333-8333-333333333333";
+const DEV_ID = "55555555-5555-4555-8555-555555555555";
 
 const TOKENS: Record<string, { sub: string; aal: string }> = {
   "jwt-admin-aal2": { sub: ADMIN_ID, aal: "aal2" },
   "jwt-admin-aal1": { sub: ADMIN_ID, aal: "aal1" },
   "jwt-moderator-aal2": { sub: MOD_ID, aal: "aal2" },
+  "jwt-developer-aal2": { sub: DEV_ID, aal: "aal2" },
   "jwt-user-aal2": { sub: USER_ID, aal: "aal2" },
 };
-const ROLES: Record<string, string> = { [ADMIN_ID]: "admin", [MOD_ID]: "moderator" };
+const ROLES: Record<string, string> = {
+  [ADMIN_ID]: "admin",
+  [MOD_ID]: "moderator",
+  [DEV_ID]: "developer",
+};
 
 const NOW = Date.UTC(2026, 8, 25, 12, 0, 0);
 const iso = (ms: number) => new Date(ms).toISOString();
@@ -173,7 +179,7 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe("autorización (requireAdmin real)", () => {
+describe("autorización (requireCapability social_admin real)", () => {
   it.each(["POST", "PUT", "PATCH", "DELETE"])(
     "%s → 405 + Allow: GET, antes de autenticar ni leer datos",
     async (method) => {
@@ -190,6 +196,7 @@ describe("autorización (requireAdmin real)", () => {
     { name: "JWT inválido", token: "jwt-que-no-existe", status: 401 },
     { name: "USER (sin rol) con AAL2", token: "jwt-user-aal2", status: 403 },
     { name: "MODERATOR con AAL2", token: "jwt-moderator-aal2", status: 403 },
+    { name: "DEVELOPER con AAL2", token: "jwt-developer-aal2", status: 403 },
     { name: "ADMIN con AAL1", token: "jwt-admin-aal1", status: 403 },
   ])("$name → $status, sin leer social_connections", async ({ token, status }) => {
     const state = await call(req({ token }));

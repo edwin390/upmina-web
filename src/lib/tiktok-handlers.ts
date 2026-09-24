@@ -14,7 +14,7 @@ import {
   tikTokErrorStatus,
   verifyTikTokState,
 } from "./tiktok-shared.js";
-import { AdminAuthError, requireAdminRoleForUser } from "./admin-auth.js";
+import { AdminAuthError, requireCapabilityForUser } from "./admin-auth.js";
 import { isProductionEnvironment } from "./instagram-oauth-shared.js";
 import { claimSocialOAuthFlow, isSocialOAuthFlowCurrent } from "./social-oauth-flow.js";
 import {
@@ -135,7 +135,7 @@ export async function handleTikTokCallback(req: VercelRequest, res: VercelRespon
     // El flujo ya queda consumido aunque falle.
     await failClosed(async () => {
       try {
-        await requireAdminRoleForUser(claim.adminUserId);
+        await requireCapabilityForUser(claim.adminUserId, "social_admin");
       } catch (err) {
         if (err instanceof AdminAuthError) {
           throw new TikTokOAuthError("administrador ya no autorizado", 400);

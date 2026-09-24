@@ -29,13 +29,13 @@ const authFakes = vi.hoisted(() => ({
   calls: 0,
 }));
 
-// Fakes independientes de requireAdmin, usados solo por los tests de handleAdminMe (más
-// abajo): handleAdminMe llama a requireAdmin directamente, no a requireAuthenticated, así
+// Fakes independientes de requirePrivileged, usados solo por los tests de handleAdminMe (más
+// abajo): handleAdminMe llama a requirePrivileged directamente, no a requireAuthenticated, así
 // que reutilizar authFakes mezclaría dos contratos distintos.
 const adminFakes = vi.hoisted(() => ({
-  /** Valor que devuelve requireAdmin, o undefined para usar throwWith. */
-  identity: undefined as { userId: string } | undefined,
-  /** Si está definido, requireAdmin lanza esto en vez de devolver identity. */
+  /** Valor que devuelve requirePrivileged, o undefined para usar throwWith. */
+  identity: undefined as { userId: string; role: string } | undefined,
+  /** Si está definido, requirePrivileged lanza esto en vez de devolver identity. */
   throwWith: undefined as unknown,
   calls: 0,
 }));
@@ -52,7 +52,7 @@ vi.mock("./admin-auth", async () => {
       }
       return authFakes.identity;
     }),
-    requireAdmin: vi.fn(async () => {
+    requirePrivileged: vi.fn(async () => {
       adminFakes.calls++;
       if (adminFakes.throwWith !== undefined) throw adminFakes.throwWith;
       if (!adminFakes.identity) {
@@ -529,9 +529,9 @@ describe("handleAdminActivate", () => {
 
 // Fija el contrato de seguridad de GET /api/admin/me (Bloque 5A): primera comprobación
 // server-side de la identidad administrativa actual. Deliberadamente NO repite las
-// pruebas de requireAdmin/requirePrivileged/requireAuthenticated en sí (ya cubiertas por
+// pruebas de requirePrivileged/requireCapability/requireAuthenticated en sí (ya cubiertas por
 // admin-auth.test.ts): aquí solo importa cómo handleAdminMe reacciona a lo que
-// requireAdmin devuelve/lanza, y qué expone la respuesta 200.
+// requirePrivileged devuelve/lanza, y qué expone la respuesta 200.
 function meReq(overrides: Partial<VercelRequest> = {}): VercelRequest {
   return {
     method: "GET",
@@ -542,17 +542,52 @@ function meReq(overrides: Partial<VercelRequest> = {}): VercelRequest {
 }
 
 describe("handleAdminMe", () => {
-  it("GET + ADMIN + aal2 (requireAdmin resuelve) → 200 { role: 'admin' }", async () => {
-    adminFakes.identity = { userId: "11111111-1111-4111-8111-111111111111" };
+  it("GET + ADMIN + aal2 → 200 con rol y las 4 capacidades", async () => {
+    adminFakes.identity = {
+      userId: "11111111-1111-4111-8111-111111111111",
+      role: "admin",
+    };
     const { res, state } = mockRes();
 
     await handleAdminMe(meReq(), res);
 
     expect(state.status).toBe(200);
-    expect(state.body).toEqual({ role: "admin" });
+    expect(state.body).toEqual({
+      role: "admin",
+      capabilities: ["moderation", "technical", "social_admin", "team_admin"],
+    });
   });
 
-  it("sin Bearer (requireAdmin lanza 401) → 401", async () => {
+  it("GET + MODERATOR + aal2 → 200 { moderator, solo moderation }", async () => {
+    adminFakes.identity = {
+      userId: "11111111-1111-4111-8111-111111111111",
+      role: "moderator",
+    };
+    const { res, state } = mockRes();
+
+    await handleAdminMe(meReq(), res);
+
+    expect(state.status).toBe(200);
+    expect(state.body).toEqual({ role: "moderator", capabilities: ["moderation"] });
+  });
+
+  it("GET + DEVELOPER + aal2 → 200 { developer, moderation + technical } (sin social_admin/team_admin)", async () => {
+    adminFakes.identity = {
+      userId: "11111111-1111-4111-8111-111111111111",
+      role: "developer",
+    };
+    const { res, state } = mockRes();
+
+    await handleAdminMe(meReq(), res);
+
+    expect(state.status).toBe(200);
+    expect(state.body).toEqual({
+      role: "developer",
+      capabilities: ["moderation", "technical"],
+    });
+  });
+
+  it("sin Bearer (requirePrivileged lanza 401) → 401", async () => {
     adminFakes.throwWith = new AdminAuthError("No autenticado", 401);
     const { res, state } = mockRes();
 
@@ -561,7 +596,7 @@ describe("handleAdminMe", () => {
     expect(state.status).toBe(401);
   });
 
-  it("JWT inválido (requireAdmin lanza 401) → 401", async () => {
+  it("JWT inválido (requirePrivileged lanza 401) → 401", async () => {
     adminFakes.throwWith = new AdminAuthError("No autenticado", 401);
     const { res, state } = mockRes();
 
@@ -570,7 +605,7 @@ describe("handleAdminMe", () => {
     expect(state.status).toBe(401);
   });
 
-  it("ADMIN con aal1 (requireAdmin lanza 403) → 403", async () => {
+  it("ADMIN con aal1 (requirePrivileged lanza 403) → 403", async () => {
     adminFakes.throwWith = new AdminAuthError("No autorizado", 403);
     const { res, state } = mockRes();
 
@@ -579,7 +614,7 @@ describe("handleAdminMe", () => {
     expect(state.status).toBe(403);
   });
 
-  it("USER sin fila en admin_roles, aal2 (requireAdmin lanza 403) → 403", async () => {
+  it("USER sin fila en admin_roles, aal2 (requirePrivileged lanza 403) → 403", async () => {
     adminFakes.throwWith = new AdminAuthError("No autorizado", 403);
     const { res, state } = mockRes();
 
@@ -588,16 +623,7 @@ describe("handleAdminMe", () => {
     expect(state.status).toBe(403);
   });
 
-  it("MODERATOR con aal2 (requireAdmin lanza 403: no hereda ADMIN) → 403", async () => {
-    adminFakes.throwWith = new AdminAuthError("No autorizado", 403);
-    const { res, state } = mockRes();
-
-    await handleAdminMe(meReq(), res);
-
-    expect(state.status).toBe(403);
-  });
-
-  it("fallo de infraestructura (requireAdmin lanza AdminAuthInfrastructureError) → 500 genérico, sin filtrar detalles", async () => {
+  it("fallo de infraestructura (requirePrivileged lanza AdminAuthInfrastructureError) → 500 genérico, sin filtrar detalles", async () => {
     adminFakes.throwWith = new AdminAuthInfrastructureError(
       "Faltan VITE_SUPABASE_URL o SUPABASE_SERVICE_ROLE_KEY",
     );
@@ -609,7 +635,7 @@ describe("handleAdminMe", () => {
     expect(JSON.stringify(state.body)).not.toMatch(/VITE_SUPABASE|SERVICE_ROLE/);
   });
 
-  it("fallo inesperado (requireAdmin lanza un Error genérico) → 500 genérico, sin filtrar detalles", async () => {
+  it("fallo inesperado (requirePrivileged lanza un Error genérico) → 500 genérico, sin filtrar detalles", async () => {
     adminFakes.throwWith = new Error("ECONNRESET: fallo de red hacia Supabase");
     const { res, state } = mockRes();
 
@@ -620,7 +646,7 @@ describe("handleAdminMe", () => {
     expect(JSON.stringify(state.body)).not.toMatch(/ECONNRESET|Supabase/);
   });
 
-  it("POST /api/admin/me → 405 + Allow: GET, sin llamar a requireAdmin", async () => {
+  it("POST /api/admin/me → 405 + Allow: GET, sin llamar a requirePrivileged", async () => {
     const { res, state } = mockRes();
 
     await handleAdminMe(meReq({ method: "POST" }), res);
@@ -631,12 +657,15 @@ describe("handleAdminMe", () => {
   });
 
   it("respuesta 200 no expone userId/email/JWT ni información de invitaciones", async () => {
-    adminFakes.identity = { userId: "22222222-2222-4222-8222-222222222222" };
+    adminFakes.identity = {
+      userId: "22222222-2222-4222-8222-222222222222",
+      role: "admin",
+    };
     const { res, state } = mockRes();
 
     await handleAdminMe(meReq(), res);
 
-    expect(state.body).toEqual({ role: "admin" });
+    expect(Object.keys(state.body as object).sort()).toEqual(["capabilities", "role"]);
     const serialized = JSON.stringify(state.body);
     expect(serialized).not.toContain("22222222-2222-4222-8222-222222222222");
     expect(serialized).not.toMatch(/email|jwt|token|invitation/i);

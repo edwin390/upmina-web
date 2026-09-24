@@ -20,7 +20,7 @@ import {
   logInstagramStorageError,
   saveInstagramConnection,
 } from "../src/lib/instagram-connection.js";
-import { AdminAuthError, requireAdminRoleForUser } from "../src/lib/admin-auth.js";
+import { AdminAuthError, requireCapabilityForUser } from "../src/lib/admin-auth.js";
 import {
   claimSocialOAuthFlow,
   isSocialOAuthFlowCurrent,
@@ -120,7 +120,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     // El flujo ya queda consumido aunque falle.
     await failClosed(async () => {
       try {
-        await requireAdminRoleForUser(claim.adminUserId);
+        await requireCapabilityForUser(claim.adminUserId, "social_admin");
       } catch (err) {
         if (err instanceof AdminAuthError) {
           throw new InstagramOAuthError("administrador ya no autorizado", 400);

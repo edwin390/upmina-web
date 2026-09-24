@@ -706,6 +706,7 @@ describe("api/tiktok-callback: capability server-side (Bloque 8D)", () => {
   it.each([
     ["admin revocado (sin rol)", undefined],
     ["degradado a MODERATOR", "moderator"],
+    ["degradado a DEVELOPER", "developer"],
   ])(
     "%s → 400 genérico, sin exchange ni escritura; el flujo queda consumido",
     async (_n, role) => {
