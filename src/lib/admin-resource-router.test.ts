@@ -4,6 +4,7 @@ import router from "../../api/admin/[action]";
 import * as handlers from "./admin-handlers";
 import * as socialHandlers from "./social-connect-handlers";
 import * as statusHandlers from "./social-status-handlers";
+import * as teamHandlers from "./admin-team-invitations";
 
 // Fija el despachador api/admin/[action].ts (Bloque 2C): comprueba que la acción
 // correcta llega al handler correcto y que una acción desconocida nunca se resuelve
@@ -16,6 +17,16 @@ vi.mock("./admin-handlers", () => ({
   ),
   handleAdminMe: vi.fn(async (_req: VercelRequest, res: VercelResponse) =>
     res.status(200).json("me"),
+  ),
+}));
+
+vi.mock("./admin-team-invitations", () => ({
+  handleAdminTeamInvitations: vi.fn(async (_req: VercelRequest, res: VercelResponse) =>
+    res.status(200).json("team-invitations"),
+  ),
+  handleAdminTeamInvitationRevoke: vi.fn(
+    async (_req: VercelRequest, res: VercelResponse) =>
+      res.status(200).json("team-invitations-revoke"),
   ),
 }));
 
@@ -110,6 +121,24 @@ describe("api/admin/[action] (despachador)", () => {
     expect(handlers.handleAdminMe).toHaveBeenCalledWith(request, res);
     expect(handlers.handleAdminActivate).not.toHaveBeenCalled();
   });
+  it("action=team-invitations / team-invitations-revoke → solo su handler (9D), sin resolución dinámica", async () => {
+    const r1 = req("team-invitations", "GET");
+    const r2 = req("team-invitations-revoke");
+    const { res } = mockRes();
+    await router(r1, res);
+    expect(teamHandlers.handleAdminTeamInvitations).toHaveBeenCalledWith(r1, res);
+    expect(teamHandlers.handleAdminTeamInvitationRevoke).not.toHaveBeenCalled();
+    await router(r2, res);
+    expect(teamHandlers.handleAdminTeamInvitationRevoke).toHaveBeenCalledWith(r2, res);
+    for (const bad of ["Team-Invitations", "team-invitations/x", "team_invitations"]) {
+      const { res: res2, state } = mockRes();
+      await router(req(bad), res2);
+      expect(state.status).toBe(404);
+    }
+    expect(teamHandlers.handleAdminTeamInvitations).toHaveBeenCalledTimes(1);
+    expect(handlers.handleAdminActivate).not.toHaveBeenCalled();
+  });
+
   it("action=social-connect → solo handleAdminSocialConnect, con el mismo req/res", async () => {
     const request = req("social-connect");
     const { res } = mockRes();

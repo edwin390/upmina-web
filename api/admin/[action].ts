@@ -2,6 +2,10 @@ import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { handleAdminActivate, handleAdminMe } from "../../src/lib/admin-handlers.js";
 import { handleAdminSocialConnect } from "../../src/lib/social-connect-handlers.js";
 import { handleAdminSocialStatus } from "../../src/lib/social-status-handlers.js";
+import {
+  handleAdminTeamInvitationRevoke,
+  handleAdminTeamInvitations,
+} from "../../src/lib/admin-team-invitations.js";
 
 // Despachador de acciones admin server-side por segmento dinámico `action`. Mismo
 // patrón que api/instagram/[resource].ts y api/tiktok/[resource].ts: un único
@@ -21,6 +25,9 @@ import { handleAdminSocialStatus } from "../../src/lib/social-status-handlers.js
 // lógica en src/lib/social-connect-handlers.ts).
 // "social-status" (Bloque 8E — estado de las conexiones sociales para el panel /admin, ADMIN+AAL2,
 // lógica en src/lib/social-status-handlers.ts).
+// "team-invitations" (Bloque 9D — GET lista / POST crea invitaciones standard, team_admin+AAL2) y
+// "team-invitations-revoke" (Bloque 9D — revoca una standard pendiente vía RPC), lógica en
+// src/lib/admin-team-invitations.ts.
 // La lógica de cada una vive en src/lib/admin-handlers.ts, no aquí, siguiendo el mismo
 // patrón que los otros dos dispatchers.
 export default function handler(req: VercelRequest, res: VercelResponse) {
@@ -33,6 +40,10 @@ export default function handler(req: VercelRequest, res: VercelResponse) {
       return handleAdminSocialConnect(req, res);
     case "social-status":
       return handleAdminSocialStatus(req, res);
+    case "team-invitations":
+      return handleAdminTeamInvitations(req, res);
+    case "team-invitations-revoke":
+      return handleAdminTeamInvitationRevoke(req, res);
     default:
       return res.status(404).json({ error: "No encontrado" });
   }

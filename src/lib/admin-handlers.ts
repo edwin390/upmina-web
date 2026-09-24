@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import { createClient } from "@supabase/supabase-js";
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import {
@@ -9,6 +8,7 @@ import {
   requirePrivileged,
   type PrivilegedIdentity,
 } from "./admin-auth.js";
+import { hashInvitationToken } from "./admin-invitation-token.js";
 
 // Handler HTTP de POST /api/admin/activate (Bloque 2C). Vive aquí (no en api/) por el
 // mismo motivo que instagram-handlers.ts/tiktok-handlers.ts: api/admin/[action].ts es un
@@ -36,14 +36,6 @@ const BOOTSTRAP_TOKEN_PATTERN = /^[A-Za-z0-9_-]{43}$/;
 
 function isValidBootstrapToken(value: unknown): value is string {
   return typeof value === "string" && BOOTSTRAP_TOKEN_PATTERN.test(value);
-}
-
-/** SHA-256 (hex) del token en claro — mismo cálculo que hashBootstrapToken() en
- *  scripts/lib/admin-bootstrap-invitation.mjs, reimplementado aquí (en vez de
- *  importado) porque ese módulo es parte del generador operator-side y este handler no
- *  debe depender de scripts/. */
-function hashToken(token: string): string {
-  return createHash("sha256").update(token).digest("hex");
 }
 
 /**
@@ -192,7 +184,7 @@ export async function handleAdminActivate(
     return res.status(400).json({ error: "Solicitud inválida" });
   }
 
-  const tokenHash = hashToken(token);
+  const tokenHash = hashInvitationToken(token);
 
   let client: ReturnType<typeof getInvitationServiceClient>;
   try {

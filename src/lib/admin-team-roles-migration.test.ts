@@ -39,7 +39,7 @@ describe("migración 9B — archivo", () => {
       .filter((f) => f.endsWith(".sql"))
       .sort();
     expect(files.filter((f) => f === FILE)).toHaveLength(1);
-    expect(files[files.length - 1]).toBe(FILE);
+    expect(files.indexOf(FILE)).toBeGreaterThan(0); // posteriores (p. ej. 9D) no la invalidan
   });
 
   it("no usa if not exists (debe fallar de forma visible si el schema no es el esperado)", () => {
