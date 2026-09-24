@@ -71,8 +71,10 @@ const INVITATION_REJECTED_BODY = { error: "No se pudo activar la invitación" };
 /**
  * Conjunto CERRADO de mensajes que consume_admin_invitation lanza como rechazo de
  * negocio esperado (ver los 4 `raise exception '<literal>'` en
- * supabase/migrations/20260923120000_admin_invitations.sql: invitation_not_found,
- * invitation_already_consumed, invitation_expired, admin_already_exists). Ninguno usa
+ * supabase/migrations/20260923120000_admin_invitations.sql y su versión vigente en
+ * 20260926120000_admin_team_roles_invariants.sql: invitation_not_found,
+ * invitation_already_consumed, invitation_revoked, invitation_expired,
+ * user_already_privileged, admin_already_exists, invitation_creator_not_admin). Ninguno usa
  * argumentos de formato ni un SQLSTATE explícito, así que PostgREST siempre los reporta
  * con code "P0001" (el código por defecto de PL/pgSQL para RAISE EXCEPTION sin código
  * propio) y `message` EXACTAMENTE igual al literal — nunca interpolado, nunca con
@@ -89,8 +91,11 @@ const INVITATION_REJECTED_BODY = { error: "No se pudo activar la invitación" };
 const KNOWN_INVITATION_RPC_ERRORS = new Set([
   "invitation_not_found",
   "invitation_already_consumed",
+  "invitation_revoked",
   "invitation_expired",
+  "user_already_privileged",
   "admin_already_exists",
+  "invitation_creator_not_admin",
 ]);
 
 /** SQLSTATE por defecto que Postgres asigna a `RAISE EXCEPTION` cuando la sentencia no

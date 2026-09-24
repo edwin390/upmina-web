@@ -25,12 +25,14 @@ function tableBody(): string {
 }
 
 describe("migración social_oauth_flows — esquema", () => {
-  it("es una migración NUEVA, posterior a todas las anteriores", () => {
+  it("es una migración NUEVA: existe una sola vez y ninguna anterior la reemplaza", () => {
     const files = readdirSync(MIGRATIONS_DIR)
       .filter((f) => f.endsWith(".sql"))
       .sort();
-    expect(files[files.length - 1]).toBe(FILE);
+    // Pueden existir migraciones POSTERIORES (p. ej. 9B); ninguna puede ser anterior a esta
+    // salvo las históricas ya aplicadas.
     expect(files.filter((f) => f === FILE)).toHaveLength(1);
+    expect(files.indexOf(FILE)).toBeGreaterThan(0);
   });
 
   it("crea la tabla SIN if not exists (debe fallar de forma visible si ya existe)", () => {

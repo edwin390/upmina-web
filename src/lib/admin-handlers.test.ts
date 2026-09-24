@@ -325,6 +325,9 @@ describe("handleAdminActivate", () => {
     "invitation_already_consumed",
     "invitation_expired",
     "admin_already_exists",
+    "invitation_revoked",
+    "user_already_privileged",
+    "invitation_creator_not_admin",
   ])(
     "rechazo de negocio reconocido de la RPC (code P0001, message=%s) → 400 genérico, nunca el texto de Postgres",
     async (message) => {
@@ -337,7 +340,7 @@ describe("handleAdminActivate", () => {
       expect(state.status).toBe(400);
       expect(state.body).toEqual({ error: "No se pudo activar la invitación" });
       expect(JSON.stringify(state.body)).not.toMatch(
-        /consumed|expired|not_found|already_exists|P0001/,
+        /consumed|expired|not_found|already_exists|revoked|privileged|creator|P0001/,
       );
     },
   );
