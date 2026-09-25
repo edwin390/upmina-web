@@ -1,5 +1,9 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { handleAdminActivate, handleAdminMe } from "../../src/lib/admin-handlers.js";
+import {
+  handleAdminAccess,
+  handleAdminActivate,
+  handleAdminMe,
+} from "../../src/lib/admin-handlers.js";
 import { handleAdminSocialConnect } from "../../src/lib/social-connect-handlers.js";
 import { handleAdminSocialStatus } from "../../src/lib/social-status-handlers.js";
 import {
@@ -35,6 +39,8 @@ import {
 // src/lib/admin-team-invitations.ts.
 // "team-members", "team-members-role" y "team-members-remove" (Bloque 9F — listar miembros, cambiar rol
 // y quitar acceso, team_admin+AAL2 vía RPC), lógica en src/lib/admin-team-members.ts.
+// "access" (Fase 9G-1 — acceso actual para presentación: rol, capacidades y MFA reciente; exige
+// autenticación pero NO MFA y NO autoriza nada), lógica en src/lib/admin-handlers.ts.
 // La lógica de cada una vive en src/lib/admin-handlers.ts, no aquí, siguiendo el mismo
 // patrón que los otros dos dispatchers.
 export default function handler(req: VercelRequest, res: VercelResponse) {
@@ -43,6 +49,8 @@ export default function handler(req: VercelRequest, res: VercelResponse) {
       return handleAdminActivate(req, res);
     case "me":
       return handleAdminMe(req, res);
+    case "access":
+      return handleAdminAccess(req, res);
     case "social-connect":
       return handleAdminSocialConnect(req, res);
     case "social-status":

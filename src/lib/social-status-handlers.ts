@@ -1,6 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { AdminAuthError, requireCapability } from "./admin-auth.js";
+import { AdminAuthError, authErrorBody, requireCapability } from "./admin-auth.js";
 import { isInstagramAccessTokenExpired } from "./instagram-connection.js";
 import { isTikTokRefreshTokenExpired } from "./tiktok-connection.js";
 
@@ -87,7 +87,7 @@ export async function handleAdminSocialStatus(
     await requireCapability(req, "social_admin");
   } catch (err) {
     if (err instanceof AdminAuthError) {
-      return res.status(err.status).json({ error: err.message });
+      return res.status(err.status).json(authErrorBody(err));
     }
     return res.status(500).json(GENERIC_ERROR_BODY);
   }

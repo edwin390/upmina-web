@@ -12,12 +12,48 @@ const MOD_ID = "22222222-2222-4222-8222-222222222222";
 const USER_ID = "33333333-3333-4333-8333-333333333333";
 const DEV_ID = "55555555-5555-4555-8555-555555555555";
 
-const TOKENS: Record<string, { sub: string; aal: string }> = {
-  "jwt-admin-aal2": { sub: ADMIN_ID, aal: "aal2" },
+// El reloj de este archivo está fijado (ver NOW más abajo): los timestamps AMR se calculan contra él.
+const TOKENS_NOW_SECONDS = Date.UTC(2026, 8, 25, 12, 0, 0) / 1000;
+
+const TOKENS: Record<string, { sub: string; aal: string; amr?: unknown }> = {
+  "jwt-admin-aal2": {
+    sub: ADMIN_ID,
+    aal: "aal2",
+    amr: [{ method: "totp", timestamp: TOKENS_NOW_SECONDS }],
+  },
   "jwt-admin-aal1": { sub: ADMIN_ID, aal: "aal1" },
-  "jwt-moderator-aal2": { sub: MOD_ID, aal: "aal2" },
-  "jwt-developer-aal2": { sub: DEV_ID, aal: "aal2" },
-  "jwt-user-aal2": { sub: USER_ID, aal: "aal2" },
+  // 9G-1: aal2 pero el último TOTP venció (fuera de la ventana), o sin amr en absoluto.
+  "jwt-admin-aal2-stale": {
+    sub: ADMIN_ID,
+    aal: "aal2",
+    amr: [{ method: "totp", timestamp: TOKENS_NOW_SECONDS - 3600 }],
+  },
+  "jwt-admin-aal2-noamr": { sub: ADMIN_ID, aal: "aal2" },
+  "jwt-moderator-aal2-stale": {
+    sub: MOD_ID,
+    aal: "aal2",
+    amr: [{ method: "totp", timestamp: TOKENS_NOW_SECONDS - 3600 }],
+  },
+  "jwt-user-aal2-stale": {
+    sub: USER_ID,
+    aal: "aal2",
+    amr: [{ method: "totp", timestamp: TOKENS_NOW_SECONDS - 3600 }],
+  },
+  "jwt-moderator-aal2": {
+    sub: MOD_ID,
+    aal: "aal2",
+    amr: [{ method: "totp", timestamp: TOKENS_NOW_SECONDS }],
+  },
+  "jwt-developer-aal2": {
+    sub: DEV_ID,
+    aal: "aal2",
+    amr: [{ method: "totp", timestamp: TOKENS_NOW_SECONDS }],
+  },
+  "jwt-user-aal2": {
+    sub: USER_ID,
+    aal: "aal2",
+    amr: [{ method: "totp", timestamp: TOKENS_NOW_SECONDS }],
+  },
 };
 const ROLES: Record<string, string> = {
   [ADMIN_ID]: "admin",
@@ -379,5 +415,29 @@ describe("fail-closed y secretos", () => {
     fake.connectionsError = undefined;
     await call(req({ token: "jwt-user-aal2" }));
     for (const spy of spies) expect(spy).not.toHaveBeenCalled();
+  });
+});
+
+describe("9G-1 — MFA reciente: capacidad ANTES del step-up", () => {
+  it.each([
+    ["ADMIN aal2 con TOTP vencido", "jwt-admin-aal2-stale"],
+    ["ADMIN aal2 sin amr", "jwt-admin-aal2-noamr"],
+    ["ADMIN con aal1", "jwt-admin-aal1"],
+  ])("%s → 403 step_up_required, sin leer social_connections", async (_n, token) => {
+    const state = await call(req({ token }));
+    expect(state.status).toBe(403);
+    expect(state.body).toEqual({ error: "No autorizado", code: "step_up_required" });
+    expect(fake.connectionsQueries).toHaveLength(0);
+  });
+
+  it.each([
+    ["MODERATOR con MFA vencido", "jwt-moderator-aal2-stale"],
+    ["USER con MFA vencido", "jwt-user-aal2-stale"],
+    ["USER con aal2 y MFA reciente", "jwt-user-aal2"],
+  ])("%s → 403 genérico SIN code", async (_n, token) => {
+    const state = await call(req({ token }));
+    expect(state.status).toBe(403);
+    expect(state.body).toEqual({ error: "No autorizado" });
+    expect(fake.connectionsQueries).toHaveLength(0);
   });
 });

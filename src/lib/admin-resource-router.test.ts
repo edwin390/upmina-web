@@ -18,6 +18,9 @@ vi.mock("./admin-handlers", () => ({
   handleAdminMe: vi.fn(async (_req: VercelRequest, res: VercelResponse) =>
     res.status(200).json("me"),
   ),
+  handleAdminAccess: vi.fn(async (_req: VercelRequest, res: VercelResponse) =>
+    res.status(200).json("access"),
+  ),
 }));
 
 vi.mock("./admin-team-invitations", () => ({
@@ -121,6 +124,23 @@ describe("api/admin/[action] (despachador)", () => {
     expect(handlers.handleAdminMe).toHaveBeenCalledWith(request, res);
     expect(handlers.handleAdminActivate).not.toHaveBeenCalled();
   });
+  it("action=access (9G-1) → solo handleAdminAccess, con el mismo req/res; variantes no se resuelven", async () => {
+    const request = req("access", "GET");
+    const { res } = mockRes();
+
+    await router(request, res);
+
+    expect(handlers.handleAdminAccess).toHaveBeenCalledWith(request, res);
+    expect(handlers.handleAdminMe).not.toHaveBeenCalled();
+    expect(handlers.handleAdminActivate).not.toHaveBeenCalled();
+    for (const bad of ["Access", "access/x", "acceso"]) {
+      const { res: res2, state } = mockRes();
+      await router(req(bad, "GET"), res2);
+      expect(state.status).toBe(404);
+    }
+    expect(handlers.handleAdminAccess).toHaveBeenCalledTimes(1);
+  });
+
   it("action=team-invitations / team-invitations-revoke → solo su handler (9D), sin resolución dinámica", async () => {
     const r1 = req("team-invitations", "GET");
     const r2 = req("team-invitations-revoke");

@@ -3,9 +3,14 @@ import type { VercelRequest, VercelResponse } from "@vercel/node";
 import {
   AdminAuthError,
   AdminAuthInfrastructureError,
+  authErrorBody,
   capabilitiesForRole,
+  getAccessSummary,
+  identityHasRecentMfa,
   requireAuthenticated,
   requirePrivileged,
+  STEP_UP_REQUIRED_CODE,
+  type AccessSummary,
   type PrivilegedIdentity,
 } from "./admin-auth.js";
 import { hashInvitationToken } from "./admin-invitation-token.js";
@@ -22,9 +27,10 @@ import { hashInvitationToken } from "./admin-invitation-token.js";
 // requireAuthenticated — nunca del body del request, aunque el cliente lo envíe.
 //
 // Deliberadamente NO usa requireCapability/requirePrivileged: en el momento de activar la
-// invitación bootstrap el usuario todavía no tiene ninguna fila en admin_roles (esa fila
-// es precisamente lo que esta operación va a crear). La única condición de assurance
-// exigida aquí es aal2 sobre una identidad ya autenticada.
+// invitación el usuario todavía no tiene ninguna fila en admin_roles (esa fila es precisamente
+// lo que esta operación va a crear). La condición de assurance exigida aquí es MFA RECIENTE
+// (aal2 + TOTP dentro de la ventana, ver privileged-mfa.ts) sobre una identidad ya autenticada:
+// el MFA ocurre ANTES de conceder el rol. Sin MFA reciente → 403 con code "step_up_required".
 
 // Formato exacto producido por generateBootstrapToken() en
 // scripts/lib/admin-bootstrap-invitation.mjs: randomBytes(32).toString("base64url").
@@ -152,7 +158,7 @@ export async function handleAdminActivate(
     return res.status(405).json({ error: "Método no permitido" });
   }
 
-  let identity: { userId: string; aal: string };
+  let identity: Awaited<ReturnType<typeof requireAuthenticated>>;
   try {
     identity = await requireAuthenticated(req);
   } catch (err) {
@@ -160,16 +166,17 @@ export async function handleAdminActivate(
     // otro caso (AdminAuthInfrastructureError u otra excepción inesperada) es un fallo
     // real de infraestructura: genérico 500, nunca su mensaje interno.
     if (err instanceof AdminAuthError) {
-      return res.status(err.status).json({ error: err.message });
+      return res.status(err.status).json(authErrorBody(err));
     }
     return res.status(500).json(INFRASTRUCTURE_ERROR_BODY);
   }
 
-  // La activación bootstrap ocurre ANTES de que exista cualquier fila en admin_roles
-  // para este usuario: requireCapability/requirePrivileged no aplican (siempre darían 403).
-  // aal2 es la única assurance exigible sobre la identidad ya verificada.
-  if (identity.aal !== "aal2") {
-    return res.status(403).json({ error: "No autorizado" });
+  // La activación ocurre ANTES de que exista cualquier fila en admin_roles para este usuario:
+  // requireCapability/requirePrivileged no aplican (siempre darían 403). La assurance exigible
+  // sobre la identidad ya verificada es MFA reciente. El role/userId/aal/mfa que envíe el
+  // cliente nunca se lee: solo cuentan las claims del JWT.
+  if (!identityHasRecentMfa(identity)) {
+    return res.status(403).json({ error: "No autorizado", code: STEP_UP_REQUIRED_CODE });
   }
 
   const body = parseJsonBody(req);
@@ -226,11 +233,12 @@ export async function handleAdminActivate(
   }
 }
 
-// Handler HTTP de GET /api/admin/me (Bloque 5A). Primera comprobación server-side de la
-// identidad administrativa actual: reutiliza requirePrivileged (admin-auth.ts) sin duplicar
-// ninguna lógica de verificación de JWT/AAL/rol aquí. requirePrivileged exige, en orden,
-// (1) un JWT válido, (2) una fila admin_roles con rol reconocido (admin/moderator/developer),
-// (3) aal2. Sin fila o rol desconocido → 403.
+// Handler HTTP de GET /api/admin/me (Bloque 5A). Guard ESTRICTO de la identidad administrativa
+// actual: reutiliza requirePrivileged (admin-auth.ts) sin duplicar ninguna lógica de
+// verificación de JWT/rol/MFA aquí. requirePrivileged exige, en orden, (1) un JWT válido,
+// (2) una fila admin_roles con rol reconocido (admin/moderator/developer), (3) MFA reciente.
+// Sin fila o rol desconocido → 403 genérico; rol válido pero sin MFA reciente → 403 con code
+// "step_up_required" (Fase 9G-1). Para saber el acceso SIN exigir MFA existe /access.
 //
 // La respuesta describe el rol y las capacidades derivadas server-side para PRESENTACIÓN:
 // el cliente no las usa como autoridad (cada endpoint vuelve a exigir su capacidad). Nunca
@@ -252,7 +260,7 @@ export async function handleAdminMe(
     // (AdminAuthInfrastructureError u otra excepción inesperada) es un fallo real de
     // infraestructura: genérico 500, nunca su mensaje interno.
     if (err instanceof AdminAuthError) {
-      return res.status(err.status).json({ error: err.message });
+      return res.status(err.status).json(authErrorBody(err));
     }
     return res.status(500).json(INFRASTRUCTURE_ERROR_BODY);
   }
@@ -260,5 +268,41 @@ export async function handleAdminMe(
   return res.status(200).json({
     role: me.role,
     capabilities: capabilitiesForRole(me.role),
+  });
+}
+
+// Handler HTTP de GET /api/admin/access (Fase 9G-1). Información de acceso para PRESENTACIÓN:
+// exige autenticación (JWT verificado) pero NO MFA reciente, para que el frontend sepa qué
+// mostrar y si enrutar a un step-up. NO autoriza nada: cada endpoint privilegiado vuelve a
+// exigir su propio guard (rol → capacidad → MFA reciente). Un usuario sin rol recibe
+// `role: null` y jamás `step_up_required`. Solo describe al propio solicitante: no expone
+// userId, email, el JWT, timestamps ni datos de otros usuarios.
+export async function handleAdminAccess(
+  req: VercelRequest,
+  res: VercelResponse,
+): Promise<VercelResponse> {
+  if (req.method !== "GET") {
+    res.setHeader("Allow", "GET");
+    return res.status(405).json({ error: "Método no permitido" });
+  }
+
+  // Describe la sesión actual de quien pregunta: ninguna respuesta (200, 401 ni 500) debe
+  // cachearse ni reutilizarse entre usuarios o sesiones.
+  res.setHeader("Cache-Control", "no-store");
+
+  let access: AccessSummary;
+  try {
+    access = await getAccessSummary(req);
+  } catch (err) {
+    if (err instanceof AdminAuthError) {
+      return res.status(err.status).json(authErrorBody(err));
+    }
+    return res.status(500).json(INFRASTRUCTURE_ERROR_BODY);
+  }
+
+  return res.status(200).json({
+    role: access.role,
+    capabilities: access.capabilities,
+    mfa: { recent: access.mfaRecent },
   });
 }

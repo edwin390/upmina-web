@@ -13,6 +13,9 @@ import {
   type Capability,
   type PrivilegedRole,
   requirePrivileged,
+  getAccessSummary,
+  identityHasRecentMfa,
+  authErrorBody,
 } from "./admin-auth";
 
 // Fijan la frontera de seguridad de Auth/AuthZ server-side: requireAuthenticated (¿quién
@@ -95,8 +98,20 @@ const ANON_KEY = "anon-key-ficticia";
 const SERVICE_ROLE_KEY = "srk-service-role-ficticia";
 const USER_ID = "11111111-1111-4111-8111-111111111111";
 
+/** Reloj fijo del archivo (segundos UNIX): los timestamps AMR se calculan contra él. */
+const NOW_MS = Date.UTC(2026, 8, 25, 12, 0, 0);
+const NOW_S = NOW_MS / 1000;
+
+/** amr con un TOTP verificado hace `agoSeconds` segundos (default: recién). */
+function totpAmr(agoSeconds = 0) {
+  return [
+    { method: "password", timestamp: NOW_S - 7200 },
+    { method: "totp", timestamp: NOW_S - agoSeconds },
+  ];
+}
+
 function claims(overrides: Record<string, unknown> = {}) {
-  return { sub: USER_ID, aal: "aal2", ...overrides };
+  return { sub: USER_ID, aal: "aal2", amr: totpAmr(), ...overrides };
 }
 
 function okClaims(overrides: Record<string, unknown> = {}) {
@@ -115,6 +130,8 @@ function bearer(token = "un-jwt-cualquiera") {
 }
 
 beforeEach(() => {
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(NOW_MS);
   resetFakes();
   vi.stubEnv("VITE_SUPABASE_URL", SUPABASE_URL);
   vi.stubEnv("VITE_SUPABASE_ANON_KEY", ANON_KEY);
@@ -122,6 +139,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  vi.useRealTimers();
   vi.unstubAllEnvs();
   vi.restoreAllMocks();
 });
@@ -197,15 +215,15 @@ describe("requireAuthenticated", () => {
   });
 
   it("7) sub válido + aal1 → identidad autenticada (NO rechazada; requireAuthenticated no exige aal2)", async () => {
-    okClaims({ aal: "aal1" });
+    okClaims({ aal: "aal1", amr: [{ method: "password", timestamp: NOW_S }] });
     const identity = await requireAuthenticated(bearer());
-    expect(identity).toEqual({ userId: USER_ID, aal: "aal1" });
+    expect(identity).toEqual({ userId: USER_ID, aal: "aal1", mfaVerifiedAt: null });
   });
 
   it("8) sub válido + aal2 → identidad autenticada", async () => {
     okClaims();
     const identity = await requireAuthenticated(bearer("el-jwt"));
-    expect(identity).toEqual({ userId: USER_ID, aal: "aal2" });
+    expect(identity).toEqual({ userId: USER_ID, aal: "aal2", mfaVerifiedAt: NOW_S });
     expect(auth.getClaimsCalls).toEqual(["el-jwt"]);
   });
 
@@ -697,5 +715,269 @@ describe("9C — capacidades explícitas (matriz rol → capacidad)", () => {
     roles.row = { role: "admin" };
     await requireCapability(bearer(), "team_admin");
     expect(roles.queries).toHaveLength(1);
+  });
+});
+
+describe("9G-1 — identidad: la marca de MFA sale solo de las claims verificadas", () => {
+  it("mfaVerifiedAt = el TOTP más reciente del amr del JWT verificado", async () => {
+    okClaims({
+      amr: [
+        { method: "totp", timestamp: NOW_S - 900 },
+        { method: "mfa/totp", timestamp: NOW_S - 100 },
+        { method: "password", timestamp: NOW_S - 5 },
+      ],
+    });
+    const identity = await requireAuthenticated(bearer());
+    expect(identity.mfaVerifiedAt).toBe(NOW_S - 100);
+  });
+
+  it("amr ausente, string[] o malformado → mfaVerifiedAt null (fail closed)", async () => {
+    for (const amr of [undefined, ["password", "totp"], "totp", 5, [null, {}]]) {
+      resetFakes();
+      okClaims({ amr });
+      const identity = await requireAuthenticated(bearer());
+      expect(identity.mfaVerifiedAt).toBeNull();
+      expect(identityHasRecentMfa(identity)).toBe(false);
+    }
+  });
+
+  it("un amr/aal/mfa enviado en el body, query o headers propios no cuenta: solo el JWT verificado", async () => {
+    okClaims({ amr: [{ method: "password", timestamp: NOW_S }], aal: "aal1" });
+    const identity = await requireAuthenticated({
+      headers: {
+        authorization: "Bearer x",
+        "x-mfa-verified-at": String(NOW_S),
+        "x-aal": "aal2",
+      },
+      body: { aal: "aal2", amr: totpAmr(), mfaVerifiedAt: NOW_S },
+      query: { aal: "aal2", mfa: "1" },
+    } as unknown as VercelRequest);
+    expect(identity).toEqual({ userId: USER_ID, aal: "aal1", mfaVerifiedAt: null });
+  });
+});
+
+describe("9G-1 — orden: autenticación → rol → capacidad → MFA reciente", () => {
+  async function denied(fn: () => Promise<unknown>) {
+    const error = await catchError(fn);
+    expect(error).toBeInstanceOf(AdminAuthError);
+    return error as AdminAuthError;
+  }
+
+  it("sin token → 401 y nunca se consulta admin_roles", async () => {
+    const e = await denied(() => requireCapability(req(), "team_admin"));
+    expect(e.status).toBe(401);
+    expect(e.code).toBeUndefined();
+    expect(roles.queries).toHaveLength(0);
+  });
+
+  it("USER (sin fila) → 403 genérico, SIN code, con aal2 y MFA reciente", async () => {
+    okClaims();
+    roles.row = null;
+    for (const fn of [
+      () => requirePrivileged(bearer()),
+      () => requireCapability(bearer(), "team_admin"),
+    ]) {
+      const e = await denied(fn);
+      expect(e.status).toBe(403);
+      expect(e.code).toBeUndefined();
+      expect(authErrorBody(e)).toEqual({ error: "No autorizado" });
+    }
+  });
+
+  it("USER + aal1 / MFA vencido / sin amr → 403 genérico SIN code (nunca se le envía a MFA)", async () => {
+    for (const overrides of [
+      { aal: "aal1" },
+      { amr: totpAmr(99999) },
+      { amr: undefined },
+    ]) {
+      for (const guard of [
+        () => requireCapability(bearer(), "team_admin"),
+        () => requirePrivileged(bearer()),
+        () => requireModerator(bearer()),
+      ]) {
+        resetFakes();
+        okClaims(overrides);
+        roles.row = null;
+        const e = await denied(guard);
+        expect(e.status).toBe(403);
+        expect(e.code).toBeUndefined();
+      }
+    }
+  });
+
+  it("rol revocado (sin fila) con MFA reciente → 403 genérico: el rol actual gana al MFA", async () => {
+    okClaims({ amr: totpAmr(5) });
+    roles.row = null;
+    const e = await denied(() => requireCapability(bearer(), "social_admin"));
+    expect(authErrorBody(e)).toEqual({ error: "No autorizado" });
+  });
+
+  it("MODERATOR pidiendo team_admin → 403 genérico SIN code, aunque falte MFA (capacidad antes que MFA)", async () => {
+    for (const overrides of [{}, { amr: totpAmr(99999) }, { aal: "aal1" }]) {
+      resetFakes();
+      roles.row = { role: "moderator" };
+      okClaims(overrides);
+      const e = await denied(() => requireCapability(bearer(), "team_admin"));
+      expect(e.status).toBe(403);
+      expect(e.code).toBeUndefined();
+    }
+  });
+
+  it("DEVELOPER pidiendo social_admin con MFA vencido → 403 genérico SIN code", async () => {
+    okClaims({ amr: totpAmr(99999) });
+    roles.row = { role: "developer" };
+    const e = await denied(() => requireCapability(bearer(), "social_admin"));
+    expect(e.code).toBeUndefined();
+  });
+
+  it.each([
+    ["TOTP vencido", { amr: totpAmr(1801) }],
+    ["aal2 sin amr", { amr: undefined }],
+    [
+      "aal2 con amr solo de password",
+      { amr: [{ method: "password", timestamp: NOW_S }] },
+    ],
+    ["aal1", { aal: "aal1" }],
+    ["TOTP en el futuro lejano", { amr: totpAmr(-3600) }],
+  ])("ADMIN con %s → 403 step_up_required", async (_n, overrides) => {
+    okClaims(overrides);
+    roles.row = { role: "admin" };
+    for (const fn of [
+      () => requirePrivileged(bearer()),
+      () => requireCapability(bearer(), "team_admin"),
+    ]) {
+      const e = await denied(fn);
+      expect(e.status).toBe(403);
+      expect(e.code).toBe("step_up_required");
+      expect(authErrorBody(e)).toEqual({
+        error: "No autorizado",
+        code: "step_up_required",
+      });
+    }
+  });
+
+  it("ADMIN con MFA reciente → permitido, incluido el límite exacto de 30 min", async () => {
+    for (const ago of [0, 60, 1800]) {
+      resetFakes();
+      okClaims({ amr: totpAmr(ago) });
+      roles.row = { role: "admin" };
+      await expect(requireCapability(bearer(), "team_admin")).resolves.toMatchObject({
+        userId: USER_ID,
+        role: "admin",
+      });
+    }
+  });
+
+  it("mfa/totp también cuenta como MFA reciente", async () => {
+    okClaims({ amr: [{ method: "mfa/totp", timestamp: NOW_S - 30 }] });
+    roles.row = { role: "admin" };
+    await expect(requireCapability(bearer(), "team_admin")).resolves.toBeTruthy();
+  });
+
+  it("moderation: MODERATOR con MFA reciente → permitido; con MFA vencido → step_up_required", async () => {
+    roles.row = { role: "moderator" };
+    okClaims();
+    await expect(requireModerator(bearer())).resolves.toBeTruthy();
+    okClaims({ amr: totpAmr(1801) });
+    const e = await denied(() => requireModerator(bearer()));
+    expect(e.code).toBe("step_up_required");
+  });
+
+  it("el reloj se reevalúa en cada request: el mismo JWT deja de valer al pasar la ventana", async () => {
+    okClaims({ amr: totpAmr(1799) });
+    roles.row = { role: "admin" };
+    await expect(requireCapability(bearer(), "team_admin")).resolves.toBeTruthy();
+    vi.setSystemTime(NOW_MS + 5_000);
+    const e = await denied(() => requireCapability(bearer(), "team_admin"));
+    expect(e.code).toBe("step_up_required");
+  });
+
+  it("el rol se lee de admin_roles en CADA request: revocarlo con MFA reciente vigente deniega", async () => {
+    okClaims();
+    roles.row = { role: "admin" };
+    await expect(requireCapability(bearer(), "team_admin")).resolves.toBeTruthy();
+    roles.row = null;
+    const e = await denied(() => requireCapability(bearer(), "team_admin"));
+    expect(e.code).toBeUndefined();
+    expect(roles.queries).toHaveLength(2);
+  });
+
+  it("un fallo de infraestructura al leer el rol sigue siendo infraestructura, no step-up ni 403", async () => {
+    okClaims({ amr: totpAmr(99999) });
+    roles.throwWith = new Error("boom");
+    const error = await catchError(() => requireCapability(bearer(), "team_admin"));
+    expect(error).toBeInstanceOf(AdminAuthInfrastructureError);
+  });
+});
+
+describe("9G-1 — getAccessSummary (/api/admin/access): informa, no autoriza ni exige MFA", () => {
+  it("sin token → 401", async () => {
+    const error = await catchError(() => getAccessSummary(req()));
+    expect((error as AdminAuthError).status).toBe(401);
+  });
+
+  it("USER → role null, sin capacidades; nunca lanza step_up_required", async () => {
+    okClaims({ aal: "aal1", amr: [{ method: "password", timestamp: NOW_S }] });
+    roles.row = null;
+    await expect(getAccessSummary(bearer())).resolves.toEqual({
+      role: null,
+      capabilities: [],
+      mfaRecent: false,
+    });
+  });
+
+  it("USER con aal2 y MFA reciente sigue siendo role null (MFA no concede rol)", async () => {
+    okClaims();
+    roles.row = null;
+    await expect(getAccessSummary(bearer())).resolves.toEqual({
+      role: null,
+      capabilities: [],
+      mfaRecent: true,
+    });
+  });
+
+  it("ADMIN sin MFA reciente → role admin, capacidades de admin, recent false (sin step_up_required)", async () => {
+    okClaims({ amr: totpAmr(1801) });
+    roles.row = { role: "admin" };
+    await expect(getAccessSummary(bearer())).resolves.toEqual({
+      role: "admin",
+      capabilities: ["moderation", "technical", "social_admin", "team_admin"],
+      mfaRecent: false,
+    });
+  });
+
+  it("ADMIN con MFA reciente → recent true", async () => {
+    okClaims();
+    roles.row = { role: "admin" };
+    await expect(getAccessSummary(bearer())).resolves.toMatchObject({
+      role: "admin",
+      mfaRecent: true,
+    });
+  });
+
+  it("MODERATOR y DEVELOPER → sus capacidades exactas", async () => {
+    okClaims();
+    roles.row = { role: "moderator" };
+    expect((await getAccessSummary(bearer())).capabilities).toEqual(["moderation"]);
+    roles.row = { role: "developer" };
+    expect((await getAccessSummary(bearer())).capabilities).toEqual([
+      "moderation",
+      "technical",
+    ]);
+  });
+
+  it("el rol se lee siempre de admin_roles con el user_id verificado; role desconocido → null", async () => {
+    okClaims();
+    roles.row = { role: "superadmin" };
+    const r = await getAccessSummary(bearer());
+    expect(r.role).toBeNull();
+    expect(roles.queries[0].filters).toEqual([["user_id", USER_ID]]);
+  });
+
+  it("fallo de infraestructura → AdminAuthInfrastructureError (nunca role null)", async () => {
+    okClaims();
+    roles.error = { code: "08006", message: "caída" };
+    const error = await catchError(() => getAccessSummary(bearer()));
+    expect(error).toBeInstanceOf(AdminAuthInfrastructureError);
   });
 });

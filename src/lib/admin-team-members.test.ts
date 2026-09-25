@@ -14,12 +14,45 @@ const USER_ID = "33333333-3333-4333-8333-333333333333";
 const DEV_ID = "55555555-5555-4555-8555-555555555555";
 const TARGET_ID = "66666666-6666-4666-8666-666666666666";
 
-const TOKENS: Record<string, { sub: string; aal: string }> = {
-  "jwt-admin-aal2": { sub: ADMIN_ID, aal: "aal2" },
+const TOKENS: Record<string, { sub: string; aal: string; amr?: unknown }> = {
+  "jwt-admin-aal2": {
+    sub: ADMIN_ID,
+    aal: "aal2",
+    amr: [{ method: "totp", timestamp: Math.floor(Date.now() / 1000) }],
+  },
   "jwt-admin-aal1": { sub: ADMIN_ID, aal: "aal1" },
-  "jwt-moderator-aal2": { sub: MOD_ID, aal: "aal2" },
-  "jwt-developer-aal2": { sub: DEV_ID, aal: "aal2" },
-  "jwt-user-aal2": { sub: USER_ID, aal: "aal2" },
+  // 9G-1: aal2 pero el último TOTP venció (fuera de la ventana), o sin amr en absoluto.
+  "jwt-admin-aal2-stale": {
+    sub: ADMIN_ID,
+    aal: "aal2",
+    amr: [{ method: "totp", timestamp: Math.floor(Date.now() / 1000) - 3600 }],
+  },
+  "jwt-admin-aal2-noamr": { sub: ADMIN_ID, aal: "aal2" },
+  "jwt-moderator-aal2-stale": {
+    sub: MOD_ID,
+    aal: "aal2",
+    amr: [{ method: "totp", timestamp: Math.floor(Date.now() / 1000) - 3600 }],
+  },
+  "jwt-user-aal2-stale": {
+    sub: USER_ID,
+    aal: "aal2",
+    amr: [{ method: "totp", timestamp: Math.floor(Date.now() / 1000) - 3600 }],
+  },
+  "jwt-moderator-aal2": {
+    sub: MOD_ID,
+    aal: "aal2",
+    amr: [{ method: "totp", timestamp: Math.floor(Date.now() / 1000) }],
+  },
+  "jwt-developer-aal2": {
+    sub: DEV_ID,
+    aal: "aal2",
+    amr: [{ method: "totp", timestamp: Math.floor(Date.now() / 1000) }],
+  },
+  "jwt-user-aal2": {
+    sub: USER_ID,
+    aal: "aal2",
+    amr: [{ method: "totp", timestamp: Math.floor(Date.now() / 1000) }],
+  },
 };
 
 const fake = vi.hoisted(() => ({
@@ -154,7 +187,7 @@ beforeEach(() => {
 
 const ENDPOINTS: {
   name: string;
-  run: (token?: string | null) => Promise<{ status?: number }>;
+  run: (token?: string | null) => Promise<{ status?: number; body?: unknown }>;
 }[] = [
   { name: "listado", run: (t) => list(t) },
   {
@@ -529,4 +562,33 @@ describe("despachador", () => {
     expect(state.status).toBe(404);
     expect(fake.rpcCalls).toHaveLength(0);
   });
+});
+
+describe("9G-1 — MFA reciente: rol y capacidad ANTES del step-up", () => {
+  for (const ep of ENDPOINTS) {
+    describe(ep.name, () => {
+      it.each([
+        ["ADMIN aal2 con TOTP vencido", "jwt-admin-aal2-stale"],
+        ["ADMIN aal2 sin amr", "jwt-admin-aal2-noamr"],
+        ["ADMIN con aal1", "jwt-admin-aal1"],
+      ])("%s → 403 step_up_required, sin llamar a la RPC", async (_n, token) => {
+        const state = await ep.run(token);
+        expect(state.status).toBe(403);
+        expect(state.body).toEqual({ error: "No autorizado", code: "step_up_required" });
+        expect(fake.rpcCalls).toHaveLength(0);
+      });
+
+      it.each([
+        ["MODERATOR con MFA vencido", "jwt-moderator-aal2-stale"],
+        ["USER con MFA vencido", "jwt-user-aal2-stale"],
+        ["MODERATOR con MFA reciente", "jwt-moderator-aal2"],
+        ["USER con aal2 y MFA reciente", "jwt-user-aal2"],
+      ])("%s → 403 genérico SIN code (nunca se le envía a MFA)", async (_n, token) => {
+        const state = await ep.run(token);
+        expect(state.status).toBe(403);
+        expect(state.body).toEqual({ error: "No autorizado" });
+        expect(fake.rpcCalls).toHaveLength(0);
+      });
+    });
+  }
 });

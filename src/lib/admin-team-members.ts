@@ -1,6 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { AdminAuthError, requireCapability } from "./admin-auth.js";
+import { AdminAuthError, authErrorBody, requireCapability } from "./admin-auth.js";
 
 // Bloque 9F — gestión de miembros del equipo. Tres operaciones, todas exclusivamente para la
 // capacidad `team_admin` (ADMIN + aal2, ver admin-auth.ts):
@@ -156,7 +156,7 @@ async function authorizeTeamAdmin(
     return userId;
   } catch (err) {
     if (err instanceof AdminAuthError) {
-      res.status(err.status).json({ error: err.message });
+      res.status(err.status).json(authErrorBody(err));
     } else {
       res.status(500).json(GENERIC_ERROR_BODY);
     }

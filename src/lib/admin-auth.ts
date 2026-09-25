@@ -1,5 +1,6 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import type { VercelRequest } from "@vercel/node";
+import { getLatestTotpTimestamp, isMfaRecent } from "./privileged-mfa.js";
 
 // Base de Auth/AuthZ server-side reutilizable para operaciones privilegiadas de Upmina
 // Web (Instagram/TikTok admin, futuros Cosplays/moderación). SOLO servidor: nunca se
@@ -18,6 +19,11 @@ import type { VercelRequest } from "@vercel/node";
 //     hacer?" — se resuelve consultando admin_roles con el user_id YA verificado, usando
 //     el cliente service_role. Una sesión de Supabase Auth válida (incluso con MFA) NO
 //     concede privilegios por sí sola: hace falta una fila en admin_roles.
+//   - STEP-UP MFA (Fase 9G-1): además del rol/capacidad, las operaciones privilegiadas exigen
+//     MFA RECIENTE (ver privileged-mfa.ts: aal2 + timestamp TOTP del claim `amr` dentro de la
+//     ventana). Orden fijo: autenticación → rol ACTUAL → capacidad → MFA reciente → operación.
+//     El MFA nunca concede permisos: un fallo de rol/capacidad es un 403 genérico y NUNCA lleva
+//     `code: "step_up_required"`; ese código solo lo recibe quien YA está autorizado.
 //
 // Fail-closed: cualquier fallo de infraestructura (Supabase no configurado, error de
 // red/consulta al comprobar admin_roles) se propaga como AdminAuthInfrastructureError,
@@ -56,6 +62,10 @@ export interface AuthenticatedIdentity {
   userId: string;
   /** Authenticator Assurance Level tal como lo emitió Supabase Auth ("aal1"/"aal2"). */
   aal: string;
+  /** Segundos UNIX del último TOTP verificado según el claim `amr` del JWT verificado, o null si
+   *  no hay ninguno con forma válida. Nunca proviene del cliente. Se combina con `aal` en
+   *  identityHasRecentMfa: por sí solo no autoriza nada. */
+  mfaVerifiedAt: number | null;
 }
 
 /** Identidad autenticada + rol privilegiado confirmado en admin_roles. */
@@ -75,10 +85,36 @@ export class AdminAuthError extends Error {
   constructor(
     message: string,
     readonly status: 401 | 403,
+    /** Solo "step_up_required": el usuario ESTÁ autorizado (rol y capacidad) pero le falta MFA
+     *  reciente. Ausente en todo rechazo por identidad, rol o capacidad. */
+    readonly code?: StepUpCode,
   ) {
     super(message);
     this.name = "AdminAuthError";
   }
+}
+
+/** Código distinguible de "autorizado, pero hace falta MFA reciente". */
+export const STEP_UP_REQUIRED_CODE = "step_up_required";
+export type StepUpCode = typeof STEP_UP_REQUIRED_CODE;
+
+/** Cuerpo JSON de una respuesta de error de autenticación/autorización. Único punto donde se
+ *  decide si viaja `code`: solo para step_up_required, nunca para 401 ni para un 403 de rol o
+ *  capacidad. */
+export function authErrorBody(err: AdminAuthError): { error: string; code?: StepUpCode } {
+  return err.code ? { error: err.message, code: err.code } : { error: err.message };
+}
+
+function stepUpRequiredError(): AdminAuthError {
+  return new AdminAuthError("No autorizado", 403, STEP_UP_REQUIRED_CODE);
+}
+
+/** ¿La identidad ya autenticada tiene MFA reciente (aal2 + TOTP dentro de la ventana)? */
+export function identityHasRecentMfa(
+  identity: Pick<AuthenticatedIdentity, "aal" | "mfaVerifiedAt">,
+  nowSeconds?: number,
+): boolean {
+  return isMfaRecent(identity.aal, identity.mfaVerifiedAt, nowSeconds);
 }
 
 /** Fallo de infraestructura (Supabase mal configurado, error de red/consulta) durante la
@@ -200,7 +236,7 @@ export async function requireAuthenticated(
     throw new AdminAuthError("No autenticado", 401);
   }
 
-  return { userId: sub, aal };
+  return { userId: sub, aal, mfaVerifiedAt: getLatestTotpTimestamp(claims?.amr) };
 }
 
 /** Lee el rol privilegiado de `userId` (ya verificado). `null` = sin fila, o fila con un
@@ -241,46 +277,78 @@ export async function getPrivilegedRoleForUser(
 }
 
 /**
- * Autorización: identidad autenticada + rol privilegiado confirmado en admin_roles, con
- * assurance suficiente. Orden exacto: (1) autentica, (2) consulta admin_roles por el
- * user_id verificado, (3) exige un rol reconocido, (4) exige aal === "aal2".
+ * Autorización: identidad autenticada + rol privilegiado confirmado en admin_roles + MFA
+ * reciente. Orden exacto: (1) autentica, (2) consulta admin_roles por el user_id verificado,
+ * (3) exige un rol reconocido, (4) exige MFA reciente (aal2 + TOTP dentro de la ventana).
  *
- * 403 si: no hay fila en admin_roles, la fila tiene un rol no reconocido, o el rol es
- * válido pero `aal !== "aal2"` (incluye admin/moderator con aal1: MFA no verificado en
- * esta sesión no es suficiente assurance). Un fallo de Supabase al leer admin_roles
- * NUNCA se convierte en 403: se propaga como AdminAuthInfrastructureError (fail closed,
- * distinguible de un 403 legítimo).
+ * 403 genérico si no hay fila en admin_roles o la fila tiene un rol no reconocido: sin MFA
+ * involucrado, aunque la sesión sea aal2 y el MFA sea reciente. 403 con `code:
+ * "step_up_required"` SOLO si el rol es válido pero falta MFA reciente. Un fallo de Supabase al
+ * leer admin_roles NUNCA se convierte en 403: se propaga como AdminAuthInfrastructureError
+ * (fail closed, distinguible de un 403 legítimo).
  */
 export async function requirePrivileged(req: VercelRequest): Promise<PrivilegedIdentity> {
-  const { userId, aal } = await requireAuthenticated(req);
+  const identity = await requireAuthenticated(req);
 
-  const role = await getPrivilegedRoleForUser(userId);
+  const role = await getPrivilegedRoleForUser(identity.userId);
   if (role === null) {
     throw new AdminAuthError("No autorizado", 403);
   }
 
-  if (aal !== "aal2") {
-    throw new AdminAuthError("No autorizado", 403);
+  if (!identityHasRecentMfa(identity)) {
+    throw stepUpRequiredError();
   }
 
-  return { userId, role };
+  return { userId: identity.userId, role };
 }
 
 /**
- * Autorización por capacidad: (1) autentica, (2) lee el rol autoritativo en admin_roles,
- * (3) exige aal2, (4) exige que el rol tenga `capability` según ROLE_CAPABILITIES. Un rol
- * privilegiado válido sin la capacidad recibe 403 (MFA no añade capacidades). Fallos de
- * infraestructura se propagan como AdminAuthInfrastructureError, nunca como 403.
+ * Autorización por capacidad. Orden exacto: (1) autentica, (2) lee el rol autoritativo en
+ * admin_roles, (3) exige que el rol tenga `capability` según ROLE_CAPABILITIES, (4) exige MFA
+ * reciente. La capacidad se comprueba ANTES que el MFA: quien no tiene la capacidad recibe un 403
+ * genérico y nunca es enviado a un step-up que no le serviría (MFA no añade capacidades). Fallos
+ * de infraestructura se propagan como AdminAuthInfrastructureError, nunca como 403.
  */
 export async function requireCapability(
   req: VercelRequest,
   capability: Capability,
 ): Promise<CapabilityIdentity> {
-  const { userId, role } = await requirePrivileged(req);
-  if (!roleHasCapability(role, capability)) {
+  const identity = await requireAuthenticated(req);
+
+  const role = await getPrivilegedRoleForUser(identity.userId);
+  if (role === null || !roleHasCapability(role, capability)) {
     throw new AdminAuthError("No autorizado", 403);
   }
-  return { userId, role, capabilities: capabilitiesForRole(role) };
+
+  if (!identityHasRecentMfa(identity)) {
+    throw stepUpRequiredError();
+  }
+
+  return { userId: identity.userId, role, capabilities: capabilitiesForRole(role) };
+}
+
+/** Resumen de acceso de una identidad ya autenticada, SOLO para presentación (UX). */
+export interface AccessSummary {
+  role: PrivilegedRole | null;
+  capabilities: Capability[];
+  mfaRecent: boolean;
+}
+
+/**
+ * Acceso actual de quien hace el request: identidad verificada + rol ACTUAL de admin_roles +
+ * estado de MFA reciente. NO autoriza nada y NO exige MFA (por eso no lanza step_up_required):
+ * sirve para que el frontend decida qué presentar y a dónde enrutar. Cada endpoint privilegiado
+ * vuelve a exigir su propio guard. Un usuario sin rol recibe `role: null` y capacidades vacías.
+ * Un fallo de Supabase al leer admin_roles se propaga como AdminAuthInfrastructureError.
+ */
+export async function getAccessSummary(req: VercelRequest): Promise<AccessSummary> {
+  const identity = await requireAuthenticated(req);
+  const role = await getPrivilegedRoleForUser(identity.userId);
+  return {
+    role,
+    capabilities: role === null ? [] : capabilitiesForRole(role),
+    mfaRecent: identityHasRecentMfa(identity),
+  };
 }
 
 /**

@@ -1,7 +1,7 @@
 import { createHash, randomBytes } from "node:crypto";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { handleAdminActivate, handleAdminMe } from "./admin-handlers";
+import { handleAdminAccess, handleAdminActivate, handleAdminMe } from "./admin-handlers";
 import { AdminAuthError, AdminAuthInfrastructureError } from "./admin-auth";
 
 // Fija el contrato de seguridad de POST /api/admin/activate (Bloque 2C): consumir una
@@ -23,7 +23,8 @@ const VALID_TOKEN_HASH = createHash("sha256").update(VALID_TOKEN).digest("hex");
 
 const authFakes = vi.hoisted(() => ({
   /** Identidad que devuelve requireAuthenticated, o undefined para usar throwWith. */
-  identity: undefined as { userId: string; aal: string } | undefined,
+  identity: undefined as
+    { userId: string; aal: string; mfaVerifiedAt: number | null } | undefined,
   /** Si está definido, requireAuthenticated lanza esto en vez de devolver identity. */
   throwWith: undefined as unknown,
   calls: 0,
@@ -52,6 +53,14 @@ vi.mock("./admin-auth", async () => {
       }
       return authFakes.identity;
     }),
+    getAccessSummary: vi.fn(async () => {
+      accessFakes.calls++;
+      if (accessFakes.throwWith !== undefined) throw accessFakes.throwWith;
+      if (!accessFakes.summary) {
+        throw new Error("test mal configurado: falta accessFakes.summary");
+      }
+      return accessFakes.summary;
+    }),
     requirePrivileged: vi.fn(async () => {
       adminFakes.calls++;
       if (adminFakes.throwWith !== undefined) throw adminFakes.throwWith;
@@ -62,6 +71,14 @@ vi.mock("./admin-auth", async () => {
     }),
   };
 });
+
+// Fakes de getAccessSummary (handleAdminAccess): mismo motivo que adminFakes.
+const accessFakes = vi.hoisted(() => ({
+  summary: undefined as
+    { role: string | null; capabilities: string[]; mfaRecent: boolean } | undefined,
+  throwWith: undefined as unknown,
+  calls: 0,
+}));
 
 const rpcFakes = vi.hoisted(() => ({
   /** { data, error } que devuelve rpc(), o undefined para usar el default. */
@@ -97,15 +114,22 @@ function resetFakes() {
   rpcFakes.throwWith = undefined;
   rpcFakes.calls = [];
   clientFakes.calls = [];
+  accessFakes.summary = undefined;
+  accessFakes.throwWith = undefined;
+  accessFakes.calls = 0;
   adminFakes.identity = undefined;
   adminFakes.throwWith = undefined;
   adminFakes.calls = 0;
 }
 
-function okIdentity(overrides: Partial<{ userId: string; aal: string }> = {}) {
+// Por defecto: aal2 con un TOTP verificado ahora mismo (MFA reciente).
+function okIdentity(
+  overrides: Partial<{ userId: string; aal: string; mfaVerifiedAt: number | null }> = {},
+) {
   authFakes.identity = {
     userId: "11111111-1111-4111-8111-111111111111",
     aal: "aal2",
+    mfaVerifiedAt: Math.floor(Date.now() / 1000),
     ...overrides,
   };
 }
@@ -188,13 +212,86 @@ describe("handleAdminActivate", () => {
     expect(rpcFakes.calls).toHaveLength(0);
   });
 
-  it("sesión aal1 → 403, sin llamar a la RPC (bootstrap exige aal2, no solo un rol reconocido)", async () => {
-    okIdentity({ aal: "aal1" });
+  it("sesión aal1 → 403 step_up_required, sin llamar a la RPC (exige MFA reciente)", async () => {
+    okIdentity({ aal: "aal1", mfaVerifiedAt: null });
     const { res, state } = mockRes();
 
     await handleAdminActivate(req(), res);
 
     expect(state.status).toBe(403);
+    expect(state.body).toEqual({ error: "No autorizado", code: "step_up_required" });
+    expect(rpcFakes.calls).toHaveLength(0);
+  });
+
+  it.each([
+    ["aal2 sin ninguna marca TOTP", null],
+    ["aal2 con TOTP vencido (31 min)", Math.floor(Date.now() / 1000) - 31 * 60],
+    ["aal2 con TOTP muy en el futuro", Math.floor(Date.now() / 1000) + 3600],
+  ])(
+    "%s → 403 step_up_required, sin crear el cliente service_role ni llamar a la RPC",
+    async (_n, mfaVerifiedAt) => {
+      okIdentity({ aal: "aal2", mfaVerifiedAt });
+      okRpc("admin");
+      const { res, state } = mockRes();
+
+      await handleAdminActivate(req(), res);
+
+      expect(state.status).toBe(403);
+      expect(state.body).toEqual({ error: "No autorizado", code: "step_up_required" });
+      expect(clientFakes.calls).toHaveLength(0);
+      expect(rpcFakes.calls).toHaveLength(0);
+    },
+  );
+
+  it("MFA reciente exactamente en el límite de 30 min → conserva el comportamiento (200)", async () => {
+    okIdentity({ mfaVerifiedAt: Math.floor(Date.now() / 1000) - 1800 });
+    okRpc("moderator");
+    const { res, state } = mockRes();
+
+    await handleAdminActivate(req(), res);
+
+    expect(state.status).toBe(200);
+    expect(state.body).toEqual({ role: "moderator" });
+    expect(rpcFakes.calls).toHaveLength(1);
+  });
+
+  it("no exige un rol privilegiado previo (la activación es lo que lo concede): nunca llama a requirePrivileged", async () => {
+    okIdentity();
+    okRpc("admin");
+    const { res, state } = mockRes();
+
+    await handleAdminActivate(req(), res);
+
+    expect(state.status).toBe(200);
+    expect(adminFakes.calls).toBe(0);
+  });
+
+  it("aal/mfa/role/userId enviados en el body o headers se ignoran: solo cuenta la identidad del JWT verificado", async () => {
+    okIdentity({ aal: "aal1", mfaVerifiedAt: null });
+    okRpc("admin");
+    const { res, state } = mockRes();
+
+    await handleAdminActivate(
+      req({
+        headers: {
+          authorization: "Bearer un-jwt-cualquiera",
+          "x-aal": "aal2",
+          "x-mfa-verified-at": String(Math.floor(Date.now() / 1000)),
+        },
+        body: {
+          token: VALID_TOKEN,
+          aal: "aal2",
+          mfa: { recent: true },
+          mfaVerifiedAt: Math.floor(Date.now() / 1000),
+          role: "admin",
+          userId: "99999999-9999-4999-8999-999999999999",
+        },
+      }),
+      res,
+    );
+
+    expect(state.status).toBe(403);
+    expect(state.body).toEqual({ error: "No autorizado", code: "step_up_required" });
     expect(rpcFakes.calls).toHaveLength(0);
   });
 
@@ -669,5 +766,124 @@ describe("handleAdminMe", () => {
     const serialized = JSON.stringify(state.body);
     expect(serialized).not.toContain("22222222-2222-4222-8222-222222222222");
     expect(serialized).not.toMatch(/email|jwt|token|invitation/i);
+  });
+});
+
+describe("handleAdminMe — 9G-1: step-up distinguible", () => {
+  it("rol válido pero sin MFA reciente → 403 con code step_up_required", async () => {
+    adminFakes.throwWith = new AdminAuthError("No autorizado", 403, "step_up_required");
+    const { res, state } = mockRes();
+
+    await handleAdminMe(meReq(), res);
+
+    expect(state.status).toBe(403);
+    expect(state.body).toEqual({ error: "No autorizado", code: "step_up_required" });
+  });
+
+  it("sin rol (403 genérico) → el cuerpo NO lleva code", async () => {
+    adminFakes.throwWith = new AdminAuthError("No autorizado", 403);
+    const { res, state } = mockRes();
+
+    await handleAdminMe(meReq(), res);
+
+    expect(state.status).toBe(403);
+    expect(state.body).toEqual({ error: "No autorizado" });
+  });
+});
+
+describe("handleAdminAccess (GET /api/admin/access) — 9G-1", () => {
+  it("método distinto de GET → 405 con Allow, sin autenticar", async () => {
+    const { res, state } = mockRes();
+
+    await handleAdminAccess(meReq({ method: "POST" }), res);
+
+    expect(state.status).toBe(405);
+    expect(state.headers.Allow).toBe("GET");
+    expect(accessFakes.calls).toBe(0);
+  });
+
+  it("sin sesión → 401", async () => {
+    accessFakes.throwWith = new AdminAuthError("No autenticado", 401);
+    const { res, state } = mockRes();
+
+    await handleAdminAccess(meReq({ headers: {} }), res);
+
+    expect(state.status).toBe(401);
+    expect(state.body).toEqual({ error: "No autenticado" });
+    expect(state.headers["Cache-Control"]).toBe("no-store");
+  });
+
+  it("USER → 200 { role: null, capabilities: [], mfa.recent } y jamás step_up_required", async () => {
+    accessFakes.summary = { role: null, capabilities: [], mfaRecent: false };
+    const { res, state } = mockRes();
+
+    await handleAdminAccess(meReq(), res);
+
+    expect(state.status).toBe(200);
+    expect(state.body).toEqual({ role: null, capabilities: [], mfa: { recent: false } });
+    expect(JSON.stringify(state.body)).not.toContain("step_up_required");
+  });
+
+  it("ADMIN sin MFA reciente → 200 con role admin y recent false (informa, no exige)", async () => {
+    accessFakes.summary = {
+      role: "admin",
+      capabilities: ["moderation", "technical", "social_admin", "team_admin"],
+      mfaRecent: false,
+    };
+    const { res, state } = mockRes();
+
+    await handleAdminAccess(meReq(), res);
+
+    expect(state.status).toBe(200);
+    expect(state.body).toEqual({
+      role: "admin",
+      capabilities: ["moderation", "technical", "social_admin", "team_admin"],
+      mfa: { recent: false },
+    });
+  });
+
+  it("ADMIN con MFA reciente → recent true", async () => {
+    accessFakes.summary = {
+      role: "admin",
+      capabilities: ["team_admin"],
+      mfaRecent: true,
+    };
+    const { res, state } = mockRes();
+
+    await handleAdminAccess(meReq(), res);
+
+    expect(state.status).toBe(200);
+    expect(state.body).toMatchObject({ role: "admin", mfa: { recent: true } });
+  });
+
+  it("MODERATOR → sus capacidades; sin datos sensibles y con Cache-Control no-store", async () => {
+    accessFakes.summary = {
+      role: "moderator",
+      capabilities: ["moderation"],
+      mfaRecent: true,
+    };
+    const { res, state } = mockRes();
+
+    await handleAdminAccess(meReq(), res);
+
+    expect(state.status).toBe(200);
+    expect(Object.keys(state.body as object).sort()).toEqual([
+      "capabilities",
+      "mfa",
+      "role",
+    ]);
+    expect(Object.keys((state.body as { mfa: object }).mfa)).toEqual(["recent"]);
+    expect(state.headers["Cache-Control"]).toBe("no-store");
+  });
+
+  it("fallo de infraestructura → 500 genérico, sin detalles ni role:null", async () => {
+    accessFakes.throwWith = new AdminAuthInfrastructureError("detalle interno", "08006");
+    const { res, state } = mockRes();
+
+    await handleAdminAccess(meReq(), res);
+
+    expect(state.status).toBe(500);
+    expect(state.body).toEqual({ error: "Error interno" });
+    expect(state.headers["Cache-Control"]).toBe("no-store");
   });
 });

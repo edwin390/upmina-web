@@ -1,5 +1,5 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { AdminAuthError, requireCapability } from "./admin-auth.js";
+import { AdminAuthError, authErrorBody, requireCapability } from "./admin-auth.js";
 import {
   INSTAGRAM_AUTHORIZE_URL,
   INSTAGRAM_REDIRECT_URI,
@@ -145,7 +145,7 @@ export async function handleAdminSocialConnect(
     ({ userId } = await requireCapability(req, "social_admin"));
   } catch (err) {
     if (err instanceof AdminAuthError) {
-      return res.status(err.status).json({ error: err.message });
+      return res.status(err.status).json(authErrorBody(err));
     }
     return res.status(500).json(GENERIC_ERROR_BODY);
   }
