@@ -5,6 +5,7 @@ import { useAuth } from "@/lib/auth-context";
 import AdminAuthCard from "@/components/admin/AdminAuthCard";
 import SocialConnectionsSection from "@/components/admin/SocialConnectionsSection";
 import TeamInvitationsSection from "@/components/admin/TeamInvitationsSection";
+import TeamMembersSection from "@/components/admin/TeamMembersSection";
 
 // /admin (Bloque 5C). Primer shell administrativo, protegido exclusivamente mediante
 // GET /api/admin/me (ver src/lib/admin-handlers.ts): el frontend nunca decide por sí
@@ -229,6 +230,7 @@ export default function AdminDashboardPage() {
         <SocialConnectionsSection />
 
         {step.capabilities.includes("team_admin") ? <TeamInvitationsSection /> : null}
+        {step.capabilities.includes("team_admin") ? <TeamMembersSection /> : null}
 
         <nav className="mt-8 grid gap-3" aria-label="Herramientas administrativas">
           <span className="rounded-md border border-border-subtle px-4 py-3 text-sm text-text-secondary">

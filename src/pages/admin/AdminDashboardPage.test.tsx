@@ -543,6 +543,7 @@ describe("AdminDashboardPage — sección Invitaciones del equipo (capability te
     }),
   });
   const team = () => ({ ok: true, status: 200, json: async () => ({ invitations: [] }) });
+  const members = () => ({ ok: true, status: 200, json: async () => ({ members: [] }) });
 
   function routeFetch(meBody: unknown) {
     (fetch as Mock).mockImplementation(async (url: string) => {
@@ -551,6 +552,7 @@ describe("AdminDashboardPage — sección Invitaciones del equipo (capability te
       }
       if (url === "/api/admin/social-status") return social();
       if (url === "/api/admin/team-invitations") return team();
+      if (url === "/api/admin/team-members") return members();
       throw new Error(`fetch inesperado a ${url}`);
     });
   }
@@ -573,6 +575,24 @@ describe("AdminDashboardPage — sección Invitaciones del equipo (capability te
     );
   });
 
+  it("capabilities incluye team_admin → muestra también «Miembros del equipo» y consulta el listado", async () => {
+    authFakes.session = { access_token: "at-m1", user: { id: "u1" } };
+    routeFetch({
+      role: "admin",
+      capabilities: ["moderation", "technical", "social_admin", "team_admin"],
+    });
+
+    renderPage();
+
+    expect(
+      await screen.findByRole("heading", { name: "Miembros del equipo" }),
+    ).toBeInTheDocument();
+    expect(await screen.findByText("No hay miembros para mostrar.")).toBeInTheDocument();
+    expect((fetch as Mock).mock.calls.map((c) => c[0])).toContain(
+      "/api/admin/team-members",
+    );
+  });
+
   it.each([
     ["sin team_admin", { role: "admin", capabilities: ["moderation", "social_admin"] }],
     ["capabilities vacío", { role: "admin", capabilities: [] }],
@@ -592,8 +612,12 @@ describe("AdminDashboardPage — sección Invitaciones del equipo (capability te
       await screen.findByText("Sesión administrativa verificada."),
     ).toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "Invitaciones del equipo" })).toBeNull();
+    expect(screen.queryByRole("heading", { name: "Miembros del equipo" })).toBeNull();
     expect((fetch as Mock).mock.calls.map((c) => c[0])).not.toContain(
       "/api/admin/team-invitations",
+    );
+    expect((fetch as Mock).mock.calls.map((c) => c[0])).not.toContain(
+      "/api/admin/team-members",
     );
   });
 
@@ -605,8 +629,12 @@ describe("AdminDashboardPage — sección Invitaciones del equipo (capability te
 
     expect(await screen.findByRole("alert")).toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "Invitaciones del equipo" })).toBeNull();
+    expect(screen.queryByRole("heading", { name: "Miembros del equipo" })).toBeNull();
     expect((fetch as Mock).mock.calls.map((c) => c[0])).not.toContain(
       "/api/admin/team-invitations",
+    );
+    expect((fetch as Mock).mock.calls.map((c) => c[0])).not.toContain(
+      "/api/admin/team-members",
     );
   });
 });

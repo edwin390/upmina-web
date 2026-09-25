@@ -6,6 +6,11 @@ import {
   handleAdminTeamInvitationRevoke,
   handleAdminTeamInvitations,
 } from "../../src/lib/admin-team-invitations.js";
+import {
+  handleAdminTeamMemberRemove,
+  handleAdminTeamMemberRole,
+  handleAdminTeamMembers,
+} from "../../src/lib/admin-team-members.js";
 
 // Despachador de acciones admin server-side por segmento dinámico `action`. Mismo
 // patrón que api/instagram/[resource].ts y api/tiktok/[resource].ts: un único
@@ -28,6 +33,8 @@ import {
 // "team-invitations" (Bloque 9D — GET lista / POST crea invitaciones standard, team_admin+AAL2) y
 // "team-invitations-revoke" (Bloque 9D — revoca una standard pendiente vía RPC), lógica en
 // src/lib/admin-team-invitations.ts.
+// "team-members", "team-members-role" y "team-members-remove" (Bloque 9F — listar miembros, cambiar rol
+// y quitar acceso, team_admin+AAL2 vía RPC), lógica en src/lib/admin-team-members.ts.
 // La lógica de cada una vive en src/lib/admin-handlers.ts, no aquí, siguiendo el mismo
 // patrón que los otros dos dispatchers.
 export default function handler(req: VercelRequest, res: VercelResponse) {
@@ -44,6 +51,12 @@ export default function handler(req: VercelRequest, res: VercelResponse) {
       return handleAdminTeamInvitations(req, res);
     case "team-invitations-revoke":
       return handleAdminTeamInvitationRevoke(req, res);
+    case "team-members":
+      return handleAdminTeamMembers(req, res);
+    case "team-members-role":
+      return handleAdminTeamMemberRole(req, res);
+    case "team-members-remove":
+      return handleAdminTeamMemberRemove(req, res);
     default:
       return res.status(404).json({ error: "No encontrado" });
   }
