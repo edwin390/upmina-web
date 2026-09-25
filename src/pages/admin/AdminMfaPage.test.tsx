@@ -2,10 +2,15 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { MemoryRouter, Route, Routes } from "react-router-dom";
+import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
+import { QueryClientProvider } from "@tanstack/react-query";
+import { testQueryClient } from "@/test/query-client";
 
-// Fija /admin/mfa (Bloque 3B): AAL2 no crea enroll/challenge innecesarios, AAL1 con
-// factor TOTP existente reutiliza ese factor, AAL1 sin factor permite enrolar, el QR/
+// Fija /admin/mfa (Bloque 3B, actualizado en 9G-3): la decisión "¿hace falta MFA?" la toma el
+// SERVIDOR (GET /api/admin/access → mfa.recent), NUNCA el AAL de la sesión: la página no llama a
+// getAuthenticatorAssuranceLevel (se comprueba en afterEach). Un MFA reciente no crea
+// enroll/challenge innecesarios, un MFA no reciente (aunque la sesión ya sea aal2) reutiliza el
+// factor TOTP existente para volver a verificar, sin factor permite enrolar, el QR/
 // secret solo viven en memoria del componente, challenge/verify usan siempre el factor
 // y challengeId correctos (nunca reutilizados), y los errores del proveedor nunca se
 // muestran tal cual. useAuth se mockea (ya cubierto en profundidad por
@@ -13,7 +18,7 @@ import { MemoryRouter, Route, Routes } from "react-router-dom";
 // AuthProvider + routing.
 
 const authFakes = vi.hoisted(() => ({
-  session: null as { user: { email: string } } | null,
+  session: null as { user: { id: string; email: string } } | null,
   loading: false,
   signOutCalls: 0,
 }));
@@ -35,6 +40,17 @@ interface FakeFactor {
   status: "verified" | "unverified";
 }
 
+// GET /api/admin/access simulado. `recent` es lo que el servidor responde; al verificar un TOTP
+// con éxito pasa a `recentAfterVerify` (por defecto true: el token nuevo ya lleva el TOTP reciente).
+const accessFakes = vi.hoisted(() => ({
+  role: "admin" as string | null,
+  recent: false,
+  recentAfterVerify: true,
+  status: 200,
+  body: undefined as unknown,
+  calls: 0,
+}));
+
 const mfaFakes = vi.hoisted(() => ({
   aalResult: undefined as
     { data: { currentLevel: string } | null; error: unknown } | undefined,
@@ -55,6 +71,12 @@ const mfaFakes = vi.hoisted(() => ({
 }));
 
 function resetMfaFakes() {
+  accessFakes.role = "admin";
+  accessFakes.recent = false;
+  accessFakes.recentAfterVerify = true;
+  accessFakes.status = 200;
+  accessFakes.body = undefined;
+  accessFakes.calls = 0;
   mfaFakes.aalResult = undefined;
   mfaFakes.factorsResult = undefined;
   mfaFakes.enrollResult = undefined;
@@ -74,6 +96,9 @@ function resetMfaFakes() {
 vi.mock("@/lib/supabase", () => ({
   supabase: {
     auth: {
+      async getSession() {
+        return { data: { session: { access_token: "at-mfa-sintetico" } } };
+      },
       mfa: {
         async getAuthenticatorAssuranceLevel() {
           mfaFakes.calls.getAAL++;
@@ -97,9 +122,13 @@ vi.mock("@/lib/supabase", () => ({
         },
         async verify(params: unknown) {
           mfaFakes.calls.verify.push(params);
-          return (
-            mfaFakes.verifyResult ?? { data: null, error: new Error("sin configurar") }
-          );
+          const result = mfaFakes.verifyResult ?? {
+            data: null,
+            error: new Error("sin configurar"),
+          };
+          // Un verify correcto deja un token nuevo con el TOTP reciente (según el servidor).
+          if (!result.error) accessFakes.recent = accessFakes.recentAfterVerify;
+          return result;
         },
         async unenroll(params: unknown) {
           mfaFakes.calls.unenroll.push(params);
@@ -119,19 +148,34 @@ function resetFakes() {
   resetMfaFakes();
 }
 
-function renderMfaPage() {
+function LocationProbe({ id }: { id: string }) {
+  const location = useLocation();
+  const fromMfa = Boolean((location.state as { fromMfa?: unknown } | null)?.fromMfa);
+  return (
+    <p data-testid={id}>
+      {location.pathname + location.search}
+      {fromMfa ? " [fromMfa]" : ""}
+    </p>
+  );
+}
+
+function renderMfaPage(entry = "/admin/mfa") {
   return render(
-    <MemoryRouter initialEntries={["/admin/mfa"]}>
-      <Routes>
-        <Route path="/admin/mfa" element={<AdminMfaPage />} />
-        <Route path="/admin/login" element={<p>Login stub</p>} />
-      </Routes>
-    </MemoryRouter>,
+    <QueryClientProvider client={testQueryClient}>
+      <MemoryRouter initialEntries={[entry]}>
+        <Routes>
+          <Route path="/admin/mfa" element={<AdminMfaPage />} />
+          <Route path="/admin" element={<LocationProbe id="admin" />} />
+          <Route path="/account" element={<LocationProbe id="account" />} />
+          <Route path="/login" element={<LocationProbe id="login" />} />
+        </Routes>
+      </MemoryRouter>
+    </QueryClientProvider>,
   );
 }
 
 function authenticated() {
-  authFakes.session = { user: { email: "admin@example.com" } };
+  authFakes.session = { user: { id: "u-mfa-sintetico", email: "admin@example.com" } };
 }
 
 function totpFactor(overrides: Partial<FakeFactor> = {}): FakeFactor {
@@ -139,49 +183,282 @@ function totpFactor(overrides: Partial<FakeFactor> = {}): FakeFactor {
 }
 
 beforeEach(() => {
+  testQueryClient.clear();
   resetFakes();
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (url: string) => {
+      if (String(url) !== "/api/admin/access")
+        throw new Error(`fetch inesperado a ${url}`);
+      accessFakes.calls++;
+      return {
+        ok: accessFakes.status >= 200 && accessFakes.status < 300,
+        status: accessFakes.status,
+        json: async () =>
+          accessFakes.body ?? {
+            role: accessFakes.role,
+            capabilities: accessFakes.role ? ["moderation"] : [],
+            mfa: { recent: accessFakes.recent },
+          },
+      };
+    }),
+  );
 });
 
 afterEach(() => {
+  // Invariante 9G-3: la página decide con el servidor (MFA reciente), jamás con el AAL.
+  expect(mfaFakes.calls.getAAL).toBe(0);
   cleanup();
   vi.restoreAllMocks();
+  vi.unstubAllGlobals();
 });
 
 describe("AdminMfaPage — sin sesión", () => {
-  it("no ejecuta ninguna operación MFA y ofrece volver a /admin/login", async () => {
+  it("no ejecuta ninguna operación MFA ni consulta el acceso, y ofrece iniciar sesión", async () => {
     renderMfaPage();
 
-    expect(
-      await screen.findByRole("link", { name: /iniciar sesión/i }),
-    ).toBeInTheDocument();
+    expect(await screen.findByRole("link", { name: /iniciar sesión/i })).toHaveAttribute(
+      "href",
+      "/login",
+    );
+    expect(accessFakes.calls).toBe(0);
     expect(mfaFakes.calls.getAAL).toBe(0);
     expect(mfaFakes.calls.listFactors).toBe(0);
     expect(mfaFakes.calls.enroll).toHaveLength(0);
   });
 });
 
-describe("AdminMfaPage — sesión AAL2", () => {
-  it("muestra la verificación completada, sin listFactors/enroll/challenge, y permite cerrar sesión", async () => {
+describe("AdminMfaPage — MFA reciente según el servidor", () => {
+  it("recent=true sin returnTo: muestra 'vigente', sin listFactors/enroll/challenge, y permite cerrar sesión", async () => {
     authenticated();
-    mfaFakes.aalResult = { data: { currentLevel: "aal2" }, error: null };
+    accessFakes.recent = true;
     renderMfaPage();
 
-    await screen.findByText(/verificación en dos pasos activa/i);
+    await screen.findByText(/verificación en dos pasos está vigente/i);
 
-    expect(mfaFakes.calls.getAAL).toBe(1);
     expect(mfaFakes.calls.listFactors).toBe(0);
     expect(mfaFakes.calls.enroll).toHaveLength(0);
     expect(mfaFakes.calls.challenge).toHaveLength(0);
+    expect(screen.getByRole("link", { name: /ir a mi cuenta/i })).toHaveAttribute(
+      "href",
+      "/account",
+    );
 
     fireEvent.click(screen.getByRole("button", { name: /cerrar sesión/i }));
     expect(authFakes.signOutCalls).toBe(1);
+  });
+
+  it("aal2 con MFA VENCIDO (recent=false): NO dice 'vigente'; vuelve a pedir el código con el factor existente (reverify)", async () => {
+    authenticated();
+    accessFakes.recent = false; // la sesión puede ser aal2: da igual, la página no lo mira
+    mfaFakes.factorsResult = { data: { all: [], totp: [totpFactor()] }, error: null };
+    renderMfaPage();
+
+    expect(await screen.findByLabelText("Código de verificación")).toBeInTheDocument();
+    expect(screen.queryByText(/está vigente/i)).toBeNull();
+    expect(mfaFakes.calls.enroll).toHaveLength(0);
+    expect(mfaFakes.calls.unenroll).toHaveLength(0);
+  });
+
+  it("recent=true con returnTo=/admin: navega a /admin con React Router y marca fromMfa", async () => {
+    authenticated();
+    accessFakes.recent = true;
+    renderMfaPage("/admin/mfa?returnTo=/admin");
+
+    expect(await screen.findByTestId("admin")).toHaveTextContent("/admin [fromMfa]");
+    expect(mfaFakes.calls.listFactors).toBe(0);
+  });
+
+  it("verify → revalida /access con el token nuevo → recent=true → navega al returnTo (sin AAL)", async () => {
+    authenticated();
+    accessFakes.recent = false;
+    mfaFakes.factorsResult = { data: { all: [], totp: [totpFactor()] }, error: null };
+    mfaFakes.challengeResult = { data: { id: "challenge-1" }, error: null };
+    mfaFakes.verifyResult = { data: { access_token: "at-nuevo" }, error: null };
+    renderMfaPage("/admin/mfa?returnTo=/admin");
+
+    const input = await screen.findByLabelText("Código de verificación");
+    expect(accessFakes.calls).toBe(1);
+    fireEvent.change(input, { target: { value: "123456" } });
+    fireEvent.click(screen.getByRole("button", { name: /^verificar$/i }));
+
+    expect(await screen.findByTestId("admin")).toHaveTextContent("/admin [fromMfa]");
+    expect(accessFakes.calls).toBe(2); // una revalidación explícita tras el verify
+  });
+
+  it("verify correcto pero el servidor AÚN no reconoce el MFA → error, SIN navegar ni bucle", async () => {
+    authenticated();
+    accessFakes.recent = false;
+    accessFakes.recentAfterVerify = false;
+    mfaFakes.factorsResult = { data: { all: [], totp: [totpFactor()] }, error: null };
+    mfaFakes.challengeResult = { data: { id: "challenge-1" }, error: null };
+    mfaFakes.verifyResult = { data: { access_token: "at" }, error: null };
+    renderMfaPage("/admin/mfa?returnTo=/admin");
+
+    const input = await screen.findByLabelText("Código de verificación");
+    fireEvent.change(input, { target: { value: "123456" } });
+    fireEvent.click(screen.getByRole("button", { name: /^verificar$/i }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      /no se pudo confirmar la verificación/i,
+    );
+    expect(screen.queryByTestId("admin")).toBeNull();
+    await new Promise((r) => setTimeout(r, 30));
+    expect(accessFakes.calls).toBe(2); // sin reintentos automáticos
+    expect(mfaFakes.calls.challenge).toHaveLength(1);
+    expect(mfaFakes.calls.verify).toHaveLength(1);
+    // El formulario sigue disponible para un reintento MANUAL.
+    expect(screen.getByLabelText("Código de verificación")).toBeInTheDocument();
+  });
+
+  it("sin returnTo, tras verificar se queda en la pantalla 'vigente' (no navega a ningún sitio)", async () => {
+    authenticated();
+    accessFakes.recent = false;
+    mfaFakes.factorsResult = { data: { all: [], totp: [totpFactor()] }, error: null };
+    mfaFakes.challengeResult = { data: { id: "challenge-1" }, error: null };
+    mfaFakes.verifyResult = { data: { access_token: "at" }, error: null };
+    renderMfaPage();
+
+    fireEvent.change(await screen.findByLabelText("Código de verificación"), {
+      target: { value: "123456" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /^verificar$/i }));
+
+    expect(await screen.findByText(/está vigente/i)).toBeInTheDocument();
+    expect(screen.queryByTestId("admin")).toBeNull();
+    expect(screen.queryByTestId("account")).toBeNull();
+  });
+
+  it("no reproduce ninguna operación privilegiada: la única llamada de red es GET /api/admin/access", async () => {
+    authenticated();
+    accessFakes.recent = false;
+    mfaFakes.factorsResult = { data: { all: [], totp: [totpFactor()] }, error: null };
+    mfaFakes.challengeResult = { data: { id: "challenge-1" }, error: null };
+    mfaFakes.verifyResult = { data: { access_token: "at" }, error: null };
+    renderMfaPage("/admin/mfa?returnTo=/admin");
+
+    fireEvent.change(await screen.findByLabelText("Código de verificación"), {
+      target: { value: "123456" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /^verificar$/i }));
+    await screen.findByTestId("admin");
+
+    for (const call of (fetch as unknown as { mock: { calls: unknown[][] } }).mock
+      .calls) {
+      expect(String(call[0])).toBe("/api/admin/access");
+      const init = call[1] as { method?: string; body?: unknown } | undefined;
+      expect(init?.method ?? "GET").toBe("GET");
+      expect(init?.body).toBeUndefined();
+    }
+  });
+});
+
+describe("AdminMfaPage — returnTo seguro", () => {
+  it.each([
+    ["externo", "https://evil.example/admin"],
+    ["protocol-relative", "//evil.example"],
+    ["protocol-relative triple", "///evil.example"],
+    ["javascript:", "javascript:alert(1)"],
+    ["data:", "data:text/html,x"],
+    ["backslash", "/\\evil.example"],
+    ["malformado (%)", "/admin%zz"],
+    ["codificado", "/%2f%2fevil.example"],
+    ["ruta fuera de la allowlist", "/desconocida"],
+    ["ruta que no existe aún", "/cosplay"],
+    ["con parámetros", "/admin?x=1"],
+    ["con fragmento", "/admin#x"],
+    ["vacío", ""],
+  ])("returnTo %s → cae en /account, nunca navega fuera", async (_n, raw) => {
+    authenticated();
+    accessFakes.recent = true;
+    const before = window.location.href;
+    renderMfaPage(`/admin/mfa?returnTo=${encodeURIComponent(raw)}`);
+
+    expect(await screen.findByTestId("account")).toHaveTextContent("/account [fromMfa]");
+    expect(screen.queryByTestId("admin")).toBeNull();
+    expect(window.location.href).toBe(before); // nunca window.location
+  });
+
+  it("returnTo=/comunidad (permitido) navega ahí", async () => {
+    authenticated();
+    accessFakes.recent = true;
+    render(
+      <QueryClientProvider client={testQueryClient}>
+        <MemoryRouter initialEntries={["/admin/mfa?returnTo=/comunidad"]}>
+          <Routes>
+            <Route path="/admin/mfa" element={<AdminMfaPage />} />
+            <Route path="/comunidad" element={<LocationProbe id="comunidad" />} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    expect(await screen.findByTestId("comunidad")).toHaveTextContent("/comunidad");
+  });
+
+  it("sin sesión: el enlace de login conserva SOLO un returnTo válido", async () => {
+    renderMfaPage("/admin/mfa?returnTo=/admin");
+    expect(await screen.findByRole("link", { name: /iniciar sesión/i })).toHaveAttribute(
+      "href",
+      "/login?returnTo=/admin",
+    );
+    cleanup();
+
+    renderMfaPage(`/admin/mfa?returnTo=${encodeURIComponent("https://evil.example")}`);
+    expect(await screen.findByRole("link", { name: /iniciar sesión/i })).toHaveAttribute(
+      "href",
+      "/login",
+    );
+  });
+});
+
+describe("AdminMfaPage — acceso no disponible", () => {
+  it("el servidor rechaza la sesión (401): pide cerrar sesión, sin bucles ni MFA", async () => {
+    authenticated();
+    accessFakes.status = 401;
+    renderMfaPage("/admin/mfa?returnTo=/admin");
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      /tu sesión ya no es válida/i,
+    );
+    fireEvent.click(screen.getByRole("button", { name: /cerrar sesión/i }));
+    expect(authFakes.signOutCalls).toBe(1);
+    expect(mfaFakes.calls.listFactors).toBe(0);
+    expect(screen.queryByTestId("login")).toBeNull();
+  });
+
+  it.each([
+    ["500", () => (accessFakes.status = 500)],
+    ["cuerpo inválido", () => (accessFakes.body = { role: "root" })],
+  ])(
+    "acceso con %s → error seguro, sin listFactors ni navegación",
+    async (_n, arrange) => {
+      authenticated();
+      arrange();
+      renderMfaPage("/admin/mfa?returnTo=/admin");
+
+      expect(await screen.findByRole("alert")).toHaveTextContent(
+        "No se pudo comprobar tu estado de verificación en dos pasos.",
+      );
+      expect(mfaFakes.calls.listFactors).toBe(0);
+      expect(screen.queryByTestId("admin")).toBeNull();
+    },
+  );
+
+  it("una cuenta SIN rol también puede completar su propio MFA (p. ej. antes de activar una invitación); la autorización no depende de esta página", async () => {
+    authenticated();
+    accessFakes.role = null;
+    accessFakes.recent = false;
+    mfaFakes.factorsResult = { data: { all: [], totp: [totpFactor()] }, error: null };
+    renderMfaPage();
+
+    expect(await screen.findByLabelText("Código de verificación")).toBeInTheDocument();
   });
 });
 
 describe("AdminMfaPage — sesión AAL1 con factor TOTP existente", () => {
   it("usa ese factor (no enrolla otro) y permite introducir el código", async () => {
     authenticated();
-    mfaFakes.aalResult = { data: { currentLevel: "aal1" }, error: null };
     mfaFakes.factorsResult = { data: { all: [], totp: [totpFactor()] }, error: null };
     renderMfaPage();
 
@@ -194,7 +471,6 @@ describe("AdminMfaPage — sesión AAL1 con factor TOTP existente", () => {
 
   it("challenge usa el factor correcto y verify recibe factor/challenge/código exactos", async () => {
     authenticated();
-    mfaFakes.aalResult = { data: { currentLevel: "aal1" }, error: null };
     mfaFakes.factorsResult = {
       data: { all: [], totp: [totpFactor({ id: "factor-existente" })] },
       error: null,
@@ -227,9 +503,8 @@ describe("AdminMfaPage — sesión AAL1 con factor TOTP existente", () => {
     expect(mfaFakes.calls.unenroll).toHaveLength(0);
   });
 
-  it("verify exitoso vuelve a comprobar el AAL para confirmar el estado aal2", async () => {
+  it("verify exitoso revalida el estado con el servidor (/access), no con el AAL", async () => {
     authenticated();
-    mfaFakes.aalResult = { data: { currentLevel: "aal1" }, error: null };
     mfaFakes.factorsResult = { data: { all: [], totp: [totpFactor()] }, error: null };
     mfaFakes.challengeResult = {
       data: { id: "challenge-1", type: "totp", expires_at: 0 },
@@ -248,19 +523,16 @@ describe("AdminMfaPage — sesión AAL1 con factor TOTP existente", () => {
 
     const input = await screen.findByLabelText("Código de verificación");
     fireEvent.change(input, { target: { value: "123456" } });
-    expect(mfaFakes.calls.getAAL).toBe(1);
+    expect(accessFakes.calls).toBe(1);
 
-    // Tras el verify exitoso, la siguiente comprobación de AAL reporta aal2.
-    mfaFakes.aalResult = { data: { currentLevel: "aal2" }, error: null };
     fireEvent.click(screen.getByRole("button", { name: /^verificar$/i }));
 
-    await screen.findByText(/verificación en dos pasos activa/i);
-    expect(mfaFakes.calls.getAAL).toBe(2);
+    await screen.findByText(/está vigente/i);
+    expect(accessFakes.calls).toBe(2);
   });
 
   it("código inválido/expirado muestra un mensaje seguro, nunca el texto del proveedor", async () => {
     authenticated();
-    mfaFakes.aalResult = { data: { currentLevel: "aal1" }, error: null };
     mfaFakes.factorsResult = { data: { all: [], totp: [totpFactor()] }, error: null };
     mfaFakes.challengeResult = {
       data: { id: "challenge-1", type: "totp", expires_at: 0 },
@@ -285,7 +557,6 @@ describe("AdminMfaPage — sesión AAL1 con factor TOTP existente", () => {
 
   it("fallo de challenge muestra un mensaje seguro y nunca llama a verify", async () => {
     authenticated();
-    mfaFakes.aalResult = { data: { currentLevel: "aal1" }, error: null };
     mfaFakes.factorsResult = { data: { all: [], totp: [totpFactor()] }, error: null };
     mfaFakes.challengeResult = {
       data: null,
@@ -311,7 +582,6 @@ describe("AdminMfaPage — sesión AAL1 con factor TOTP existente", () => {
 describe("AdminMfaPage — sesión AAL1 sin factor TOTP", () => {
   it("permite iniciar el enrolamiento explícitamente", async () => {
     authenticated();
-    mfaFakes.aalResult = { data: { currentLevel: "aal1" }, error: null };
     mfaFakes.factorsResult = { data: { all: [], totp: [] }, error: null };
     renderMfaPage();
 
@@ -323,7 +593,6 @@ describe("AdminMfaPage — sesión AAL1 sin factor TOTP", () => {
 
   it("enroll muestra el QR/secret (solo en memoria) y permite verificar; no escribe en localStorage/sessionStorage", async () => {
     authenticated();
-    mfaFakes.aalResult = { data: { currentLevel: "aal1" }, error: null };
     mfaFakes.factorsResult = { data: { all: [], totp: [] }, error: null };
     mfaFakes.enrollResult = {
       data: {
@@ -360,7 +629,6 @@ describe("AdminMfaPage — sesión AAL1 sin factor TOTP", () => {
 
   it("un qr_code SVG crudo con caracteres especiales (comillas, #, %) se encodea exactamente una vez", async () => {
     authenticated();
-    mfaFakes.aalResult = { data: { currentLevel: "aal1" }, error: null };
     mfaFakes.factorsResult = { data: { all: [], totp: [] }, error: null };
     const rawQrCode = `<svg><text>"quoted" #hash %percent</text></svg>`;
     mfaFakes.enrollResult = {
@@ -391,7 +659,6 @@ describe("AdminMfaPage — sesión AAL1 sin factor TOTP", () => {
 
   it("un qr_code que ya llega como data URI completa se usa tal cual, sin anteponer otro prefijo", async () => {
     authenticated();
-    mfaFakes.aalResult = { data: { currentLevel: "aal1" }, error: null };
     mfaFakes.factorsResult = { data: { all: [], totp: [] }, error: null };
     const completeDataUri = "data:image/svg+xml;utf-8,%3Csvg%3E%3C%2Fsvg%3E";
     mfaFakes.enrollResult = {
@@ -420,7 +687,6 @@ describe("AdminMfaPage — sesión AAL1 sin factor TOTP", () => {
 
   it("fallo de enrolamiento muestra un mensaje seguro, sin exponer detalles del proveedor", async () => {
     authenticated();
-    mfaFakes.aalResult = { data: { currentLevel: "aal1" }, error: null };
     mfaFakes.factorsResult = { data: { all: [], totp: [] }, error: null };
     mfaFakes.enrollResult = {
       data: null,
@@ -443,7 +709,6 @@ describe("AdminMfaPage — sesión AAL1 sin factor TOTP", () => {
 
   it("cancelar un enrolamiento incompleto elimina el factor sin verificar y vuelve a la pantalla anterior", async () => {
     authenticated();
-    mfaFakes.aalResult = { data: { currentLevel: "aal1" }, error: null };
     mfaFakes.factorsResult = { data: { all: [], totp: [] }, error: null };
     mfaFakes.enrollResult = {
       data: {
@@ -476,7 +741,6 @@ describe("AdminMfaPage — sesión AAL1 sin factor TOTP", () => {
 
   it("challenge/verify tras el enrolamiento usan el factor recién creado", async () => {
     authenticated();
-    mfaFakes.aalResult = { data: { currentLevel: "aal1" }, error: null };
     mfaFakes.factorsResult = { data: { all: [], totp: [] }, error: null };
     mfaFakes.enrollResult = {
       data: {
@@ -537,7 +801,6 @@ describe("AdminMfaPage — enrolamiento TOTP interrumpido (abandonado sin verifi
 
   it("se detecta correctamente y NO bloquea permanentemente: sigue ofreciendo 'Configurar autenticador'", async () => {
     authenticated();
-    mfaFakes.aalResult = { data: { currentLevel: "aal1" }, error: null };
     mfaFakes.factorsResult = abandonedFactorsResult();
     renderMfaPage();
 
@@ -551,7 +814,6 @@ describe("AdminMfaPage — enrolamiento TOTP interrumpido (abandonado sin verifi
 
   it("al pulsar 'Configurar autenticador' limpia ÚNICAMENTE ese factor unverified (unenroll) y después enrolla uno nuevo limpio", async () => {
     authenticated();
-    mfaFakes.aalResult = { data: { currentLevel: "aal1" }, error: null };
     mfaFakes.factorsResult = abandonedFactorsResult("factor-abandonado");
     mfaFakes.enrollResult = {
       data: {
@@ -580,7 +842,6 @@ describe("AdminMfaPage — enrolamiento TOTP interrumpido (abandonado sin verifi
 
   it("si la limpieza del factor abandonado falla, muestra un error seguro y NO intenta enrollar (sin loop)", async () => {
     authenticated();
-    mfaFakes.aalResult = { data: { currentLevel: "aal1" }, error: null };
     mfaFakes.factorsResult = abandonedFactorsResult("factor-abandonado");
     mfaFakes.unenrollResult = {
       data: null,
@@ -605,7 +866,6 @@ describe("AdminMfaPage — enrolamiento TOTP interrumpido (abandonado sin verifi
 
   it("salir de /admin/mfa (desmontaje real) y volver a entrar más tarde no deja al usuario bloqueado", async () => {
     authenticated();
-    mfaFakes.aalResult = { data: { currentLevel: "aal1" }, error: null };
     mfaFakes.factorsResult = abandonedFactorsResult("factor-abandonado");
 
     // Primera entrada: se detecta el enrolamiento abandonado (p. ej. de una sesión de
@@ -642,7 +902,6 @@ describe("AdminMfaPage — enrolamiento TOTP interrumpido (abandonado sin verifi
 
   it("el secret/QR del enrolamiento de recuperación solo vive en memoria (nunca localStorage/sessionStorage)", async () => {
     authenticated();
-    mfaFakes.aalResult = { data: { currentLevel: "aal1" }, error: null };
     mfaFakes.factorsResult = abandonedFactorsResult();
     mfaFakes.enrollResult = {
       data: {
@@ -669,12 +928,10 @@ describe("AdminMfaPage — enrolamiento TOTP interrumpido (abandonado sin verifi
 });
 
 describe("AdminMfaPage — fallos de carga", () => {
-  it("fallo al comprobar el AAL muestra un error seguro, sin listFactors", async () => {
+  it("fallo al comprobar el acceso muestra un error seguro, sin listFactors", async () => {
     authenticated();
-    mfaFakes.aalResult = {
-      data: null,
-      error: Object.assign(new Error("jwt malformed: internal"), { code: "bad_jwt" }),
-    };
+    accessFakes.status = 500;
+    accessFakes.body = { error: "jwt malformed: internal" };
     renderMfaPage();
 
     const alert = await screen.findByRole("alert");
@@ -687,7 +944,6 @@ describe("AdminMfaPage — fallos de carga", () => {
 
   it("fallo al cargar factores muestra un error seguro, sin enroll/challenge", async () => {
     authenticated();
-    mfaFakes.aalResult = { data: { currentLevel: "aal1" }, error: null };
     mfaFakes.factorsResult = {
       data: null,
       error: Object.assign(new Error("relation admin_roles does not exist"), {

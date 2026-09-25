@@ -3,6 +3,8 @@ import { resolve } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
+import { QueryClientProvider } from "@tanstack/react-query";
+import { testQueryClient } from "@/test/query-client";
 
 // Edición de perfil (display_name/bio) dentro de /account (Bloque 7D.3). useAuth y el
 // cliente de Supabase se mockean: aquí importa cómo reacciona la UI a lecturas de
@@ -77,12 +79,14 @@ function fakeSession(id = USER_ID): Sess {
 
 function tree() {
   return (
-    <MemoryRouter initialEntries={["/account"]}>
-      <Routes>
-        <Route path="/account" element={<AccountPage />} />
-        <Route path="/login" element={<p>Login stub</p>} />
-      </Routes>
-    </MemoryRouter>
+    <QueryClientProvider client={testQueryClient}>
+      <MemoryRouter initialEntries={["/account"]}>
+        <Routes>
+          <Route path="/account" element={<AccountPage />} />
+          <Route path="/login" element={<p>Login stub</p>} />
+        </Routes>
+      </MemoryRouter>
+    </QueryClientProvider>
   );
 }
 
@@ -104,6 +108,7 @@ function absent() {
 }
 
 beforeEach(() => {
+  testQueryClient.clear();
   authFakes.session = fakeSession();
   authFakes.loading = false;
   sb.reads = [];

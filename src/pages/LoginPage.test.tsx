@@ -40,9 +40,9 @@ vi.mock("@/lib/supabase", () => ({
 
 import LoginPage from "./LoginPage";
 
-function loginTree() {
+function loginTree(entry = "/login") {
   return (
-    <MemoryRouter initialEntries={["/login"]}>
+    <MemoryRouter initialEntries={[entry]}>
       <Routes>
         <Route path="/login" element={<LoginPage />} />
         <Route
@@ -56,13 +56,17 @@ function loginTree() {
         />
         <Route path="/otra" element={<p>Otra stub</p>} />
         <Route path="/signup" element={<p>Signup stub</p>} />
+        <Route path="/admin" element={<p>Admin stub</p>} />
+        <Route path="/admin/activate" element={<p>Activate stub</p>} />
+        <Route path="/account" element={<p>Account stub</p>} />
+        <Route path="/comunidad" element={<p>Comunidad stub</p>} />
       </Routes>
     </MemoryRouter>
   );
 }
 
-function renderLogin() {
-  return render(loginTree());
+function renderLogin(entry = "/login") {
+  return render(loginTree(entry));
 }
 
 function fillAndSubmit(email = "fan@example.com", password = "clave-sintetica-1") {
@@ -260,5 +264,82 @@ describe("/login — envío", () => {
     expect(document.body.textContent).not.toContain("clave-sintetica-1");
     expect(document.body.innerHTML).not.toMatch(/access_token|refresh_token|Bearer/i);
     await waitFor(() => expect(screen.getByLabelText("Contraseña")).toBeEnabled());
+  });
+});
+
+// returnTo (Fase 9G-3): solo se honra un destino interno de la allowlist (parseSafeReturnTo) y se
+// navega con React Router, jamás con window.location ni con el valor crudo.
+describe("/login — returnTo seguro", () => {
+  const enc = encodeURIComponent;
+
+  it.each([
+    ["/admin", "Admin stub"],
+    ["/admin/activate", "Activate stub"],
+    ["/account", "Account stub"],
+    ["/comunidad", "Comunidad stub"],
+  ])("login correcto con returnTo=%s → navega ahí", async (path, stub) => {
+    renderLogin(`/login?returnTo=${path}`);
+
+    fillAndSubmit();
+
+    expect(await screen.findByText(stub)).toBeInTheDocument();
+    expect(supabaseFakes.signInCalls).toHaveLength(1);
+  });
+
+  it.each([
+    ["externo", "https://evil.example"],
+    ["http externo", "http://evil.example/admin"],
+    ["protocol-relative", "//evil.example"],
+    ["protocol-relative triple", "///evil.example"],
+    ["javascript:", "javascript:alert(1)"],
+    ["data:", "data:text/html,x"],
+    ["file:", "file:///etc/passwd"],
+    ["backslash", "/\\evil.example"],
+    ["malformado (%)", "/admin%zz"],
+    ["codificado", "/%2f%2fevil.example"],
+    ["ruta desconocida", "/desconocida"],
+    ["ruta cosplay (aún no existe)", "/cosplay"],
+    ["con parámetros", "/admin?x=1"],
+    ["con fragmento", "/admin#x"],
+    ["con espacios", " /admin"],
+    ["vacío", ""],
+  ])("returnTo %s → se ignora: tras el login va a /", async (_n, raw) => {
+    const before = window.location.href;
+    renderLogin(`/login?returnTo=${enc(raw)}`);
+
+    fillAndSubmit();
+
+    expect(await screen.findByText("Home stub")).toBeInTheDocument();
+    expect(screen.queryByText("Admin stub")).toBeNull();
+    expect(window.location.href).toBe(before);
+  });
+
+  it("sin returnTo → /", async () => {
+    renderLogin("/login");
+    fillAndSubmit();
+    expect(await screen.findByText("Home stub")).toBeInTheDocument();
+  });
+
+  it("sesión ya existente + returnTo válido → redirige a ese destino sin mostrar el formulario", () => {
+    authFakes.session = { user: { email: "fan@example.com" } };
+    renderLogin("/login?returnTo=/admin");
+
+    expect(screen.getByText("Admin stub")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Email")).toBeNull();
+  });
+
+  it("sesión ya existente + returnTo inválido → /, nunca fuera del sitio", () => {
+    authFakes.session = { user: { email: "fan@example.com" } };
+    renderLogin(`/login?returnTo=${enc("https://evil.example")}`);
+
+    expect(screen.getByText("Home stub")).toBeInTheDocument();
+  });
+
+  it("el returnTo no concede nada: llegar a /admin solo lleva a la superficie, que decide por su cuenta", async () => {
+    renderLogin("/login?returnTo=/admin");
+    fillAndSubmit();
+    await screen.findByText("Admin stub");
+    // Login no consulta roles ni AAL: ninguna llamada de red.
+    expect(fetch).not.toHaveBeenCalled();
   });
 });

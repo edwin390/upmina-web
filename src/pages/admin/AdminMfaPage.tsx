@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
-import { Link } from "react-router-dom";
+import { Link, Navigate, useSearchParams } from "react-router-dom";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/lib/auth-context";
+import { useAdminAccess } from "@/hooks/useAdminAccess";
+import { parseSafeReturnTo } from "@/lib/safe-return-to";
 import AdminAuthCard from "@/components/admin/AdminAuthCard";
 import AdminAuthField from "@/components/admin/AdminAuthField";
 import { buildTotpQrImageSrc } from "@/lib/mfa-qr";
@@ -15,6 +17,22 @@ import { buildTotpQrImageSrc } from "@/lib/mfa-qr";
 // cualquier operación privilegiada).
 //
 // MFA es un segundo factor, no una prueba de identidad real ni una fuente de rol.
+//
+// Fase 9G-3 — MFA RECIENTE, no AAL2. `aal2` significa "esta sesión pasó MFA alguna vez"; el
+// backend exige un TOTP de los últimos 30 minutos. Por eso esta página ya NO decide por el AAL:
+// pregunta a GET /api/admin/access (vía useAdminAccess) si el MFA es reciente según el servidor.
+// Una sesión aal2 con MFA vencido vuelve a pedir el código (challenge + verify sobre la sesión
+// existente renueva el timestamp TOTP del token). Tras verificar se REVALIDA /access con el token
+// nuevo antes de continuar; si el servidor todavía no lo reconoce se muestra un error, sin
+// redirigir ni reintentar solo (no hay bucle).
+//
+// returnTo: se valida con parseSafeReturnTo (allowlist interna) y se navega SOLO con React Router.
+// Un destino presente pero inválido cae en /account; sin returnTo la página muestra su estado.
+// Nada se reproduce después del MFA: la persona vuelve y decide de nuevo qué hacer.
+//
+// Esta página no exige un rol: cualquier sesión puede enrolar/verificar su propio TOTP (también
+// quien aún no tiene rol y va a activar una invitación, 9G-4). El acceso a /admin, en cambio, se
+// decide ANTES de llegar aquí y a un usuario sin rol nunca se le envía.
 
 const INVALID_OR_EXPIRED_CODES = new Set([
   "mfa_verification_failed",
@@ -39,6 +57,7 @@ const UNEXPECTED_ERROR = "Ocurrió un error inesperado. Inténtalo de nuevo.";
 type MfaStep =
   | { kind: "checking" }
   | { kind: "no-session" }
+  | { kind: "session-invalid" }
   | { kind: "verified" }
   | { kind: "need-factor"; abandonedFactorId: string | null }
   | { kind: "enrolling"; factorId: string; qrCode: string; secret: string }
@@ -46,8 +65,21 @@ type MfaStep =
   | { kind: "fatal"; message: string };
 
 export default function AdminMfaPage() {
-  const { session, loading: sessionLoading, signOut } = useAuth();
-  const hasSession = Boolean(session);
+  const { signOut } = useAuth();
+  const [searchParams] = useSearchParams();
+  const {
+    status: accessStatus,
+    access,
+    refetch: refetchAccess,
+  } = useAdminAccess({ fresh: true });
+  const mfaRecent = access?.mfaRecent ?? false;
+
+  // Destino tras un MFA reciente: null si no hay returnTo; un returnTo presente pero inválido
+  // (externo, protocol-relative, malformado, fuera de la allowlist…) cae en /account.
+  const rawReturnTo = searchParams.get("returnTo");
+  const safeReturnTo =
+    rawReturnTo === null ? null : (parseSafeReturnTo(rawReturnTo)?.path ?? null);
+  const destination = rawReturnTo === null ? null : (safeReturnTo ?? "/account");
 
   const [step, setStep] = useState<MfaStep>({ kind: "checking" });
   const [code, setCode] = useState("");
@@ -55,33 +87,28 @@ export default function AdminMfaPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSecretVisible, setIsSecretVisible] = useState(false);
 
-  // Consulta el AAL actual y, si hace falta, los factores TOTP existentes. Es la única
-  // fuente de verdad de "qué pantalla mostrar": nunca se infiere el estado a partir de
-  // valores guardados localmente. Se llama al montar (si ya hay sesión) y explícitamente
-  // otra vez tras un verify() exitoso, para confirmar que la sesión alcanzó aal2.
-  const loadStatus = useCallback(async () => {
+  // Carga los factores TOTP para decidir entre challenge y enrolamiento. NO consulta el AAL: la
+  // decisión "¿hace falta MFA?" ya la tomó el servidor (MFA reciente vía /access).
+  const loadFactors = useCallback(async (isCurrent: () => boolean) => {
     if (!supabase) {
       setStep({ kind: "fatal", message: "El acceso admin no está configurado todavía." });
       return;
     }
 
-    const { data: aalData, error: aalError } =
-      await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
-    if (aalError) {
-      setStep({
-        kind: "fatal",
-        message: "No se pudo comprobar tu estado de verificación en dos pasos.",
-      });
+    let factorsResult: Awaited<ReturnType<typeof supabase.auth.mfa.listFactors>>;
+    try {
+      factorsResult = await supabase.auth.mfa.listFactors();
+    } catch {
+      if (isCurrent()) {
+        setStep({
+          kind: "fatal",
+          message: "No se pudieron cargar tus factores de verificación.",
+        });
+      }
       return;
     }
-
-    if (aalData.currentLevel === "aal2") {
-      setStep({ kind: "verified" });
-      return;
-    }
-
-    const { data: factorsData, error: factorsError } =
-      await supabase.auth.mfa.listFactors();
+    if (!isCurrent()) return;
+    const { data: factorsData, error: factorsError } = factorsResult;
     if (factorsError) {
       setStep({
         kind: "fatal",
@@ -93,7 +120,8 @@ export default function AdminMfaPage() {
     // `factorsData.totp` (contrato real de @supabase/auth-js: ver
     // AuthMFAListFactorsResponse en node_modules/@supabase/auth-js/dist/main/lib/types.d.ts)
     // SOLO contiene factores TOTP ya VERIFICADOS por diseño — un factor unverified nunca
-    // aparece ahí. Si existe uno, es utilizable para challenge/verify.
+    // aparece ahí. Si existe uno, es utilizable para challenge/verify (también sobre una sesión
+    // que ya es aal2 pero cuyo MFA venció: es el "reverify").
     const verifiedTotp = factorsData.totp[0];
     if (verifiedTotp) {
       setStep({ kind: "challenge", factorId: verifiedTotp.id });
@@ -114,17 +142,32 @@ export default function AdminMfaPage() {
     setStep({ kind: "need-factor", abandonedFactorId: abandonedTotp?.id ?? null });
   }, []);
 
+  // Única fuente de verdad de "qué pantalla mostrar": el estado de acceso que informa el servidor.
   useEffect(() => {
-    if (sessionLoading) {
+    let cancelled = false;
+    const isCurrent = () => !cancelled;
+
+    if (accessStatus === "loading") {
       setStep({ kind: "checking" });
-      return;
-    }
-    if (!hasSession) {
+    } else if (accessStatus === "no-session") {
       setStep({ kind: "no-session" });
-      return;
+    } else if (accessStatus === "unauthenticated") {
+      setStep({ kind: "session-invalid" });
+    } else if (accessStatus === "error") {
+      setStep({
+        kind: "fatal",
+        message: "No se pudo comprobar tu estado de verificación en dos pasos.",
+      });
+    } else if (mfaRecent) {
+      setStep({ kind: "verified" });
+    } else {
+      void loadFactors(isCurrent);
     }
-    void loadStatus();
-  }, [sessionLoading, hasSession, loadStatus]);
+
+    return () => {
+      cancelled = true;
+    };
+  }, [accessStatus, mfaRecent, loadFactors]);
 
   async function startEnrollment(abandonedFactorId: string | null) {
     if (!supabase) return;
@@ -133,7 +176,7 @@ export default function AdminMfaPage() {
     try {
       if (abandonedFactorId) {
         // Limpieza de UN enrolamiento TOTP anterior interrumpido (unverified, detectado
-        // en loadStatus vía factorsData.all) como parte de ESTA misma acción explícita
+        // en loadFactors vía factorsData.all) como parte de ESTA misma acción explícita
         // del usuario — nunca automática, nunca repetida en bucle: como mucho un
         // unenroll seguido de un enroll por cada clic. Si la limpieza falla, se detiene
         // aquí sin intentar el enroll (que volvería a fallar por la misma razón).
@@ -221,10 +264,14 @@ export default function AdminMfaPage() {
       }
 
       setCode("");
-      // Confirma explícitamente que la sesión alcanzó aal2 (verify() ya actualiza la
-      // sesión internamente vía onAuthStateChange, pero esto refleja el estado exacto
-      // de assurance sin asumirlo).
-      await loadStatus();
+      // verify() ya dejó el token nuevo en la sesión de Supabase. Se REVALIDA con el servidor
+      // (token vigente, MFA reciente según el backend) antes de continuar: no se asume el éxito.
+      const refreshed = await refetchAccess();
+      if (refreshed?.mfaRecent) {
+        setStep({ kind: "verified" });
+      } else {
+        setFormError("No se pudo confirmar la verificación. Inténtalo de nuevo.");
+      }
     } catch {
       setFormError(UNEXPECTED_ERROR);
     } finally {
@@ -248,7 +295,7 @@ export default function AdminMfaPage() {
         title="Verificación en dos pasos"
         footer={
           <Link
-            to="/admin/login"
+            to={safeReturnTo ? `/login?returnTo=${safeReturnTo}` : "/login"}
             className="font-medium text-accent-primary hover:underline"
           >
             Iniciar sesión
@@ -258,6 +305,23 @@ export default function AdminMfaPage() {
         <p className="text-sm text-text-secondary">
           Inicia sesión para configurar o completar la verificación en dos pasos.
         </p>
+      </AdminAuthCard>
+    );
+  }
+
+  if (step.kind === "session-invalid") {
+    return (
+      <AdminAuthCard title="Verificación en dos pasos">
+        <p role="alert" className="text-sm text-accent-live">
+          Tu sesión ya no es válida. Cierra sesión e inicia sesión de nuevo.
+        </p>
+        <button
+          type="button"
+          onClick={() => void signOut()}
+          className="mt-6 inline-flex min-h-11 items-center rounded-md border border-border-subtle px-5 py-2.5 text-sm font-semibold text-text-secondary transition-colors duration-200 ease-smooth hover:border-accent-primary/60 hover:text-text-primary"
+        >
+          Cerrar sesión
+        </button>
       </AdminAuthCard>
     );
   }
@@ -273,10 +337,20 @@ export default function AdminMfaPage() {
   }
 
   if (step.kind === "verified") {
+    // MFA reciente confirmado por el servidor. Con returnTo se continúa con el router interno; el
+    // estado `fromMfa` solo permite a /admin evitar un bucle si el servidor discrepara.
+    if (destination) {
+      return <Navigate to={destination} replace state={{ fromMfa: true }} />;
+    }
     return (
       <AdminAuthCard title="Verificación en dos pasos">
-        <p className="text-sm text-text-secondary">
-          Tu sesión ya tiene la verificación en dos pasos activa.
+        <p className="text-sm text-text-secondary" role="status">
+          Tu verificación en dos pasos está vigente.
+        </p>
+        <p className="mt-4 text-sm text-text-secondary">
+          <Link to="/account" className="font-medium text-accent-primary hover:underline">
+            Ir a mi cuenta
+          </Link>
         </p>
         <button
           type="button"

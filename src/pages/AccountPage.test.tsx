@@ -1,7 +1,9 @@
 import { StrictMode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
+import { QueryClientProvider } from "@tanstack/react-query";
+import { testQueryClient } from "@/test/query-client";
 
 // Fija /account (Bloque 6E): página privada mínima que solo requiere una sesión normal.
 // useAuth se mockea (el AuthProvider ya está cubierto por auth-context.test.tsx y
@@ -55,13 +57,40 @@ vi.mock("@/lib/supabase", () => ({
       },
       async getSession() {
         supabaseFakes.getSessionCalls++;
-        return { data: { session: null } };
+        // El access token vigente sale de la misma sesión simulada que useAuth.
+        return { data: { session: authFakes.session } };
       },
     },
   },
 }));
 
 import AccountPage from "./AccountPage";
+
+const CAPABILITIES_BY_ROLE: Record<string, string[]> = {
+  admin: ["moderation", "technical", "social_admin", "team_admin"],
+  moderator: ["moderation"],
+  developer: ["moderation", "technical"],
+};
+
+/** Respuesta simulada de GET /api/admin/access (contrato de 9G-1). */
+function accessResponse(role: string | null, recent = true) {
+  return {
+    ok: true,
+    status: 200,
+    json: async () => ({
+      role,
+      capabilities: role ? CAPABILITIES_BY_ROLE[role] : [],
+      mfa: { recent },
+    }),
+  };
+}
+
+function stubAccess(role: string | null, recent = true) {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () => accessResponse(role, recent)),
+  );
+}
 
 function fakeSession(email: string | null = "fan@example.com") {
   return {
@@ -77,12 +106,14 @@ function fakeSession(email: string | null = "fan@example.com") {
 
 function accountTree() {
   return (
-    <MemoryRouter initialEntries={["/account"]}>
-      <Routes>
-        <Route path="/account" element={<AccountPage />} />
-        <Route path="/login" element={<p>Login stub</p>} />
-      </Routes>
-    </MemoryRouter>
+    <QueryClientProvider client={testQueryClient}>
+      <MemoryRouter initialEntries={["/account"]}>
+        <Routes>
+          <Route path="/account" element={<AccountPage />} />
+          <Route path="/login" element={<p>Login stub</p>} />
+        </Routes>
+      </MemoryRouter>
+    </QueryClientProvider>
   );
 }
 
@@ -91,12 +122,16 @@ function renderAccount() {
 }
 
 beforeEach(() => {
+  testQueryClient.clear();
   authFakes.session = null;
   authFakes.loading = false;
   supabaseFakes.signOutImpl = undefined;
   supabaseFakes.signOutCalls = 0;
   supabaseFakes.getSessionCalls = 0;
-  vi.stubGlobal("fetch", vi.fn());
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () => accessResponse(null, false)),
+  );
 });
 
 afterEach(() => {
@@ -133,8 +168,11 @@ describe("/account — acceso", () => {
       "Sesión activa como fan@example.com.",
     );
     expect(screen.getByRole("button", { name: "Cerrar sesión" })).toBeInTheDocument();
-    expect(supabaseFakes.getSessionCalls).toBe(0);
-    expect(fetch).not.toHaveBeenCalled();
+    // Única llamada de red permitida: el acceso para presentación (GET /api/admin/access).
+    for (const [url] of (fetch as unknown as { mock: { calls: unknown[][] } }).mock
+      .calls) {
+      expect(String(url)).toBe("/api/admin/access");
+    }
   });
 
   it("sin email en la sesión: muestra solo 'Sesión activa.'", () => {
@@ -250,5 +288,198 @@ describe("/account — logout", () => {
     await act(async () => {});
 
     expect(supabaseFakes.signOutCalls).toBe(1);
+  });
+});
+
+describe("/account — Panel de administración (9G-3): presentación según GET /api/admin/access", () => {
+  const ADMIN_LINK = { name: "Panel de administración" };
+
+  async function settle() {
+    // Deja resolver la consulta de acceso antes de afirmar la AUSENCIA de algo.
+    await act(async () => {
+      await Promise.resolve();
+    });
+    await waitFor(() => expect(fetch).toHaveBeenCalled());
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 0));
+    });
+  }
+
+  function expectNoPrivilegedUi() {
+    expect(screen.queryByRole("link", ADMIN_LINK)).toBeNull();
+    expect(screen.queryByText(/panel de administración/i)).toBeNull();
+    expect(screen.queryByText(/moderad/i)).toBeNull();
+    expect(screen.queryByText(/developer|desarrollad/i)).toBeNull();
+    expect(screen.queryByText(/solo (para )?admin/i)).toBeNull();
+    expect(screen.queryByRole("link", { name: /admin/i })).toBeNull();
+  }
+
+  it("ADMIN (sin MFA reciente): el enlace se muestra, sin exigir MFA para mostrarlo", async () => {
+    authFakes.session = fakeSession();
+    stubAccess("admin", false);
+    renderAccount();
+
+    const link = await screen.findByRole("link", ADMIN_LINK);
+    expect(link).toHaveAttribute("href", "/admin");
+  });
+
+  it("ADMIN (MFA reciente): el enlace navega a /admin", async () => {
+    authFakes.session = fakeSession();
+    stubAccess("admin", true);
+    render(
+      <QueryClientProvider client={testQueryClient}>
+        <MemoryRouter initialEntries={["/account"]}>
+          <Routes>
+            <Route path="/account" element={<AccountPage />} />
+            <Route path="/admin" element={<p>Admin stub</p>} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    fireEvent.click(await screen.findByRole("link", ADMIN_LINK));
+    expect(await screen.findByText("Admin stub")).toBeInTheDocument();
+  });
+
+  it("USER (role null): cero UI privilegiada, ni placeholders ni botones deshabilitados", async () => {
+    authFakes.session = fakeSession();
+    stubAccess(null, false);
+    renderAccount();
+    await settle();
+
+    expectNoPrivilegedUi();
+  });
+
+  it("USER con aal2 y MFA reciente sigue sin ver nada privilegiado (MFA no concede rol)", async () => {
+    authFakes.session = fakeSession();
+    stubAccess(null, true);
+    renderAccount();
+    await settle();
+
+    expectNoPrivilegedUi();
+  });
+
+  it("MODERATOR: no ve el panel ni ningún placeholder de moderación", async () => {
+    authFakes.session = fakeSession();
+    stubAccess("moderator", true);
+    renderAccount();
+    await settle();
+
+    expectNoPrivilegedUi();
+  });
+
+  it("DEVELOPER: no ve el panel ni ningún placeholder de developer", async () => {
+    authFakes.session = fakeSession();
+    stubAccess("developer", true);
+    renderAccount();
+    await settle();
+
+    expectNoPrivilegedUi();
+  });
+
+  it("mientras el acceso carga no se muestra el enlace (sin destello privilegiado)", async () => {
+    authFakes.session = fakeSession();
+    let release: (v: unknown) => void = () => undefined;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => new Promise((resolve) => (release = resolve))),
+    );
+    renderAccount();
+
+    expect(screen.queryByRole("link", ADMIN_LINK)).toBeNull();
+    // La petición sale tras leer la sesión: se espera a que esté en vuelo antes de resolverla.
+    await waitFor(() => expect(fetch).toHaveBeenCalled());
+    expect(screen.queryByRole("link", ADMIN_LINK)).toBeNull();
+    await act(async () => {
+      release(accessResponse("admin", true));
+    });
+    expect(await screen.findByRole("link", ADMIN_LINK)).toBeInTheDocument();
+  });
+
+  it.each([
+    ["error 500", async () => ({ ok: false, status: 500, json: async () => ({}) })],
+    ["401", async () => ({ ok: false, status: 401, json: async () => ({}) })],
+    ["fallo de red", async () => Promise.reject(new TypeError("red"))],
+    ["JSON inválido", async () => ({ ok: true, status: 200, json: async () => "x" })],
+    [
+      "rol desconocido",
+      async () => ({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          role: "superadmin",
+          capabilities: [],
+          mfa: { recent: true },
+        }),
+      }),
+    ],
+    [
+      "USER con capacidades",
+      async () => ({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          role: null,
+          capabilities: ["team_admin"],
+          mfa: { recent: true },
+        }),
+      }),
+    ],
+  ])("acceso con %s → falla cerrado: sin enlace ni UI privilegiada", async (_n, impl) => {
+    authFakes.session = fakeSession();
+    vi.stubGlobal("fetch", vi.fn(impl));
+    renderAccount();
+    await settle();
+
+    expectNoPrivilegedUi();
+    // La cuenta sigue usable: el error de acceso no rompe la página.
+    expect(screen.getByRole("button", { name: "Cerrar sesión" })).toBeInTheDocument();
+  });
+
+  it("el enlace no depende de datos locales: app_metadata.role del cliente no lo muestra", async () => {
+    authFakes.session = fakeSession(); // app_metadata: { role: "admin-sintetico" }
+    stubAccess(null, true);
+    renderAccount();
+    await settle();
+
+    expect(screen.queryByRole("link", ADMIN_LINK)).toBeNull();
+  });
+
+  it("no consulta el acceso sin sesión (redirige a /login)", async () => {
+    authFakes.session = null;
+    renderAccount();
+
+    expect(await screen.findByText("Login stub")).toBeInTheDocument();
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("cambio de usuario: el estado de acceso del usuario anterior no se reutiliza", async () => {
+    authFakes.session = fakeSession();
+    stubAccess("admin", true);
+    const view = renderAccount();
+    expect(await screen.findByRole("link", ADMIN_LINK)).toBeInTheDocument();
+
+    // Otra cuenta (sin rol) en la misma pestaña: la clave de caché incluye el user.id.
+    authFakes.session = {
+      ...fakeSession("otra@example.com"),
+      user: { id: "user-id-sintetico-0002", email: "otra@example.com", app_metadata: {} },
+    };
+    stubAccess(null, false);
+    view.rerender(accountTree());
+
+    await waitFor(() => expect(screen.queryByRole("link", ADMIN_LINK)).toBeNull());
+  });
+
+  it("cerrar la sesión no deja el enlace visible", async () => {
+    authFakes.session = fakeSession();
+    stubAccess("admin", true);
+    const view = renderAccount();
+    expect(await screen.findByRole("link", ADMIN_LINK)).toBeInTheDocument();
+
+    authFakes.session = null;
+    view.rerender(accountTree());
+
+    expect(await screen.findByText("Login stub")).toBeInTheDocument();
+    expect(screen.queryByRole("link", ADMIN_LINK)).toBeNull();
   });
 });

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { supabase } from "@/lib/supabase";
+import { usePrivilegedFailureReporter } from "@/hooks/privileged-failure";
 
 // Sección "Redes sociales" de /admin (Bloque 8E). Vive DENTRO del shell ya autorizado por
 // GET /api/admin/me: el frontend no decide quién es ADMIN. Las dos llamadas que hace son
@@ -168,6 +169,7 @@ interface SectionProps {
 export default function SocialConnectionsSection({
   navigate = (url) => window.location.assign(url),
 }: SectionProps) {
+  const reportFailure = usePrivilegedFailureReporter();
   const [load, setLoad] = useState<LoadState>({ kind: "loading" });
   const [pending, setPending] = useState<SocialProvider | null>(null);
   const [actionError, setActionError] = useState<{
@@ -216,11 +218,13 @@ export default function SocialConnectionsSection({
     }
 
     if (response.status === 401) {
+      reportFailure(response);
       setLoad({ kind: "error", message: MSG_SESSION });
       return;
     }
     if (response.status === 403) {
-      // Sin AAL2 o sin rol: NO es "no conectado", es falta de autorización.
+      // Sin rol o sin MFA reciente: NO es "no conectado", es falta de autorización.
+      reportFailure(response);
       setLoad({ kind: "error", message: MSG_FORBIDDEN });
       return;
     }
@@ -235,7 +239,7 @@ export default function SocialConnectionsSection({
     setLoad(
       connections ? { kind: "ready", connections } : { kind: "error", message: MSG_LOAD },
     );
-  }, []);
+  }, [reportFailure]);
 
   // Al montar (incluye volver a /admin tras el OAuth) y al restaurar la página desde el
   // historial del navegador (bfcache): un único fetch, sin polling.
@@ -272,6 +276,7 @@ export default function SocialConnectionsSection({
       });
 
       if (response.status !== 200) {
+        reportFailure(response);
         if (isMountedRef.current) {
           setActionError({ provider, message: connectMessage(response.status) });
         }

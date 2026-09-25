@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import { Link, Navigate, useNavigate } from "react-router-dom";
+import { Link, Navigate, useNavigate, useSearchParams } from "react-router-dom";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/lib/auth-context";
 import AdminAuthCard from "@/components/admin/AdminAuthCard";
 import AdminAuthField from "@/components/admin/AdminAuthField";
+import { parseSafeReturnTo } from "@/lib/safe-return-to";
 
 // /login (Bloque 6C). Login público con email + contraseña sobre el MISMO cliente de
 // Supabase y el MISMO AuthProvider global (un solo listener): solo establece
@@ -13,6 +14,11 @@ import AdminAuthField from "@/components/admin/AdminAuthField";
 //
 // Errores: nunca se muestra error.message del proveedor. Solo dos mensajes genéricos, y
 // ninguno distingue si el email existe (sin enumeración de cuentas).
+//
+// returnTo (Fase 9G-3): tras autenticarse se navega al `returnTo` SOLO si parseSafeReturnTo lo
+// acepta (destino interno de la allowlist); cualquier otro valor —externo, protocol-relative,
+// malformado, ausente— cae en "/". Se navega con React Router, nunca con window.location, y el
+// destino no concede nada: cada superficie privilegiada decide por su cuenta (rol + MFA reciente).
 const INVALID_CREDENTIALS_MESSAGE = "Email o contraseña incorrectos.";
 const GENERIC_ERROR_MESSAGE = "No se pudo iniciar sesión. Inténtalo de nuevo.";
 
@@ -26,6 +32,10 @@ function loginErrorMessage(error: unknown): string {
 export default function LoginPage() {
   const { session, loading: sessionLoading } = useAuth();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const rawReturnTo = searchParams.get("returnTo");
+  const destination =
+    rawReturnTo === null ? "/" : (parseSafeReturnTo(rawReturnTo)?.path ?? "/");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -66,7 +76,7 @@ export default function LoginPage() {
         return;
       }
       // La sesión llega al Header y al resto vía onAuthStateChange (AuthProvider).
-      navigate("/", { replace: true });
+      navigate(destination, { replace: true });
     } catch (err) {
       if (isMountedRef.current) setError(loginErrorMessage(err));
     } finally {
@@ -88,7 +98,7 @@ export default function LoginPage() {
   }
 
   if (session) {
-    return <Navigate to="/" replace />;
+    return <Navigate to={destination} replace />;
   }
 
   return (

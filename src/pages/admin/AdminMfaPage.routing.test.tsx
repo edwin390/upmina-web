@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, render, screen } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
+import { QueryClientProvider } from "@tanstack/react-query";
+import { testQueryClient } from "@/test/query-client";
 
 // Fija que /admin/mfa se sirve dentro del mismo AdminAuthLayout (AuthProvider real, no
 // mockeado) que /admin/login y /admin/signup, exactamente como en App.tsx. A diferencia
@@ -48,17 +50,20 @@ afterEach(() => {
 
 describe("/admin/mfa dentro del área AuthProvider (routing real)", () => {
   it("se sirve bajo AdminAuthLayout y, sin sesión, no ejecuta ninguna operación MFA", async () => {
+    testQueryClient.clear();
     render(
-      <MemoryRouter initialEntries={["/admin/mfa"]}>
-        <AuthProvider>
-          <Routes>
-            <Route element={<AdminAuthLayout />}>
-              <Route path="/admin/mfa" element={<AdminMfaPage />} />
-              <Route path="/admin/login" element={<p>Login stub</p>} />
-            </Route>
-          </Routes>
-        </AuthProvider>
-      </MemoryRouter>,
+      <QueryClientProvider client={testQueryClient}>
+        <MemoryRouter initialEntries={["/admin/mfa"]}>
+          <AuthProvider>
+            <Routes>
+              <Route element={<AdminAuthLayout />}>
+                <Route path="/admin/mfa" element={<AdminMfaPage />} />
+                <Route path="/admin/login" element={<p>Login stub</p>} />
+              </Route>
+            </Routes>
+          </AuthProvider>
+        </MemoryRouter>
+      </QueryClientProvider>,
     );
 
     expect(

@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
+import { QueryClientProvider } from "@tanstack/react-query";
+import { testQueryClient } from "@/test/query-client";
 import App from "./App";
 
 // /admin/* usa Supabase (VITE_SUPABASE_URL/VITE_SUPABASE_ANON_KEY) solo si está
@@ -18,9 +20,11 @@ describe("rutas legales", () => {
     ["/privacy", "Privacy Policy"],
   ])("%s muestra su página, la fecha y el contacto", (path, title) => {
     render(
-      <MemoryRouter initialEntries={[path]}>
-        <App />
-      </MemoryRouter>,
+      <QueryClientProvider client={testQueryClient}>
+        <MemoryRouter initialEntries={[path]}>
+          <App />
+        </MemoryRouter>
+      </QueryClientProvider>,
     );
 
     expect(screen.getByRole("heading", { level: 1, name: title })).toBeInTheDocument();
@@ -34,9 +38,11 @@ describe("rutas legales", () => {
 
   it("el footer enlaza a Terms y Privacy, que no están en el menú principal", () => {
     render(
-      <MemoryRouter initialEntries={["/terms"]}>
-        <App />
-      </MemoryRouter>,
+      <QueryClientProvider client={testQueryClient}>
+        <MemoryRouter initialEntries={["/terms"]}>
+          <App />
+        </MemoryRouter>
+      </QueryClientProvider>,
     );
 
     const legalNav = screen.getByRole("navigation", { name: "Legal" });
@@ -54,9 +60,11 @@ describe("/admin (Bloque 5C)", () => {
 
   it("sigue lazy-loaded: se muestra el fallback de Suspense antes del contenido de /admin", async () => {
     render(
-      <MemoryRouter initialEntries={["/admin"]}>
-        <App />
-      </MemoryRouter>,
+      <QueryClientProvider client={testQueryClient}>
+        <MemoryRouter initialEntries={["/admin"]}>
+          <App />
+        </MemoryRouter>
+      </QueryClientProvider>,
     );
 
     // Recién montado, el chunk de /admin (AdminDashboardPage + AdminAuthLayout) todavía
@@ -74,9 +82,11 @@ describe("/admin (Bloque 5C)", () => {
     ["/admin/signup", "Crear cuenta"],
   ])("%s sigue funcionando junto a la nueva ruta /admin", async (path, headingName) => {
     render(
-      <MemoryRouter initialEntries={[path]}>
-        <App />
-      </MemoryRouter>,
+      <QueryClientProvider client={testQueryClient}>
+        <MemoryRouter initialEntries={[path]}>
+          <App />
+        </MemoryRouter>
+      </QueryClientProvider>,
     );
 
     expect(await screen.findByRole("heading", { name: headingName })).toBeInTheDocument();
@@ -84,9 +94,11 @@ describe("/admin (Bloque 5C)", () => {
 
   it("/admin/mfa y /admin/activate siguen funcionando junto a la nueva ruta /admin", async () => {
     render(
-      <MemoryRouter initialEntries={["/admin/mfa"]}>
-        <App />
-      </MemoryRouter>,
+      <QueryClientProvider client={testQueryClient}>
+        <MemoryRouter initialEntries={["/admin/mfa"]}>
+          <App />
+        </MemoryRouter>
+      </QueryClientProvider>,
     );
     expect(
       await screen.findByRole("heading", { name: "Verificación en dos pasos" }),
@@ -94,9 +106,11 @@ describe("/admin (Bloque 5C)", () => {
     cleanup();
 
     render(
-      <MemoryRouter initialEntries={["/admin/activate"]}>
-        <App />
-      </MemoryRouter>,
+      <QueryClientProvider client={testQueryClient}>
+        <MemoryRouter initialEntries={["/admin/activate"]}>
+          <App />
+        </MemoryRouter>
+      </QueryClientProvider>,
     );
     expect(
       await screen.findByRole("heading", { name: "Activar acceso" }),

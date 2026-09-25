@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, render, screen } from "@testing-library/react";
-import { MemoryRouter, Route, Routes } from "react-router-dom";
+import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
+import { QueryClientProvider } from "@tanstack/react-query";
+import { testQueryClient } from "@/test/query-client";
 
 // Fija que /admin se sirve dentro del mismo AdminAuthLayout (AuthProvider real, no
 // mockeado) que /admin/login, /admin/signup, /admin/mfa y /admin/activate, exactamente
@@ -31,6 +33,11 @@ import { AuthProvider } from "@/lib/auth-context";
 import AdminAuthLayout from "./AdminAuthLayout";
 import AdminDashboardPage from "./AdminDashboardPage";
 
+function LocationProbe() {
+  const location = useLocation();
+  return <p data-testid="login-location">{location.pathname + location.search}</p>;
+}
+
 afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
@@ -41,22 +48,25 @@ describe("/admin dentro del área AuthProvider (routing real)", () => {
   it("se sirve bajo AdminAuthLayout y, sin sesión, no llama a /api/admin/me", async () => {
     vi.stubGlobal("fetch", vi.fn());
 
+    testQueryClient.clear();
     render(
-      <MemoryRouter initialEntries={["/admin"]}>
-        <AuthProvider>
-          <Routes>
-            <Route element={<AdminAuthLayout />}>
-              <Route path="/admin" element={<AdminDashboardPage />} />
-              <Route path="/admin/login" element={<p>Login stub</p>} />
-            </Route>
-          </Routes>
-        </AuthProvider>
-      </MemoryRouter>,
+      <QueryClientProvider client={testQueryClient}>
+        <MemoryRouter initialEntries={["/admin"]}>
+          <AuthProvider>
+            <Routes>
+              <Route element={<AdminAuthLayout />}>
+                <Route path="/admin" element={<AdminDashboardPage />} />
+              </Route>
+              <Route path="/login" element={<LocationProbe />} />
+            </Routes>
+          </AuthProvider>
+        </MemoryRouter>
+      </QueryClientProvider>,
     );
 
-    expect(
-      await screen.findByRole("link", { name: /iniciar sesión/i }),
-    ).toBeInTheDocument();
+    // Sin sesión: /admin redirige a /login con returnTo=/admin (destino de la allowlist).
+    const probe = await screen.findByTestId("login-location");
+    expect(probe).toHaveTextContent("/login?returnTo=/admin");
     expect(fetch).not.toHaveBeenCalled();
   });
 });

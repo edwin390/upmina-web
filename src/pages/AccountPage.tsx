@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from "react";
-import { Navigate } from "react-router-dom";
+import { Link, Navigate } from "react-router-dom";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/lib/auth-context";
 import AdminAuthCard from "@/components/admin/AdminAuthCard";
 import ProfileSection from "@/components/account/ProfileSection";
+import PrivilegedOnly from "@/components/auth/PrivilegedOnly";
 
 // /account (Bloque 6E). Punto de entrada privado mínimo: solo requiere una sesión
 // autenticada normal, la misma que expone el AuthProvider global (un solo listener). No
@@ -13,6 +14,12 @@ import ProfileSection from "@/components/account/ProfileSection";
 // Solo se muestra el email de la sesión ya existente. Nunca user_id, tokens, claims ni
 // metadata. Debajo, ProfileSection (Bloque 7C.2) gestiona el perfil público: lectura de
 // public.profiles y onboarding de username; queda visualmente separado de la sesión.
+//
+// Panel de administración (Fase 9G-3): el enlace a /admin solo se PRESENTA a un ADMIN según lo
+// que informa GET /api/admin/access (PrivilegedOnly). No exige MFA para mostrarse: el step-up
+// ocurre al cruzar la frontera (/admin). Ocultarlo no es seguridad —/admin y sus endpoints
+// validan en el servidor— y para USER, MODERATOR o DEVELOPER no se muestra nada relacionado
+// (ni placeholders ni botones deshabilitados). Mientras el acceso carga o falla, no se muestra.
 //
 // Logout: supabase.auth.signOut() del cliente existente. Si sale bien, el AuthProvider
 // refleja la desaparición de la sesión y esta misma página redirige a /login (no hay
@@ -93,6 +100,15 @@ export default function AccountPage() {
       {/* key por cuenta: un cambio A → B desmonta por completo la instancia de A (borradores,
           modo edición, errores, locks) y crea una limpia para B. */}
       <ProfileSection key={session.user.id} />
+
+      <PrivilegedOnly role="admin">
+        <Link
+          to="/admin"
+          className="mt-6 inline-flex min-h-11 items-center rounded-md border border-accent-primary/60 px-5 py-2.5 text-sm font-semibold text-accent-primary transition-colors duration-200 ease-smooth hover:bg-accent-primary/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-secondary"
+        >
+          Panel de administración
+        </Link>
+      </PrivilegedOnly>
 
       {error ? (
         <p role="alert" className="mt-4 text-sm text-accent-live">

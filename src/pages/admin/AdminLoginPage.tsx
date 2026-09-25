@@ -1,15 +1,22 @@
 import { useState, type FormEvent } from "react";
-import { Link } from "react-router-dom";
+import { Link, Navigate, useSearchParams } from "react-router-dom";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/lib/auth-context";
 import AdminAuthCard from "@/components/admin/AdminAuthCard";
 import AdminAuthField from "@/components/admin/AdminAuthField";
+import { parseSafeReturnTo } from "@/lib/safe-return-to";
 
 // /admin/login (Bloque 3A). Solo establece IDENTIDAD/SESIÓN frontend vía Supabase Auth
 // (signInWithPassword): autenticado !== autorizado. No consulta admin_roles, no decide
 // ADMIN/MODERATOR desde el cliente, no usa el email como rol. La autorización real vive
 // exclusivamente en el backend (ver src/lib/admin-auth.ts), fuera del alcance de este
 // bloque.
+//
+// Fase 9G-3: con sesión iniciada y un `returnTo` que parseSafeReturnTo acepta (destino interno de
+// la allowlist) se navega ahí con React Router; un returnTo inválido se ignora. Sin returnTo se
+// conserva la pantalla anterior, pero su enlace ya NO lleva directamente a MFA: apunta a /admin,
+// que decide con el servidor (rol actual primero, MFA reciente después). Así un usuario sin rol
+// nunca es enviado a un paso de verificación que no le sirve.
 //
 // Errores del proveedor: nunca se muestra error.message de Supabase tal cual (podría
 // filtrar detalles internos innecesarios). Se traduce a un mensaje genérico entendible
@@ -29,6 +36,10 @@ function loginErrorMessage(error: unknown): string {
 
 export default function AdminLoginPage() {
   const { session, loading: sessionLoading, signOut } = useAuth();
+  const [searchParams] = useSearchParams();
+  const rawReturnTo = searchParams.get("returnTo");
+  const returnTo =
+    rawReturnTo === null ? null : (parseSafeReturnTo(rawReturnTo)?.path ?? null);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -74,6 +85,10 @@ export default function AdminLoginPage() {
     );
   }
 
+  if (session && returnTo) {
+    return <Navigate to={returnTo} replace />;
+  }
+
   if (session) {
     return (
       <AdminAuthCard title="Acceso admin">
@@ -83,10 +98,10 @@ export default function AdminLoginPage() {
         </p>
         <div className="mt-6 flex flex-wrap gap-3">
           <Link
-            to="/admin/mfa"
+            to="/admin"
             className="inline-flex min-h-11 items-center rounded-md border border-accent-primary/60 bg-accent-primary px-5 py-2.5 text-sm font-bold uppercase tracking-[0.18em] text-text-inverse shadow-glow-primary transition duration-200 ease-bounce hover:-translate-y-1 hover:bg-accent-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-secondary focus-visible:ring-offset-2 focus-visible:ring-offset-bg-surface"
           >
-            Continuar a verificación en dos pasos
+            Ir al panel de administración
           </Link>
           <button
             type="button"

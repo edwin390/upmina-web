@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
+import { QueryClientProvider } from "@tanstack/react-query";
+import { testQueryClient } from "@/test/query-client";
 
 // AuthProvider global (Bloque 6A): una sola fuente de sesión y un solo listener de
 // Supabase Auth para TODA la app (rutas públicas y /admin/*), sin requests a
@@ -82,9 +84,11 @@ import App from "./App";
 
 function renderAt(path: string) {
   return render(
-    <MemoryRouter initialEntries={[path]}>
-      <App />
-    </MemoryRouter>,
+    <QueryClientProvider client={testQueryClient}>
+      <MemoryRouter initialEntries={[path]}>
+        <App />
+      </MemoryRouter>
+    </QueryClientProvider>,
   );
 }
 
@@ -93,6 +97,7 @@ function adminMeCalls() {
 }
 
 beforeEach(() => {
+  testQueryClient.clear();
   window.scrollTo = vi.fn();
   authFakes.session = null;
   authFakes.getSessionCalls = 0;
@@ -136,11 +141,19 @@ describe("AuthProvider global (Bloque 6A)", () => {
 
   it("público → /admin reutiliza la misma sesión global: sin listeners duplicados y /admin sigue lazy", async () => {
     authFakes.session = { access_token: "at-sintetico", user: { id: "u1" } };
-    (fetch as Mock).mockResolvedValue({
+    // GET /api/admin/access (presentación) y GET /api/admin/me (guard estricto), con MFA reciente.
+    (fetch as Mock).mockImplementation(async (url: unknown) => ({
       ok: true,
       status: 200,
-      json: async () => ({ role: "admin" }),
-    });
+      json: async () =>
+        String(url) === "/api/admin/access"
+          ? {
+              role: "admin",
+              capabilities: ["moderation", "technical", "social_admin", "team_admin"],
+              mfa: { recent: true },
+            }
+          : { role: "admin" },
+    }));
     renderAt("/terms");
     await waitFor(() =>
       expect(screen.getByTestId("probe")).toHaveTextContent("con-sesion"),
@@ -166,10 +179,9 @@ describe("AuthProvider global (Bloque 6A)", () => {
 
     fireEvent.click(screen.getByRole("link", { name: "Ir a admin" }));
 
-    // El CTA del dashboard apunta a /admin/login (el del Header, a /login).
-    await waitFor(() =>
-      expect(document.querySelector('main a[href="/admin/login"]')).not.toBeNull(),
-    );
+    // Sin sesión, /admin redirige a /login (con returnTo=/admin): aparece el formulario público.
+    expect(await screen.findByLabelText("Email")).toBeInTheDocument();
+    expect(screen.queryByText("Sesión administrativa verificada.")).toBeNull();
     expect(authFakes.onAuthStateChangeCalls).toBe(1);
     expect(adminMeCalls()).toHaveLength(0);
   });

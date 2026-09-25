@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useId, useRef, useState, type FormEvent } from "react";
 import { supabase } from "@/lib/supabase";
+import { usePrivilegedFailureReporter } from "@/hooks/privileged-failure";
 import { buildActivationUrl } from "@/lib/admin-invitation-link";
 
 // Sección "Invitaciones del equipo" de /admin (Bloque 9E). Solo PRESENTACIÓN: el dashboard la
@@ -168,6 +169,7 @@ interface CreatedLink {
 }
 
 export default function TeamInvitationsSection() {
+  const reportFailure = usePrivilegedFailureReporter();
   const headingId = useId();
   const roleId = useId();
   const linkId = useId();
@@ -225,43 +227,49 @@ export default function TeamInvitationsSection() {
     }
   }, [confirmingId]);
 
-  const loadList = useCallback(async (showLoading: boolean) => {
-    const request = ++listRequestRef.current;
-    const isCurrent = () => isMountedRef.current && listRequestRef.current === request;
-    if (showLoading) setList({ kind: "loading" });
+  const loadList = useCallback(
+    async (showLoading: boolean) => {
+      const request = ++listRequestRef.current;
+      const isCurrent = () => isMountedRef.current && listRequestRef.current === request;
+      if (showLoading) setList({ kind: "loading" });
 
-    const token = await getAccessToken();
-    if (!isCurrent()) return;
-    if (!token) {
-      setList({ kind: "error", message: MSG_SESSION });
-      return;
-    }
+      const token = await getAccessToken();
+      if (!isCurrent()) return;
+      if (!token) {
+        setList({ kind: "error", message: MSG_SESSION });
+        return;
+      }
 
-    let response: Response;
-    try {
-      response = await fetch(LIST_ENDPOINT, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-    } catch {
-      if (isCurrent()) setList({ kind: "error", message: MSG_LOAD });
-      return;
-    }
-    if (!isCurrent()) return;
-    if (!response || typeof response.status !== "number") {
-      setList({ kind: "error", message: MSG_LOAD });
-      return;
-    }
-    if (!response.ok) {
-      setList({ kind: "error", message: actionMessage(response.status, MSG_LOAD) });
-      return;
-    }
-    const body: unknown = await response.json().catch(() => null);
-    if (!isCurrent()) return;
-    const invitations = parseInvitations(body);
-    setList(
-      invitations ? { kind: "ready", invitations } : { kind: "error", message: MSG_LOAD },
-    );
-  }, []);
+      let response: Response;
+      try {
+        response = await fetch(LIST_ENDPOINT, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+      } catch {
+        if (isCurrent()) setList({ kind: "error", message: MSG_LOAD });
+        return;
+      }
+      if (!isCurrent()) return;
+      if (!response || typeof response.status !== "number") {
+        setList({ kind: "error", message: MSG_LOAD });
+        return;
+      }
+      if (!response.ok) {
+        reportFailure(response);
+        setList({ kind: "error", message: actionMessage(response.status, MSG_LOAD) });
+        return;
+      }
+      const body: unknown = await response.json().catch(() => null);
+      if (!isCurrent()) return;
+      const invitations = parseInvitations(body);
+      setList(
+        invitations
+          ? { kind: "ready", invitations }
+          : { kind: "error", message: MSG_LOAD },
+      );
+    },
+    [reportFailure],
+  );
 
   useEffect(() => {
     void loadList(true);
@@ -300,6 +308,7 @@ export default function TeamInvitationsSection() {
         body: JSON.stringify({ role }),
       });
       if (response.status !== 201) {
+        reportFailure(response);
         if (isMountedRef.current) {
           setCreateError(actionMessage(response.status, MSG_CREATE));
         }
@@ -377,6 +386,7 @@ export default function TeamInvitationsSection() {
         void loadList(false);
         return;
       }
+      reportFailure(response);
       setRevokeError({ id, message: actionMessage(response.status, MSG_REVOKE) });
     } catch {
       if (isMountedRef.current) setRevokeError({ id, message: MSG_REVOKE });

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useId, useRef, useState } from "react";
+import { usePrivilegedFailureReporter } from "@/hooks/privileged-failure";
 import { supabase } from "@/lib/supabase";
 
 // Sección "Miembros del equipo" de /admin (Bloque 9F). Solo PRESENTACIÓN: el dashboard la monta
@@ -182,6 +183,7 @@ type Confirmation =
 export default function TeamMembersSection() {
   const headingId = useId();
   const baseId = useId();
+  const reportFailure = usePrivilegedFailureReporter();
 
   const [list, setList] = useState<ListState>({ kind: "loading" });
   const [selectedRoles, setSelectedRoles] = useState<Record<string, MemberRole>>({});
@@ -217,41 +219,47 @@ export default function TeamMembersSection() {
     }
   }, [confirming]);
 
-  const loadList = useCallback(async (showLoading: boolean) => {
-    const request = ++listRequestRef.current;
-    const isCurrent = () => isMountedRef.current && listRequestRef.current === request;
-    if (showLoading) setList({ kind: "loading" });
+  const loadList = useCallback(
+    async (showLoading: boolean) => {
+      const request = ++listRequestRef.current;
+      const isCurrent = () => isMountedRef.current && listRequestRef.current === request;
+      if (showLoading) setList({ kind: "loading" });
 
-    const token = await getAccessToken();
-    if (!isCurrent()) return;
-    if (!token) {
-      setList({ kind: "error", message: MSG_SESSION });
-      return;
-    }
+      const token = await getAccessToken();
+      if (!isCurrent()) return;
+      if (!token) {
+        setList({ kind: "error", message: MSG_SESSION });
+        return;
+      }
 
-    let response: Response;
-    try {
-      response = await fetch(LIST_ENDPOINT, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-    } catch {
-      if (isCurrent()) setList({ kind: "error", message: MSG_LOAD });
-      return;
-    }
-    if (!isCurrent()) return;
-    if (!response || typeof response.status !== "number") {
-      setList({ kind: "error", message: MSG_LOAD });
-      return;
-    }
-    if (!response.ok) {
-      setList({ kind: "error", message: actionMessage(response.status, MSG_LOAD) });
-      return;
-    }
-    const body: unknown = await response.json().catch(() => null);
-    if (!isCurrent()) return;
-    const members = parseMembers(body);
-    setList(members ? { kind: "ready", members } : { kind: "error", message: MSG_LOAD });
-  }, []);
+      let response: Response;
+      try {
+        response = await fetch(LIST_ENDPOINT, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+      } catch {
+        if (isCurrent()) setList({ kind: "error", message: MSG_LOAD });
+        return;
+      }
+      if (!isCurrent()) return;
+      if (!response || typeof response.status !== "number") {
+        setList({ kind: "error", message: MSG_LOAD });
+        return;
+      }
+      if (!response.ok) {
+        reportFailure(response);
+        setList({ kind: "error", message: actionMessage(response.status, MSG_LOAD) });
+        return;
+      }
+      const body: unknown = await response.json().catch(() => null);
+      if (!isCurrent()) return;
+      const members = parseMembers(body);
+      setList(
+        members ? { kind: "ready", members } : { kind: "error", message: MSG_LOAD },
+      );
+    },
+    [reportFailure],
+  );
 
   useEffect(() => {
     void loadList(true);
@@ -310,6 +318,7 @@ export default function TeamMembersSection() {
         void loadList(false);
         return;
       }
+      reportFailure(response);
       setRowError({ id: action.id, message: actionMessage(response.status, generic) });
     } catch {
       if (isMountedRef.current) setRowError({ id: action.id, message: generic });

@@ -58,12 +58,15 @@ function resetFakes() {
   supabaseFakes.signInCalls = [];
 }
 
-function renderLogin() {
+function renderLogin(entry = "/admin/login") {
   return render(
-    <MemoryRouter initialEntries={["/admin/login"]}>
+    <MemoryRouter initialEntries={[entry]}>
       <Routes>
         <Route path="/admin/login" element={<AdminLoginPage />} />
         <Route path="/admin/signup" element={<AdminSignupPage />} />
+        <Route path="/admin" element={<p>Admin stub</p>} />
+        <Route path="/account" element={<p>Account stub</p>} />
+        <Route path="/admin/mfa" element={<p>MFA stub</p>} />
       </Routes>
     </MemoryRouter>,
   );
@@ -195,5 +198,54 @@ describe("AdminLoginPage", () => {
     fireEvent.click(screen.getByRole("link", { name: /crear cuenta/i }));
 
     expect(screen.getByRole("heading", { name: "Crear cuenta" })).toBeInTheDocument();
+  });
+});
+
+// Fase 9G-3: returnTo seguro y sin enlace directo a MFA.
+describe("AdminLoginPage — returnTo seguro y autorización antes que MFA", () => {
+  it("con sesión y returnTo=/admin → navega a /admin con React Router", () => {
+    authFakes.session = { user: { email: "admin@example.com" } };
+    renderLogin("/admin/login?returnTo=/admin");
+
+    expect(screen.getByText("Admin stub")).toBeInTheDocument();
+  });
+
+  it("con sesión y returnTo=/account → navega a /account", () => {
+    authFakes.session = { user: { email: "admin@example.com" } };
+    renderLogin("/admin/login?returnTo=/account");
+
+    expect(screen.getByText("Account stub")).toBeInTheDocument();
+  });
+
+  it.each([
+    ["externo", "https://evil.example"],
+    ["protocol-relative", "//evil.example"],
+    ["javascript:", "javascript:alert(1)"],
+    ["backslash", "/\\evil.example"],
+    ["malformado", "/admin%zz"],
+    ["ruta desconocida", "/desconocida"],
+    ["/admin/mfa (no es un destino de retorno)", "/admin/mfa"],
+  ])(
+    "con sesión y returnTo %s → se ignora y se conserva la pantalla de sesión",
+    (_n, raw) => {
+      authFakes.session = { user: { email: "admin@example.com" } };
+      const before = window.location.href;
+      renderLogin(`/admin/login?returnTo=${encodeURIComponent(raw)}`);
+
+      expect(screen.getByRole("button", { name: /cerrar sesión/i })).toBeInTheDocument();
+      expect(screen.queryByText("Admin stub")).toBeNull();
+      expect(window.location.href).toBe(before);
+    },
+  );
+
+  it("con sesión y sin returnTo: el enlace lleva a /admin (que decide con el servidor), NUNCA directo a MFA", () => {
+    authFakes.session = { user: { email: "admin@example.com" } };
+    renderLogin();
+
+    expect(
+      screen.getByRole("link", { name: /panel de administración/i }),
+    ).toHaveAttribute("href", "/admin");
+    expect(screen.queryByRole("link", { name: /verificación en dos pasos/i })).toBeNull();
+    expect(document.querySelector('a[href="/admin/mfa"]')).toBeNull();
   });
 });
