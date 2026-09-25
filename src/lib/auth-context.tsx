@@ -7,6 +7,10 @@ import {
   type ReactNode,
 } from "react";
 import type { Session, User } from "@supabase/supabase-js";
+import {
+  clearPendingInvitation,
+  discardPendingInvitationIfUserChanged,
+} from "./pending-invitation";
 
 // Fuente única y centralizada de "¿hay una sesión de Supabase Auth activa en este
 // navegador?" para el área /admin (Bloque 3A). Deliberadamente NO decide autorización:
@@ -74,8 +78,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         // para los cambios posteriores (login, logout, refresh de token).
         const {
           data: { subscription },
-        } = supabase.auth.onAuthStateChange((_event, nextSession) => {
+        } = supabase.auth.onAuthStateChange((event, nextSession) => {
           if (!isMounted) return;
+          // Token de invitación pendiente (9G-4), solo en memoria: logout lo destruye; un cambio
+          // de usuario destruye el asociado a la cuenta anterior. Un token todavía SIN asociar
+          // (capturado antes de autenticarse) sobrevive al login normal: `null` solo descarta los
+          // ya asociados y un usuario nuevo solo descarta los asociados a OTRO usuario.
+          if (event === "SIGNED_OUT") {
+            clearPendingInvitation();
+          } else {
+            discardPendingInvitationIfUserChanged(nextSession?.user?.id ?? null);
+          }
           setSession(nextSession);
           setLoading(false);
         });

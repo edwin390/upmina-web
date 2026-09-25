@@ -1,7 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, render, screen } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
+import { QueryClientProvider } from "@tanstack/react-query";
 import { AuthProvider } from "@/lib/auth-context";
+import { testQueryClient } from "@/test/query-client";
+import { hasPendingInvitation, clearPendingInvitation } from "@/lib/pending-invitation";
 import AdminAuthLayout from "./AdminAuthLayout";
 import AdminActivatePage from "./AdminActivatePage";
 
@@ -49,6 +52,8 @@ vi.stubGlobal(
 
 afterEach(() => {
   cleanup();
+  clearPendingInvitation();
+  testQueryClient.clear();
   vi.restoreAllMocks();
   window.history.replaceState(null, "", "/");
 });
@@ -62,21 +67,23 @@ describe("/admin/activate dentro del área AuthProvider (routing real)", () => {
     );
 
     render(
-      <MemoryRouter initialEntries={["/admin/activate"]}>
-        <AuthProvider>
-          <Routes>
-            <Route element={<AdminAuthLayout />}>
-              <Route path="/admin/activate" element={<AdminActivatePage />} />
-              <Route path="/admin/login" element={<p>Login stub</p>} />
-            </Route>
-          </Routes>
-        </AuthProvider>
-      </MemoryRouter>,
+      <QueryClientProvider client={testQueryClient}>
+        <MemoryRouter initialEntries={["/admin/activate"]}>
+          <AuthProvider>
+            <Routes>
+              <Route element={<AdminAuthLayout />}>
+                <Route path="/admin/activate" element={<AdminActivatePage />} />
+              </Route>
+              <Route path="/login" element={<p>Login stub</p>} />
+            </Routes>
+          </AuthProvider>
+        </MemoryRouter>
+      </QueryClientProvider>,
     );
 
-    expect(
-      await screen.findByRole("link", { name: /iniciar sesión/i }),
-    ).toBeInTheDocument();
+    // Sin sesión → login normal; el AuthProvider real NO borra el token todavía sin asociar.
+    expect(await screen.findByText("Login stub")).toBeInTheDocument();
+    expect(hasPendingInvitation()).toBe(true);
     expect(supabaseFakes.calls.getAAL).toBe(0);
     expect(supabaseFakes.calls.fetch).toBe(0);
     expect(window.location.hash).toBe("");

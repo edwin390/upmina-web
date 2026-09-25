@@ -1,52 +1,80 @@
 import { useEffect, useRef, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, Navigate, useLocation, useNavigate } from "react-router-dom";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/lib/auth-context";
+import { useAdminAccess } from "@/hooks/useAdminAccess";
+import { classifyPrivilegedFailure } from "@/lib/privileged-response";
+import { resolveActivationDestination } from "@/lib/activation-destination";
+import {
+  bindPendingInvitationToUser,
+  capturePendingInvitation,
+  clearPendingInvitation,
+  hasPendingInvitation,
+  readPendingInvitation,
+} from "@/lib/pending-invitation";
 import AdminAuthCard from "@/components/admin/AdminAuthCard";
 
-// /admin/activate (Bloque 3C). Consume una invitación admin (ver
-// src/lib/admin-handlers.ts / POST /api/admin/activate) desde un enlace privado de la
-// forma /admin/activate#token=<secreto>. El AAL observado aquí es solo UX: la única
-// autoridad real es el backend, que vuelve a verificar el JWT y aal2 de forma
-// independiente. No se consulta admin_roles desde el cliente, no se decodifica el JWT
-// manualmente y no se deriva ningún rol/AAL de datos controlados por el navegador.
+// /admin/activate (Bloque 3C, flujo completo en la Fase 9G-4). Consume una invitación desde un
+// enlace privado /admin/activate#token=<secreto>. Recorrido:
+//
+//   enlace con #token → captura en MEMORIA (pending-invitation) y limpia el fragmento
+//   sin sesión        → /login?returnTo=/admin/activate (el token NO viaja: sigue en memoria)
+//   con sesión        → el token se asocia (bind) al user.id autenticado; NO se consume
+//   sin MFA reciente  → /admin/mfa?returnTo=/admin/activate (según /access, nunca según aal2)
+//   con MFA reciente  → botón EXPLÍCITO "Activar acceso"; volver de login/MFA NO activa solo
+//   POST /activate    → el backend vuelve a verificar MFA reciente, la invitación y concede el rol
+//   éxito             → se borra el token y se va al destino según el rol concedido
+//
+// El frontend solo transporta temporalmente el secreto y presenta estados: token, expiración,
+// revocación, uso, rol y MFA los decide el backend. Un refresco completo pierde el token
+// (memoria de módulo, a propósito): se pide volver a abrir el enlace original; nunca se guarda
+// en storage, URL, history state ni returnTo.
+//
+// Retención del token según la respuesta (contrato actual de POST /api/admin/activate):
+//   2xx                   → se borra (el backend ya lo consumió)
+//   400                   → se borra (rechazo de invitación: el backend no distingue el motivo)
+//   403 step_up_required  → se conserva: MFA y volver, pulsando "Activar acceso" otra vez
+//   401 / 5xx / red / otro → se conserva: reintento manual sin reabrir el enlace
+// El token se LEE (no se consume) antes del POST para poder reintentar.
 
-// El token viaja por fragmento (#), nunca por query string, para que no llegue a logs de
-// servidor ni al header Referer. Se lee y se limpia inmediatamente con
-// history.replaceState.
-function readAndClearHashToken(): string | null {
-  if (typeof window === "undefined") return null;
+const ACTIVATE_PATH = "/admin/activate";
+const LOGIN_PATH = `/login?returnTo=${ACTIVATE_PATH}`;
+const MFA_PATH = `/admin/mfa?returnTo=${ACTIVATE_PATH}`;
+const ACTIVATION_ENDPOINT = "/api/admin/activate";
+
+type TokenCapture = "none" | "captured" | "invalid";
+
+// El token viaja por fragmento (#), nunca por query string, para que no llegue a logs de servidor
+// ni al header Referer. Se lee, se guarda en memoria y se limpia el fragmento de inmediato.
+function captureTokenFromHash(): TokenCapture {
+  if (typeof window === "undefined") return "none";
 
   const rawHash = window.location.hash;
+  if (!rawHash) return "none";
+
   const token =
     rawHash.length > 1 ? new URLSearchParams(rawHash.slice(1)).get("token") : null;
 
-  if (rawHash) {
-    // Deja la URL visible sin el fragmento (p. ej. /admin/activate), sin crear una
-    // entrada nueva en el historial ni disparar una navegación.
-    window.history.replaceState(
-      null,
-      "",
-      window.location.pathname + window.location.search,
-    );
-  }
+  // Deja la URL visible sin el fragmento, sin crear una entrada nueva en el historial y
+  // conservando el state que React Router guarda en window.history.
+  window.history.replaceState(
+    window.history.state,
+    "",
+    window.location.pathname + window.location.search,
+  );
 
-  return token;
+  if (capturePendingInvitation(token)) return "captured";
+  // Un enlace inválido es el ÚLTIMO enlace abierto: no se sigue usando un token anterior.
+  clearPendingInvitation();
+  return "invalid";
 }
 
-const ACTIVATION_ENDPOINT = "/api/admin/activate";
-
-type RoleLabel = "admin" | "moderator";
-
-type ActivateStep =
-  | { kind: "checking" }
-  | { kind: "invalid-link" }
-  | { kind: "no-session" }
-  | { kind: "checking-aal" }
-  | { kind: "need-mfa" }
-  | { kind: "aal-error" }
-  | { kind: "ready" }
-  | { kind: "activated"; role: RoleLabel };
+/** Estado del router al volver del step-up (ver AdminMfaPage). Solo UX anti-bucle. */
+function returnedFromMfa(state: unknown): boolean {
+  return Boolean(
+    state && typeof state === "object" && (state as { fromMfa?: unknown }).fromMfa,
+  );
+}
 
 interface ActivationError {
   message: string;
@@ -61,247 +89,291 @@ const NETWORK_ERROR: ActivationError = {
   message: "No se pudo conectar. Comprueba tu conexión e inténtalo de nuevo.",
 };
 
-/** Mapea el status HTTP de /api/admin/activate a un mensaje seguro. Nunca se propaga el
- *  body real de la respuesta (podría contener detalles internos inesperados). */
-function activationErrorFromStatus(status: number): ActivationError {
-  switch (status) {
-    case 400:
-      return { message: "La invitación no es válida, expiró o ya fue utilizada." };
-    case 401:
-      return { message: "Tu sesión expiró o no es válida.", action: "login" };
-    case 403:
-      return {
-        message:
-          "Debes completar la verificación en dos pasos antes de activar el acceso.",
-        action: "mfa",
-      };
-    case 405:
-      return { message: "No se pudo procesar la solicitud. Inténtalo más tarde." };
-    default:
-      return { message: "Ocurrió un error interno. Inténtalo más tarde." };
-  }
-}
-
-const ROLE_LABELS: Record<RoleLabel, string> = {
-  admin: "Administrador",
-  moderator: "Moderador",
+const TRANSIENT_ERROR: ActivationError = {
+  message: "Ocurrió un error interno. Inténtalo de nuevo más tarde.",
 };
 
+const SESSION_ERROR: ActivationError = {
+  message: "Tu sesión expiró o no es válida.",
+  action: "login",
+};
+
+const MFA_ERROR: ActivationError = {
+  message: "Debes completar la verificación en dos pasos antes de activar el acceso.",
+  action: "mfa",
+};
+
+type FinalStep = { kind: "activated" } | { kind: "rejected" } | { kind: "unavailable" };
+
+const BUTTON_SECONDARY =
+  "inline-flex min-h-11 items-center rounded-md border border-border-subtle px-5 py-2.5 text-sm font-semibold text-text-secondary transition-colors duration-200 ease-smooth hover:border-accent-primary/60 hover:text-text-primary";
+
 export default function AdminActivatePage() {
-  const { session, loading: sessionLoading } = useAuth();
-  const hasSession = Boolean(session);
+  const { user, loading: sessionLoading, signOut } = useAuth();
+  const navigate = useNavigate();
+  const location = useLocation();
+  const userId = user?.id ?? null;
 
-  // Ciclo de vida: UNA captura por MONTAJE de este componente, no una por evaluación de
-  // módulo. Un import dinámico (React.lazy) solo evalúa el módulo la primera vez que se
-  // visita la ruta; si la captura viviera a nivel de módulo, navegar fuera de
-  // /admin/activate y volver a entrar más tarde con un token distinto (sin recargar la
-  // página) reutilizaría silenciosamente el primer token capturado, o ignoraría uno
-  // nuevo. Atando la captura al ciclo de vida del COMPONENTE en cambio, cada entrada real
-  // a la ruta (cada montaje) vuelve a leer el hash tal como está en ESE momento.
-  //
-  // La captura ocurre en el cuerpo del render (no en un useEffect ni en el inicializador
-  // de useState) y se protege con un ref para que ocurra como mucho una vez por montaje:
-  //   - Bajo React StrictMode (dev), React invoca el cuerpo del componente dos veces
-  //     seguidas por cada render, usando el MISMO fiber/hooks antes de confirmar — un
-  //     ref escrito en la primera invocación ya está poblado en la segunda, así que la
-  //     guarda (`current === undefined`) evita una segunda lectura del hash (que ya
-  //     estaría vacío tras la primera limpieza). React también duplica el ciclo
-  //     setup→cleanup→setup de los EFECTOS en StrictMode, pero eso no toca useRef/
-  //     useState: el valor ya capturado sobrevive intacto a esa simulación.
-  //   - Un desmontaje real (navegar a otra ruta) destruye el fiber y, con él, este ref.
-  //     Si el usuario vuelve a entrar a /admin/activate más tarde (con un token distinto
-  //     en el hash), React crea una instancia nueva del componente con un ref nuevo
-  //     (`current === undefined` otra vez), así que esa entrada captura el token que
-  //     esté presente en ESE momento — nunca el de una visita anterior.
-  const capturedTokenRef = useRef<string | null | undefined>(undefined);
-  if (capturedTokenRef.current === undefined) {
-    capturedTokenRef.current = readAndClearHashToken();
+  // UNA captura por MONTAJE (ref), en el cuerpo del render: bajo StrictMode el cuerpo se ejecuta
+  // dos veces y el ref evita una segunda lectura del hash (que ya estaría vacío). Un montaje
+  // nuevo con otro token en el hash captura ese token; sin hash (volver de login/MFA) no toca la
+  // memoria.
+  const captureRef = useRef<TokenCapture | undefined>(undefined);
+  if (captureRef.current === undefined) {
+    captureRef.current = captureTokenFromHash();
   }
-  const activationToken = capturedTokenRef.current;
 
-  const [step, setStep] = useState<ActivateStep>({ kind: "checking" });
+  // Sin token (enlace perdido/inválido) no hay nada que comprobar: no se consulta /access.
+  const { status, access, refetch, invalidate } = useAdminAccess({
+    fresh: true,
+    enabled: captureRef.current !== "invalid" && hasPendingInvitation(),
+  });
+
+  const [finalStep, setFinalStep] = useState<FinalStep | null>(null);
+  const [bindState, setBindState] = useState<{ userId: string; ok: boolean } | null>(
+    null,
+  );
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [activationError, setActivationError] = useState<ActivationError | null>(null);
+  const submittingRef = useRef(false);
+  const mfaReturnGuardRef = useRef(returnedFromMfa(location.state));
 
-  // Única fuente de verdad de "qué pantalla mostrar": el AAL se consulta mediante la API
-  // oficial de Supabase (nunca se infiere de datos guardados localmente) y solo importa
-  // para UX. Se reevalúa cuando cambia la sesión, no en cada render.
+  // Asocia el token (aún sin usuario) a la cuenta autenticada. Un token ya asociado a OTRA cuenta
+  // se destruye y falla cerrado. No consume nada.
   useEffect(() => {
-    let cancelled = false;
-
-    async function resolveStep() {
-      if (sessionLoading) {
-        setStep({ kind: "checking" });
-        return;
-      }
-      if (!activationToken) {
-        setStep({ kind: "invalid-link" });
-        return;
-      }
-      if (!hasSession) {
-        setStep({ kind: "no-session" });
-        return;
-      }
-      if (!supabase) {
-        setStep({ kind: "aal-error" });
-        return;
-      }
-
-      setStep({ kind: "checking-aal" });
-      const { data, error } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
-      if (cancelled) return;
-      if (error) {
-        setStep({ kind: "aal-error" });
-        return;
-      }
-      setStep(data.currentLevel === "aal2" ? { kind: "ready" } : { kind: "need-mfa" });
+    if (!userId) {
+      setBindState(null);
+      return;
     }
+    setBindState({ userId, ok: bindPendingInvitationToUser(userId) });
+  }, [userId]);
 
-    void resolveStep();
-    return () => {
-      cancelled = true;
-    };
-  }, [sessionLoading, hasSession, activationToken]);
+  const mfaRecent = status === "ready" && access?.mfaRecent === true;
+  useEffect(() => {
+    // El servidor ya reconoce el MFA reciente: la guarda anti-bucle cumplió su función.
+    if (mfaRecent) mfaReturnGuardRef.current = false;
+  }, [mfaRecent]);
 
   async function activate() {
-    if (!supabase || !activationToken) return;
+    // Guarda síncrona contra doble clic: `disabled` solo se aplica en el siguiente render.
+    if (submittingRef.current || !supabase || !userId) return;
+    submittingRef.current = true;
     setActivationError(null);
     setIsSubmitting(true);
     try {
+      // Se LEE sin consumir: si la petición no puede completarse, el token sigue disponible.
+      const token = readPendingInvitation(userId);
+      if (!token) {
+        setFinalStep({ kind: "unavailable" });
+        return;
+      }
+
       const { data: sessionData } = await supabase.auth.getSession();
       const accessToken = sessionData.session?.access_token;
-      if (!accessToken) {
-        setActivationError({
-          message: "Tu sesión expiró o no es válida.",
-          action: "login",
-        });
+      // La sesión pudo cambiar entre el render y el clic: el token asociado a esta cuenta NUNCA se
+      // envía con el Bearer de otra. Falla cerrado antes del POST y sin borrar nada.
+      if (!accessToken || sessionData.session?.user?.id !== userId) {
+        setActivationError(SESSION_ERROR);
         return;
       }
 
       let response: Response;
       try {
-        // Body EXCLUSIVAMENTE { token }: nunca se envía userId, role, email, aal ni
-        // ningún otro dato — el backend es la única autoridad para todo eso.
+        // Body EXCLUSIVAMENTE { token }: nunca userId, role, email ni aal.
         response = await fetch(ACTIVATION_ENDPOINT, {
           method: "POST",
           headers: {
             Authorization: `Bearer ${accessToken}`,
             "Content-Type": "application/json",
           },
-          body: JSON.stringify({ token: activationToken }),
+          body: JSON.stringify({ token }),
         });
       } catch {
         setActivationError(NETWORK_ERROR);
         return;
       }
 
-      if (!response.ok) {
-        setActivationError(activationErrorFromStatus(response.status));
+      if (response.ok) {
+        // El backend ya consumió la invitación: el token no se conserva.
+        clearPendingInvitation();
+        const body: unknown = await response.json().catch(() => null);
+        const role =
+          body && typeof body === "object"
+            ? (body as { role?: unknown }).role
+            : undefined;
+        setFinalStep({ kind: "activated" });
+        // Nada se inyecta en la caché de acceso: se revalida con el servidor y /admin (o la
+        // cuenta) decide con el rol real.
+        await invalidate();
+        navigate(resolveActivationDestination(role), { replace: true });
         return;
       }
 
-      const body: unknown = await response.json().catch(() => null);
-      const role =
-        body && typeof body === "object" ? (body as { role?: unknown }).role : undefined;
-      if (role !== "admin" && role !== "moderator") {
-        setActivationError(activationErrorFromStatus(500));
+      if (response.status === 400) {
+        // Rechazo de invitación (inexistente, usada, expirada, revocada…): terminal.
+        clearPendingInvitation();
+        setFinalStep({ kind: "rejected" });
         return;
       }
 
-      setStep({ kind: "activated", role });
+      if (response.status === 401) {
+        setActivationError(SESSION_ERROR);
+        return;
+      }
+
+      if (response.status === 403) {
+        const failure = await classifyPrivilegedFailure(response);
+        if (failure === "step_up_required") {
+          // MFA vencido entre medias: se conserva el token y se revalida el acceso; el servidor
+          // decide y, si corresponde, se vuelve a MFA. Nada se reintenta solo.
+          setActivationError(MFA_ERROR);
+          await invalidate();
+          return;
+        }
+        setActivationError(TRANSIENT_ERROR);
+        return;
+      }
+
+      setActivationError(TRANSIENT_ERROR);
     } catch {
       setActivationError(UNEXPECTED_ERROR);
     } finally {
+      submittingRef.current = false;
       setIsSubmitting(false);
     }
   }
 
-  if (step.kind === "checking" || step.kind === "checking-aal") {
+  if (finalStep?.kind === "activated") {
     return (
-      <AdminAuthCard title="Activar acceso">
+      <AdminAuthCard title="Acceso activado">
         <p className="text-sm text-text-secondary" role="status">
-          {step.kind === "checking"
-            ? "Comprobando tu sesión…"
-            : "Comprobando tu estado de verificación…"}
+          Tu acceso fue activado correctamente.
         </p>
       </AdminAuthCard>
     );
   }
 
-  if (step.kind === "invalid-link") {
+  if (finalStep?.kind === "rejected") {
     return (
       <AdminAuthCard title="Activar acceso">
         <p role="alert" className="text-sm text-accent-live">
-          Este enlace de activación no es válido o está incompleto.
+          La invitación no es válida, expiró o ya fue utilizada.
+        </p>
+        <p className="mt-4 text-sm text-text-secondary">
+          <Link to="/account" className="font-medium text-accent-primary hover:underline">
+            Ir a mi cuenta
+          </Link>
         </p>
       </AdminAuthCard>
     );
   }
 
-  if (step.kind === "aal-error") {
+  const linkUnavailable =
+    finalStep?.kind === "unavailable" ||
+    captureRef.current === "invalid" ||
+    !hasPendingInvitation() ||
+    bindState?.ok === false;
+
+  if (linkUnavailable) {
+    return (
+      <AdminAuthCard title="Activar acceso">
+        <p role="alert" className="text-sm text-accent-live">
+          Este enlace de invitación ya no está disponible en esta sesión. Vuelve a abrir
+          el enlace original.
+        </p>
+      </AdminAuthCard>
+    );
+  }
+
+  if (sessionLoading) {
+    return (
+      <AdminAuthCard title="Activar acceso">
+        <p className="text-sm text-text-secondary" role="status">
+          Comprobando tu sesión…
+        </p>
+      </AdminAuthCard>
+    );
+  }
+
+  if (!userId) {
+    // Sin sesión: se autentica con el login normal. El token NO viaja: sigue en memoria.
+    return <Navigate to={LOGIN_PATH} replace />;
+  }
+
+  if (bindState?.userId !== userId || status === "loading") {
+    return (
+      <AdminAuthCard title="Activar acceso">
+        <p className="text-sm text-text-secondary" role="status">
+          Comprobando tu estado de verificación…
+        </p>
+      </AdminAuthCard>
+    );
+  }
+
+  if (status === "unauthenticated" || status === "no-session") {
+    return (
+      <AdminAuthCard title="Activar acceso">
+        <p role="alert" className="text-sm text-accent-live">
+          Tu sesión ya no es válida. Cierra sesión e inicia sesión de nuevo.
+        </p>
+        <button
+          type="button"
+          onClick={() => void signOut()}
+          className={`mt-6 ${BUTTON_SECONDARY}`}
+        >
+          Cerrar sesión
+        </button>
+      </AdminAuthCard>
+    );
+  }
+
+  if (status === "error" || !access) {
     return (
       <AdminAuthCard title="Activar acceso">
         <p role="alert" className="text-sm text-accent-live">
           No se pudo comprobar tu estado de verificación en dos pasos.
         </p>
+        <button
+          type="button"
+          onClick={() => void refetch()}
+          className={`mt-6 ${BUTTON_SECONDARY}`}
+        >
+          Reintentar
+        </button>
       </AdminAuthCard>
     );
   }
 
-  if (step.kind === "no-session") {
-    return (
-      <AdminAuthCard
-        title="Activar acceso"
-        footer={
-          <Link
-            to="/admin/login"
-            className="font-medium text-accent-primary hover:underline"
-          >
-            Iniciar sesión
-          </Link>
-        }
-      >
-        <p className="text-sm text-text-secondary">
-          Inicia sesión para activar tu invitación. Si abandonas esta página deberás
-          volver a abrir el enlace de activación.
-        </p>
-      </AdminAuthCard>
-    );
+  if (!access.mfaRecent) {
+    if (mfaReturnGuardRef.current) {
+      // Volvió de un MFA y el servidor todavía no lo reconoce: no se redirige otra vez.
+      return (
+        <AdminAuthCard title="Activar acceso">
+          <p role="alert" className="text-sm text-accent-live">
+            No pudimos confirmar tu verificación en dos pasos reciente.
+          </p>
+          <div className="mt-6 flex flex-wrap gap-3">
+            <button
+              type="button"
+              onClick={() => void refetch()}
+              className={BUTTON_SECONDARY}
+            >
+              Reintentar
+            </button>
+            <Link
+              to={MFA_PATH}
+              className="inline-flex min-h-11 items-center rounded-md border border-accent-primary/60 px-5 py-2.5 text-sm font-semibold text-accent-primary hover:underline"
+            >
+              Verificar de nuevo
+            </Link>
+          </div>
+        </AdminAuthCard>
+      );
+    }
+    return <Navigate to={MFA_PATH} replace />;
   }
 
-  if (step.kind === "need-mfa") {
-    return (
-      <AdminAuthCard
-        title="Activar acceso"
-        footer={
-          <Link
-            to="/admin/mfa"
-            className="font-medium text-accent-primary hover:underline"
-          >
-            Ir a verificación en dos pasos
-          </Link>
-        }
-      >
-        <p className="text-sm text-text-secondary">
-          Debes completar la verificación en dos pasos antes de activar tu invitación. Si
-          abandonas esta página deberás volver a abrir el enlace de activación.
-        </p>
-      </AdminAuthCard>
-    );
-  }
-
-  if (step.kind === "activated") {
-    return (
-      <AdminAuthCard title="Acceso activado">
-        <p className="text-sm text-text-secondary" role="status">
-          Tu acceso fue activado correctamente con el rol{" "}
-          <span className="font-medium text-text-primary">{ROLE_LABELS[step.role]}</span>.
-        </p>
-      </AdminAuthCard>
-    );
-  }
-
-  // step.kind === "ready"
+  // Sesión + token asociado + MFA reciente: la activación exige un clic explícito.
   return (
     <AdminAuthCard title="Activar acceso">
       <p className="text-sm text-text-secondary">
@@ -312,12 +384,12 @@ export default function AdminActivatePage() {
         <p role="alert" className="mt-4 text-sm text-accent-live">
           {activationError.message}{" "}
           {activationError.action === "login" ? (
-            <Link to="/admin/login" className="font-medium underline">
+            <Link to={LOGIN_PATH} className="font-medium underline">
               Iniciar sesión
             </Link>
           ) : null}
           {activationError.action === "mfa" ? (
-            <Link to="/admin/mfa" className="font-medium underline">
+            <Link to={MFA_PATH} className="font-medium underline">
               Ir a verificación en dos pasos
             </Link>
           ) : null}

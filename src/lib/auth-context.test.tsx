@@ -24,7 +24,8 @@ const authFakes = vi.hoisted(() => ({
   onAuthStateChangeCalls: 0,
   unsubscribeCalls: 0,
   signOutCalls: 0,
-  emitAuthChange: undefined as ((session: Session | null) => void) | undefined,
+  emitAuthChange: undefined as
+    ((session: Session | null, event?: string) => void) | undefined,
 }));
 
 function resetAuthFakes() {
@@ -45,7 +46,8 @@ vi.mock("./supabase", () => ({
       },
       onAuthStateChange(callback: (event: string, session: Session | null) => void) {
         authFakes.onAuthStateChangeCalls++;
-        authFakes.emitAuthChange = (session) => callback("SIGNED_IN", session);
+        authFakes.emitAuthChange = (session, event = "SIGNED_IN") =>
+          callback(event, session);
         return {
           data: {
             subscription: {
@@ -64,6 +66,13 @@ vi.mock("./supabase", () => ({
 }));
 
 import { AuthProvider, useAuth } from "./auth-context";
+import {
+  bindPendingInvitationToUser,
+  capturePendingInvitation,
+  clearPendingInvitation,
+  hasPendingInvitation,
+  readPendingInvitation,
+} from "./pending-invitation";
 
 function Probe() {
   const { session, user, loading, signOut } = useAuth();
@@ -79,6 +88,7 @@ function Probe() {
 
 beforeEach(() => {
   resetAuthFakes();
+  clearPendingInvitation();
 });
 
 afterEach(() => {
@@ -198,6 +208,109 @@ describe("AuthProvider / useAuth", () => {
     screen.getByText("Salir").click();
     await act(async () => {});
 
+    expect(authFakes.signOutCalls).toBe(1);
+  });
+});
+
+// Ciclo de vida del token de invitación pendiente (9G-4), solo memoria: el logout lo destruye, un
+// cambio de usuario destruye el asociado a la cuenta anterior y el login normal NO borra un token
+// todavía sin asociar (es el que hace falta para autenticarse y volver a /admin/activate).
+describe("AuthProvider — limpieza del token de invitación pendiente", () => {
+  const TOKEN = "SyntheticInvitationTokenNotReal_0123456789ab";
+
+  function userSession(id: string): Session {
+    const base = fakeSession(`${id}@example.com`);
+    return { ...base, user: { ...base.user, id } } as Session;
+  }
+
+  async function mountProvider() {
+    render(
+      <AuthProvider>
+        <Probe />
+      </AuthProvider>,
+    );
+    await act(async () => {});
+  }
+
+  it("SIGNED_OUT destruye el token, también el asociado a una cuenta", async () => {
+    await mountProvider();
+    capturePendingInvitation(TOKEN);
+    bindPendingInvitationToUser("A");
+
+    await act(async () => authFakes.emitAuthChange?.(null, "SIGNED_OUT"));
+
+    expect(hasPendingInvitation()).toBe(false);
+  });
+
+  it("SIGNED_OUT destruye también un token todavía sin asociar", async () => {
+    await mountProvider();
+    capturePendingInvitation(TOKEN);
+
+    await act(async () => authFakes.emitAuthChange?.(null, "SIGNED_OUT"));
+
+    expect(hasPendingInvitation()).toBe(false);
+  });
+
+  it("el login normal (SIGNED_IN) NO borra un token sin asociar", async () => {
+    await mountProvider();
+    capturePendingInvitation(TOKEN);
+
+    await act(async () => authFakes.emitAuthChange?.(userSession("A"), "SIGNED_IN"));
+
+    expect(hasPendingInvitation()).toBe(true);
+    expect(bindPendingInvitationToUser("A")).toBe(true);
+    expect(readPendingInvitation("A")).toBe(TOKEN);
+  });
+
+  it("el estado inicial sin sesión (INITIAL_SESSION null) tampoco borra un token sin asociar", async () => {
+    await mountProvider();
+    capturePendingInvitation(TOKEN);
+
+    await act(async () => authFakes.emitAuthChange?.(null, "INITIAL_SESSION"));
+
+    expect(hasPendingInvitation()).toBe(true);
+  });
+
+  it("cambio de usuario A → B: el token asociado a A no sobrevive para B", async () => {
+    await mountProvider();
+    capturePendingInvitation(TOKEN);
+    bindPendingInvitationToUser("A");
+
+    await act(async () => authFakes.emitAuthChange?.(userSession("B"), "SIGNED_IN"));
+
+    expect(hasPendingInvitation()).toBe(false);
+    expect(bindPendingInvitationToUser("B")).toBe(false);
+    expect(readPendingInvitation("B")).toBeNull();
+  });
+
+  it("refresh de token del MISMO usuario conserva el token asociado", async () => {
+    await mountProvider();
+    capturePendingInvitation(TOKEN);
+    bindPendingInvitationToUser("A");
+
+    await act(async () =>
+      authFakes.emitAuthChange?.(userSession("A"), "TOKEN_REFRESHED"),
+    );
+
+    expect(readPendingInvitation("A")).toBe(TOKEN);
+  });
+
+  it("un token asociado no se conserva si la sesión desaparece sin SIGNED_OUT (null)", async () => {
+    await mountProvider();
+    capturePendingInvitation(TOKEN);
+    bindPendingInvitationToUser("A");
+
+    await act(async () => authFakes.emitAuthChange?.(null, "INITIAL_SESSION"));
+
+    expect(hasPendingInvitation()).toBe(false);
+  });
+
+  it("signOut() no cambia su alcance: sigue llamando a supabase.auth.signOut() sin argumentos", async () => {
+    await mountProvider();
+    await act(async () => {
+      screen.getByRole("button", { name: "Salir" }).click();
+    });
+    await act(async () => {});
     expect(authFakes.signOutCalls).toBe(1);
   });
 });

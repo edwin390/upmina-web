@@ -140,6 +140,11 @@ vi.mock("@/lib/supabase", () => ({
 }));
 
 import AdminMfaPage from "./AdminMfaPage";
+import {
+  capturePendingInvitation,
+  clearPendingInvitation,
+  readPendingInvitation,
+} from "@/lib/pending-invitation";
 
 function resetFakes() {
   authFakes.session = null;
@@ -350,6 +355,73 @@ describe("AdminMfaPage — MFA reciente según el servidor", () => {
       expect(init?.method ?? "GET").toBe("GET");
       expect(init?.body).toBeUndefined();
     }
+  });
+});
+
+describe("AdminMfaPage — invitado sin rol (9G-4)", () => {
+  const INVITE_TOKEN = "SyntheticInvitationTokenNotReal_0123456789ab";
+
+  function renderForInvitee(entry: string) {
+    return render(
+      <QueryClientProvider client={testQueryClient}>
+        <MemoryRouter initialEntries={[entry]}>
+          <Routes>
+            <Route path="/admin/mfa" element={<AdminMfaPage />} />
+            <Route path="/admin/activate" element={<LocationProbe id="activate" />} />
+            <Route path="/account" element={<LocationProbe id="account" />} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+  }
+
+  afterEach(() => clearPendingInvitation());
+
+  it("USER sin rol + invitación pendiente: completa MFA y vuelve a /admin/activate; el token sigue en memoria y no viaja en la URL", async () => {
+    authenticated();
+    accessFakes.role = null;
+    accessFakes.recent = false;
+    capturePendingInvitation(INVITE_TOKEN);
+    mfaFakes.factorsResult = { data: { all: [], totp: [totpFactor()] }, error: null };
+    mfaFakes.challengeResult = { data: { id: "challenge-1" }, error: null };
+    mfaFakes.verifyResult = { data: { access_token: "at-nuevo" }, error: null };
+    renderForInvitee("/admin/mfa?returnTo=/admin/activate");
+
+    const input = await screen.findByLabelText("Código de verificación");
+    fireEvent.change(input, { target: { value: "123456" } });
+    fireEvent.click(screen.getByRole("button", { name: /^verificar$/i }));
+
+    const probe = await screen.findByTestId("activate");
+    expect(probe).toHaveTextContent("/admin/activate [fromMfa]");
+    expect(probe.textContent).not.toContain(INVITE_TOKEN);
+    expect(window.location.href).not.toContain(INVITE_TOKEN);
+    expect(readPendingInvitation(null)).toBe(INVITE_TOKEN);
+  });
+
+  it("recent=true no repite el MFA: vuelve directamente a /admin/activate", async () => {
+    authenticated();
+    accessFakes.role = null;
+    accessFakes.recent = true;
+    capturePendingInvitation(INVITE_TOKEN);
+    renderForInvitee("/admin/mfa?returnTo=/admin/activate");
+
+    expect(await screen.findByTestId("activate")).toHaveTextContent(
+      "/admin/activate [fromMfa]",
+    );
+    expect(mfaFakes.calls.listFactors).toBe(0);
+    expect(mfaFakes.calls.challenge).toHaveLength(0);
+  });
+
+  it("la existencia de una invitación pendiente no concede nada: sin MFA reciente sigue pidiendo el código", async () => {
+    authenticated();
+    accessFakes.role = null;
+    accessFakes.recent = false;
+    capturePendingInvitation(INVITE_TOKEN);
+    mfaFakes.factorsResult = { data: { all: [], totp: [totpFactor()] }, error: null };
+    renderForInvitee("/admin/mfa?returnTo=/admin/activate");
+
+    expect(await screen.findByLabelText("Código de verificación")).toBeInTheDocument();
+    expect(screen.queryByTestId("activate")).toBeNull();
   });
 });
 

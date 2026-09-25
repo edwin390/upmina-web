@@ -44,6 +44,8 @@ export interface UseAdminAccessResult {
 interface Options {
   /** Recomprueba en cada montaje (Dashboard/MFA: decisiones de acceso), no solo si está obsoleto. */
   fresh?: boolean;
+  /** false = no consultar (p. ej. una página que ya sabe que no tiene nada que hacer). */
+  enabled?: boolean;
 }
 
 export function useAdminAccess(options: Options = {}): UseAdminAccessResult {
@@ -63,7 +65,7 @@ export function useAdminAccess(options: Options = {}): UseAdminAccessResult {
   const query = useQuery<AdminAccess, AdminAccessError>({
     queryKey: adminAccessQueryKey(userId),
     queryFn: ({ signal }) => fetchAdminAccess(signal, userId),
-    enabled: !loading && hasSession,
+    enabled: !loading && hasSession && options.enabled !== false,
     staleTime: STALE_MS,
     gcTime: GC_MS,
     retry: false,

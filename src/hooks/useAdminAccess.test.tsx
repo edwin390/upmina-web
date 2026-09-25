@@ -325,3 +325,25 @@ describe("useAdminAccess — revisión final: respuesta tardía de otro usuario"
     expect(fetch).not.toHaveBeenCalled();
   });
 });
+
+describe("useAdminAccess — opción enabled", () => {
+  it("enabled:false con sesión → no consulta y no expone acceso", async () => {
+    authFakes.session = session("u1");
+    const { result } = renderHook(() => useAdminAccess({ enabled: false }), { wrapper });
+
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 30));
+    });
+    expect(fetch).not.toHaveBeenCalled();
+    expect(result.current.access).toBeNull();
+    expect(result.current.status).not.toBe("ready");
+  });
+
+  it("enabled por defecto (true) consulta como siempre", async () => {
+    authFakes.session = session("u1");
+    const { result } = renderHook(() => useAdminAccess({ fresh: true }), { wrapper });
+
+    await waitFor(() => expect(result.current.status).toBe("ready"));
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+});
