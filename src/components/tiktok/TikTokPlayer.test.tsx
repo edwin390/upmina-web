@@ -1,3 +1,4 @@
+import { StrictMode } from "react";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   act,
@@ -13,6 +14,7 @@ import type { TikTokVideo } from "@/types";
 import TikTokSection from "./TikTokSection";
 import { PLAYER_LOAD_TIMEOUT_MS } from "./TikTokPlayer";
 import { tikTokPlayerUrl, tikTokVideoId } from "./tiktokUrl";
+import { TIKTOK_PLAYER_ORIGIN } from "./tiktokPlayerMessages";
 
 // Fijan la reproducción dentro del visor: iframe oficial de TikTok (Embed Player) con el id
 // del vídeo, un único reproductor a la vez, desmontaje al cerrar/cambiar, respaldo con la
@@ -464,5 +466,232 @@ describe("TikTok: un solo gesto reproduce", () => {
     await openViewer("Título 9");
 
     expect(playerIframes()).toHaveLength(0);
+  });
+});
+
+// ---------- Sonido con la API oficial de mensajes (9H-3, seguimiento) ----------
+
+describe("TikTok: sonido solicitado con el Embed Player API oficial", () => {
+  const ready = { type: "onPlayerReady", "x-tiktok-player": true };
+
+  function spyOn(frame: HTMLIFrameElement) {
+    return vi
+      .spyOn(frame.contentWindow as Window, "postMessage")
+      .mockImplementation(() => {});
+  }
+  const sentTypes = (spy: ReturnType<typeof spyOn>) =>
+    spy.mock.calls.map((c) => (c[0] as { type: string }).type);
+
+  /** Emite un mensaje como si viniera de `source` desde `origin`. */
+  function emit(
+    data: unknown,
+    source: Window | null,
+    origin: string = TIKTOK_PLAYER_ORIGIN,
+  ) {
+    act(() => {
+      window.dispatchEvent(new MessageEvent("message", { data, origin, source }));
+    });
+  }
+
+  it("INICIAL: sin iframe no hay ningún reproductor al que enviar comandos", async () => {
+    stubApi();
+    renderSection();
+    await screen.findAllByRole("button", { name: /Abrir TikTok/ });
+    expect(playerIframes()).toHaveLength(0);
+  });
+
+  it("onPlayerReady del iframe ACTUAL → unMute y play, con forma documentada y origen de TikTok (no comodín)", async () => {
+    stubApi();
+    renderSection();
+    await openViewer("Título 1");
+    const frame = playerIframes()[0];
+    const spy = spyOn(frame);
+    expect(new URL(frame.src).searchParams.get("autoplay")).toBe("1");
+    expect(frame.getAttribute("allow")).toContain("autoplay");
+    expect(spy).not.toHaveBeenCalled();
+
+    emit(ready, frame.contentWindow);
+
+    expect(sentTypes(spy)).toEqual(["unMute", "play"]);
+    for (const call of spy.mock.calls) {
+      expect((call[0] as Record<string, unknown>)["x-tiktok-player"]).toBe(true);
+      expect(call[1]).toBe("https://www.tiktok.com");
+      expect(call[1]).not.toBe("*");
+    }
+  });
+
+  it("solo se solicita el sonido UNA vez aunque onPlayerReady se repita", async () => {
+    stubApi();
+    renderSection();
+    await openViewer("Título 1");
+    const frame = playerIframes()[0];
+    const spy = spyOn(frame);
+
+    emit(ready, frame.contentWindow);
+    emit(ready, frame.contentWindow);
+
+    expect(sentTypes(spy)).toEqual(["unMute", "play"]);
+  });
+
+  it("mensaje de un origen ajeno: ignorado", async () => {
+    stubApi();
+    renderSection();
+    await openViewer("Título 1");
+    const frame = playerIframes()[0];
+    const spy = spyOn(frame);
+
+    emit(ready, frame.contentWindow, "https://evil.test");
+    emit(ready, frame.contentWindow, "https://www.tiktok.com.evil.test");
+    emit(ready, frame.contentWindow, "http://www.tiktok.com");
+
+    expect(spy).not.toHaveBeenCalled();
+  });
+
+  it("mensaje de otra ventana (no el iframe actual) o sin source: ignorado", async () => {
+    stubApi();
+    renderSection();
+    await openViewer("Título 1");
+    const frame = playerIframes()[0];
+    const spy = spyOn(frame);
+
+    emit(ready, window);
+    emit(ready, null);
+
+    expect(spy).not.toHaveBeenCalled();
+  });
+
+  it("mensajes sin marca, con tipo desconocido o de forma inválida: ignorados", async () => {
+    stubApi();
+    renderSection();
+    await openViewer("Título 1");
+    const frame = playerIframes()[0];
+    const spy = spyOn(frame);
+
+    emit({ type: "onPlayerReady" }, frame.contentWindow);
+    emit({ type: "onPlayerReady", "x-tiktok-player": "true" }, frame.contentWindow);
+    emit({ type: "algoDesconocido", "x-tiktok-player": true }, frame.contentWindow);
+    emit("onPlayerReady", frame.contentWindow);
+    emit(null, frame.contentWindow);
+
+    expect(spy).not.toHaveBeenCalled();
+  });
+
+  it("cerrar: el listener se retira y no hay comandos posteriores", async () => {
+    stubApi();
+    renderSection();
+    await openViewer("Título 1");
+    const frame = playerIframes()[0];
+    const spy = spyOn(frame);
+    const removeSpy = vi.spyOn(window, "removeEventListener");
+
+    fireEvent.click(screen.getByRole("button", { name: "Cerrar" }));
+    expect(removeSpy.mock.calls.some((c) => c[0] === "message")).toBe(true);
+    emit(ready, frame.contentWindow);
+
+    expect(spy).not.toHaveBeenCalled();
+  });
+
+  it("cambiar A → B: el mensaje del reproductor viejo se ignora y B recibe sus comandos", async () => {
+    stubApi();
+    renderSection();
+    await openViewer("Título 1");
+    const a = playerIframes()[0];
+    const spyA = spyOn(a);
+    const windowA = a.contentWindow;
+
+    key("ArrowDown");
+    const b = playerIframes()[0];
+    expect(b).not.toBe(a);
+    const spyB = spyOn(b);
+
+    emit(ready, windowA); // A ya no existe
+    expect(spyA).not.toHaveBeenCalled();
+    expect(spyB).not.toHaveBeenCalled();
+
+    emit(ready, b.contentWindow);
+    expect(sentTypes(spyB)).toEqual(["unMute", "play"]);
+    expect(spyA).not.toHaveBeenCalled();
+  });
+
+  it("si se rechaza el sonido (onMute=true, onStateChange): no hay reintentos ni remontaje", async () => {
+    stubApi();
+    renderSection();
+    await openViewer("Título 1");
+    const frame = playerIframes()[0];
+    const spy = spyOn(frame);
+
+    emit(ready, frame.contentWindow);
+    for (let i = 0; i < 5; i++) {
+      emit({ type: "onMute", value: true, "x-tiktok-player": true }, frame.contentWindow);
+      emit(
+        { type: "onVolumeChange", value: 0, "x-tiktok-player": true },
+        frame.contentWindow,
+      );
+      emit(
+        { type: "onStateChange", value: 1, "x-tiktok-player": true },
+        frame.contentWindow,
+      );
+    }
+
+    expect(sentTypes(spy)).toEqual(["unMute", "play"]);
+    expect(playerIframes()[0]).toBe(frame);
+    expect(playerIframes()).toHaveLength(1);
+  });
+
+  it("AUTOPLAY_ERROR: el visor no falla, no se remonta y no hay más comandos", async () => {
+    stubApi();
+    renderSection();
+    await openViewer("Título 1");
+    const frame = playerIframes()[0];
+    const spy = spyOn(frame);
+    emit(ready, frame.contentWindow);
+
+    emit(
+      {
+        type: "onPlayerError",
+        value: { errorCode: 3002, errorType: "AUTOPLAY_ERROR" },
+        "x-tiktok-player": true,
+      },
+      frame.contentWindow,
+    );
+
+    expect(playerIframes()[0]).toBe(frame);
+    expect(sentTypes(spy)).toEqual(["unMute", "play"]);
+    expect(screen.queryByRole("status")).toBeNull();
+    expect(screen.getByRole("dialog")).toBeTruthy();
+  });
+
+  it("un postMessage que lanza no rompe el reproductor", async () => {
+    stubApi();
+    renderSection();
+    await openViewer("Título 1");
+    const frame = playerIframes()[0];
+    vi.spyOn(frame.contentWindow as Window, "postMessage").mockImplementation(() => {
+      throw new Error("bloqueado");
+    });
+
+    emit(ready, frame.contentWindow);
+
+    expect(playerIframes()[0]).toBe(frame);
+  });
+
+  it("StrictMode: un único unMute/play y un listener efectivo", async () => {
+    stubApi();
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <StrictMode>
+        <QueryClientProvider client={client}>
+          <TikTokSection />
+        </QueryClientProvider>
+      </StrictMode>,
+    );
+    await openViewer("Título 1");
+    const frame = playerIframes()[0];
+    const spy = spyOn(frame);
+
+    emit(ready, frame.contentWindow);
+
+    expect(playerIframes()).toHaveLength(1);
+    expect(sentTypes(spy)).toEqual(["unMute", "play"]);
   });
 });

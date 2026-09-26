@@ -1,5 +1,6 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import TikTokCover from "./TikTokCover";
+import { readTikTokPlayerEvent, sendTikTokPlayerCommand } from "./tiktokPlayerMessages";
 import { tikTokPlayerUrl } from "./tiktokUrl";
 
 interface TikTokPlayerProps {
@@ -26,6 +27,23 @@ export const PLAYER_LOAD_TIMEOUT_MS = 10_000;
  */
 export default function TikTokPlayer({ videoId, title, coverUrl }: TikTokPlayerProps) {
   const [status, setStatus] = useState<"loading" | "ready" | "failed">("loading");
+  const frameRef = useRef<HTMLIFrameElement>(null);
+  // Abrir el visor es la intención de reproducir (solo vive en este reproductor montado): al
+  // estar listo se solicita sonido UNA vez. Si el navegador/TikTok lo rechazan, el vídeo sigue
+  // (silenciado) con los controles de TikTok: no hay reintentos ni remontajes.
+  const soundRequested = useRef(false);
+
+  useEffect(() => {
+    const onMessage = (event: MessageEvent) => {
+      const msg = readTikTokPlayerEvent(event, frameRef.current);
+      if (msg?.type !== "onPlayerReady" || soundRequested.current) return;
+      soundRequested.current = true;
+      sendTikTokPlayerCommand(frameRef.current, "unMute");
+      sendTikTokPlayerCommand(frameRef.current, "play");
+    };
+    window.addEventListener("message", onMessage);
+    return () => window.removeEventListener("message", onMessage);
+  }, []);
 
   useEffect(() => {
     if (status !== "loading") return;
@@ -40,6 +58,7 @@ export default function TikTokPlayer({ videoId, title, coverUrl }: TikTokPlayerP
 
       {status !== "failed" && (
         <iframe
+          ref={frameRef}
           src={tikTokPlayerUrl(videoId)}
           title={title ? `Reproductor de TikTok: ${title}` : "Reproductor de TikTok"}
           // Sin allow-top-navigation: el reproductor no puede sacar al usuario de la web.
