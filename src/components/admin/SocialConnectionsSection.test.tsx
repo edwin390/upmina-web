@@ -402,6 +402,51 @@ describe("conectar", () => {
       );
     });
 
+    describe.each([
+      ["Instagram", "instagram"],
+      ["TikTok", "tiktok"],
+    ] as const)("%s: 403 según el cuerpo", (name, provider) => {
+      const click = async (connect: () => unknown) => {
+        const navigate = await renderReady({ [provider]: "not_connected", connect });
+        fireEvent.click(screen.getByRole("button", { name: `Conectar ${name}` }));
+        return { navigate, alert: await screen.findByRole("alert") };
+      };
+
+      it("403 'No disponible en este entorno' → mensaje de entorno, no de MFA, sin navegar", async () => {
+        const { navigate, alert } = await click(() =>
+          httpResponse(403, { error: "No disponible en este entorno" }),
+        );
+        expect(alert).toHaveTextContent(
+          "Esta conexión solo está disponible en el entorno de producción.",
+        );
+        expect(alert.textContent).not.toContain("dos pasos");
+        expect(navigate).not.toHaveBeenCalled();
+      });
+
+      it("403 step_up_required → sigue el camino de autorización (mensaje de verificación), sin reproducir", async () => {
+        const { navigate, alert } = await click(() =>
+          httpResponse(403, { error: "No autorizado", code: "step_up_required" }),
+        );
+        expect(alert).toHaveTextContent("verificación en dos pasos");
+        expect(alert.textContent).not.toContain("entorno de producción");
+        expect(navigate).not.toHaveBeenCalled();
+        expect(connectCalls()).toHaveLength(1);
+      });
+
+      it("403 genérico (o con el texto de entorno pero code de step-up) → NO usa el mensaje de entorno", async () => {
+        for (const body of [
+          { error: "No autorizado" },
+          { error: "No disponible en este entorno", code: "step_up_required" },
+        ]) {
+          cleanup();
+          fetchMock.mockReset();
+          const { alert } = await click(() => httpResponse(403, body));
+          expect(alert).toHaveTextContent("verificación en dos pasos");
+          expect(alert.textContent).not.toContain("entorno de producción");
+        }
+      });
+    });
+
     it("fallo de red → alerta genérica sin filtrar el mensaje", async () => {
       const navigate = await renderReady({
         instagram: "not_connected",

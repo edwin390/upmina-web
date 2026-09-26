@@ -41,6 +41,9 @@ const MSG_FORBIDDEN =
   "No se pudo autorizar esta acción. Comprueba tu verificación en dos pasos e inténtalo de nuevo.";
 const MSG_LOAD = "No se pudo cargar el estado de las conexiones.";
 const MSG_CONNECT = "No pudimos iniciar la conexión. Inténtalo de nuevo.";
+const MSG_UNAVAILABLE = "Esta conexión solo está disponible en el entorno de producción.";
+// Cuerpo EXACTO con el que el servidor rechaza el inicio fuera de Production (403 tras autorizar).
+const ENV_UNAVAILABLE_ERROR = "No disponible en este entorno";
 
 const PRIMARY_BUTTON_CLASS =
   "inline-flex min-h-11 items-center justify-center rounded-md border border-accent-primary/60 bg-accent-primary px-5 py-2.5 text-sm font-bold uppercase tracking-[0.18em] text-text-inverse shadow-glow-primary transition duration-200 ease-bounce hover:-translate-y-1 hover:bg-accent-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-secondary focus-visible:ring-offset-2 focus-visible:ring-offset-bg-surface disabled:pointer-events-none disabled:opacity-50";
@@ -86,6 +89,21 @@ function connectMessage(status: number): string {
   if (status === 401) return MSG_SESSION;
   if (status === 403) return MSG_FORBIDDEN;
   return MSG_CONNECT;
+}
+
+/** ¿Es el 403 "no disponible en este entorno"? Solo ese cuerpo exacto; cualquier otro 403 (incluido
+ *  step_up_required) o un cuerpo ilegible sigue el camino de autorización. Lee una copia. */
+async function isEnvironmentUnavailable(response: Response): Promise<boolean> {
+  if (response.status !== 403) return false;
+  try {
+    const source = typeof response.clone === "function" ? response.clone() : response;
+    const body: unknown = await source.json();
+    if (!body || typeof body !== "object") return false;
+    const { error, code } = body as { error?: unknown; code?: unknown };
+    return error === ENV_UNAVAILABLE_ERROR && code === undefined;
+  } catch {
+    return false;
+  }
 }
 
 async function getAccessToken(): Promise<string | null> {
@@ -276,9 +294,14 @@ export default function SocialConnectionsSection({
       });
 
       if (response.status !== 200) {
+        // El reporte se mantiene para todo 403/401 (revalida /access); solo cambia el texto local.
         reportFailure(response);
+        const unavailable = await isEnvironmentUnavailable(response);
         if (isMountedRef.current) {
-          setActionError({ provider, message: connectMessage(response.status) });
+          setActionError({
+            provider,
+            message: unavailable ? MSG_UNAVAILABLE : connectMessage(response.status),
+          });
         }
         return;
       }

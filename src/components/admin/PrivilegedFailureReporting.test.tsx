@@ -140,3 +140,37 @@ describe("Invitaciones — acción de crear", () => {
     expect(onFailure).not.toHaveBeenCalledWith("step_up_required");
   });
 });
+
+describe("Redes sociales — 403 al iniciar la conexión", () => {
+  const status200 = () =>
+    res(200, {
+      connections: {
+        instagram: { status: "not_connected" },
+        tiktok: { status: "not_connected" },
+      },
+    });
+
+  async function clickConnect(connectResponse: () => unknown) {
+    fetchMock.mockImplementation(async (url: string) =>
+      String(url).endsWith("social-connect") ? connectResponse() : status200(),
+    );
+    withHandler(<SocialConnectionsSection navigate={() => undefined} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Conectar TikTok" }));
+    await screen.findByRole("alert");
+  }
+  const connectPosts = () =>
+    fetchMock.mock.calls.filter(([url]) => String(url).endsWith("social-connect"));
+
+  it("403 de entorno → se reporta 'forbidden' (revalida acceso), nunca step_up_required", async () => {
+    await clickConnect(() => res(403, { error: "No disponible en este entorno" }));
+    await waitFor(() => expect(onFailure).toHaveBeenCalledWith("forbidden"));
+    expect(onFailure).not.toHaveBeenCalledWith("step_up_required");
+  });
+
+  it("403 step_up_required → se reporta y NO se reproduce el inicio", async () => {
+    await clickConnect(STEP_UP);
+    await waitFor(() => expect(onFailure).toHaveBeenCalledWith("step_up_required"));
+    await new Promise((r) => setTimeout(r, 30));
+    expect(connectPosts()).toHaveLength(1);
+  });
+});
