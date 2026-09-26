@@ -1,5 +1,6 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { getBroadcasterId, TwitchApiError } from "../src/lib/twitch-shared.js";
+import { sendProviderFailure } from "../src/lib/provider-http.js";
+import { getBroadcasterId } from "../src/lib/twitch-shared.js";
 import { getRecentClips } from "../src/lib/twitch-clips.js";
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
@@ -28,9 +29,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(200).json(clips);
   } catch (err) {
     console.error("[twitch-clips]", err);
-    const status = err instanceof TwitchApiError ? err.status : 502;
-    return res
-      .status(status)
-      .json({ error: "No se pudieron obtener los clips de Twitch" });
+    return sendProviderFailure(res, err, "No se pudieron obtener los clips de Twitch");
   }
 }

@@ -44,7 +44,8 @@
 // conjunto puede variar ligeramente entre consultas (la caché de 5 min lo
 // amortigua), pero el orden devuelto siempre es por fecha descendente.
 import type { TwitchClipApiItem } from "../types/api.js";
-import { fetchTwitchHelix, TwitchApiError } from "./twitch-shared.js";
+import { readProviderJson } from "./provider-http.js";
+import { fetchTwitchHelix, twitchResponseError } from "./twitch-shared.js";
 
 export const MAX_CLIPS = 12;
 
@@ -143,10 +144,10 @@ export async function getRecentClips(
       calls++;
       pages++;
       if (!response.ok) {
-        throw new TwitchApiError("Twitch no pudo consultar los clips", 502);
+        throw twitchResponseError(response, "Twitch no pudo consultar los clips");
       }
 
-      const page = (await response.json()) as ClipsPage;
+      const page = await readProviderJson<ClipsPage>(response, "Twitch clips");
       for (const clip of page.data ?? []) {
         if (isUsableClip(clip) && isPlayableClip(clip)) clipsById.set(clip.id, clip);
       }

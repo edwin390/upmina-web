@@ -1,10 +1,11 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import type { TwitchVideoApiItem } from "../src/types/api.js";
 import { applyThumbnailSize } from "../src/lib/format.js";
+import { readProviderJson, sendProviderFailure } from "../src/lib/provider-http.js";
 import {
   fetchTwitchHelix,
   getBroadcasterId,
-  TwitchApiError,
+  twitchResponseError,
 } from "../src/lib/twitch-shared.js";
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
@@ -19,10 +20,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     );
 
     if (!response.ok) {
-      throw new TwitchApiError("Twitch no pudo consultar el último stream", 502);
+      throw twitchResponseError(response, "Twitch no pudo consultar el último stream");
     }
 
-    const { data } = (await response.json()) as { data?: TwitchVideoApiItem[] };
+    const { data } = await readProviderJson<{ data?: TwitchVideoApiItem[] }>(
+      response,
+      "Twitch videos",
+    );
     const video = data?.[0];
 
     res.setHeader("Cache-Control", "s-maxage=300, stale-while-revalidate=600");
@@ -38,9 +42,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     });
   } catch (err) {
     console.error("[twitch-latest-video]", err);
-    const status = err instanceof TwitchApiError ? err.status : 502;
-    return res
-      .status(status)
-      .json({ error: "No se pudo obtener el último stream de Twitch" });
+    return sendProviderFailure(res, err, "No se pudo obtener el último stream de Twitch");
   }
 }

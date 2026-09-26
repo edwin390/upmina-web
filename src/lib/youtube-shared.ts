@@ -7,6 +7,12 @@
 // original de `fetch`. Solo se registran la operación, el status HTTP y el
 // `reason` de Google, este último filtrado a un formato seguro.
 import { parseIsoDuration } from "./format.js";
+import {
+  ProviderApiError,
+  fetchWithTimeout,
+  providerErrorFromResponse,
+  readProviderJson,
+} from "./provider-http.js";
 import type {
   YouTubeChannelResponse,
   YouTubePlaylistResponse,
@@ -20,13 +26,13 @@ type YouTubeConfig = {
   channelId: string;
 };
 
-export class YouTubeApiError extends Error {
+export class YouTubeApiError extends ProviderApiError {
   constructor(
     message: string,
     /** Status HTTP con el que responde la función (no el de Google). */
-    readonly status: number,
+    status: number,
   ) {
-    super(message);
+    super(message, status);
     this.name = "YouTubeApiError";
   }
 }
@@ -67,9 +73,10 @@ async function getGoogleReason(response: Response): Promise<string> {
 }
 
 /**
- * GET a la YouTube Data API v3. Añade la API key, comprueba `response.ok` y,
- * si Google falla, lanza un YouTubeApiError (502) con operación, status y
- * reason de Google, sin la URL ni el mensaje original.
+ * GET a la YouTube Data API v3. Añade la API key, aplica un timeout real (fetchWithTimeout),
+ * comprueba `response.ok` y, si Google falla, lanza un ProviderRequestError clasificado
+ * (timeout 504, 429, 5xx/otros 502) con operación, status y reason de Google, sin la URL ni el
+ * mensaje original.
  */
 export async function fetchYouTube<T>(
   operation: string,
@@ -84,27 +91,18 @@ export async function fetchYouTube<T>(
   }
   url.searchParams.set("key", apiKey);
 
-  let response: Response;
-  try {
-    response = await fetch(url.toString());
-  } catch {
-    // El error original de fetch puede arrastrar la URL (con la key).
-    throw new YouTubeApiError(`YouTube ${operation}: error de red`, 502);
-  }
+  // fetchWithTimeout nunca propaga el error original de fetch (arrastra la URL con la key).
+  const response = await fetchWithTimeout(`YouTube ${operation}`, url.toString());
 
   if (!response.ok) {
     const reason = await getGoogleReason(response);
-    throw new YouTubeApiError(
+    throw providerErrorFromResponse(
+      response,
       `YouTube ${operation}: HTTP ${response.status} (${reason})`,
-      502,
     );
   }
 
-  try {
-    return (await response.json()) as T;
-  } catch {
-    throw new YouTubeApiError(`YouTube ${operation}: respuesta no válida`, 502);
-  }
+  return readProviderJson<T>(response, `YouTube ${operation}`);
 }
 
 /** Resuelve la playlist de subidas del canal configurado. */
@@ -296,15 +294,11 @@ function toUploadedVideo(video: ScannedVideo): UploadedVideo {
 }
 
 export function logYouTubeError(scope: string, err: unknown): void {
-  if (err instanceof YouTubeApiError) {
+  if (err instanceof ProviderApiError) {
     console.error(`[${scope}] ${err.message}`);
   } else if (err instanceof Error) {
     console.error(`[${scope}] error inesperado: ${err.name}: ${err.message}`);
   } else {
     console.error(`[${scope}] error inesperado`);
   }
-}
-
-export function youTubeErrorStatus(err: unknown): number {
-  return err instanceof YouTubeApiError ? err.status : 502;
 }

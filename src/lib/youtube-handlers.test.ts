@@ -165,15 +165,25 @@ describe.each(handlers)("api/%s: manejo de errores", (_name, handler, publicErro
     [503, "backendError", "UNAVAILABLE"],
   ])("Google responde %i", (status, reason, apiStatus) => {
     it.each(["channels", "playlistItems", "videos"] as const)(
-      `en la operación %s: 502 público genérico y log seguro con status y reason`,
+      `en la operación %s: público genérico (429 → 429 con code) y log seguro con status y reason`,
       async (operation) => {
         stubGoogle({ [operation]: googleError(status, reason, apiStatus) });
         const { res, state } = mockRes();
 
         await handler(req(), res);
 
-        expect(state.status).toBe(502);
-        expect(state.body).toEqual({ error: publicError });
+        // Un 429 de Google es un límite de tasa: 429 público con code estable. Todo lo demás
+        // (403 quotaExceeded/forbidden, 400, 404, 5xx) conserva el 502 genérico de siempre.
+        if (status === 429) {
+          expect(state.status).toBe(429);
+          expect(state.body).toEqual({
+            error: publicError,
+            code: "provider_rate_limited",
+          });
+        } else {
+          expect(state.status).toBe(502);
+          expect(state.body).toEqual({ error: publicError });
+        }
         expect(state.headers["Cache-Control"]).toBeUndefined();
 
         expect(errorSpy).toHaveBeenCalledTimes(1);

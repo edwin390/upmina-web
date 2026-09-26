@@ -1,10 +1,11 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import type { TwitchStream } from "../src/types/api.js";
 import { applyThumbnailSize } from "../src/lib/format.js";
+import { readProviderJson, sendProviderFailure } from "../src/lib/provider-http.js";
 import {
   fetchTwitchHelix,
   getTwitchConfig,
-  TwitchApiError,
+  twitchResponseError,
 } from "../src/lib/twitch-shared.js";
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
@@ -23,13 +24,16 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       const body = (await streamRes.json().catch(() => null)) as {
         message?: string;
       } | null;
-      throw new TwitchApiError(
+      throw twitchResponseError(
+        streamRes,
         `Twitch streams: ${body?.message ?? streamRes.statusText}`,
-        502,
       );
     }
 
-    const { data } = (await streamRes.json()) as { data?: TwitchStream[] };
+    const { data } = await readProviderJson<{ data?: TwitchStream[] }>(
+      streamRes,
+      "Twitch streams",
+    );
     const stream = data?.[0];
 
     res.setHeader("Cache-Control", "s-maxage=30, stale-while-revalidate=60");
@@ -48,7 +52,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     });
   } catch (err) {
     console.error("[twitch-status]", err);
-    const status = err instanceof TwitchApiError ? err.status : 502;
-    return res.status(status).json({ error: "No se pudo obtener el estado de Twitch" });
+    return sendProviderFailure(res, err, "No se pudo obtener el estado de Twitch");
   }
 }

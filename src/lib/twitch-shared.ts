@@ -4,6 +4,12 @@
 // este módulo no es un endpoint, solo lógica compartida (token cache,
 // resolución del broadcaster, fetch a Helix con reintento de token).
 import type { TwitchTokenResponse, TwitchUser } from "../types/api.js";
+import {
+  ProviderApiError,
+  fetchWithTimeout,
+  providerErrorFromResponse,
+  readProviderJson,
+} from "./provider-http.js";
 
 type TwitchConfig = {
   clientId: string;
@@ -15,14 +21,19 @@ type TwitchConfig = {
 // único lugar del backend que construye la config de Twitch.
 const DEFAULT_TWITCH_CHANNEL = "upminaa";
 
-export class TwitchApiError extends Error {
-  constructor(
-    message: string,
-    readonly status: number,
-  ) {
-    super(message);
+export class TwitchApiError extends ProviderApiError {
+  constructor(message: string, status: number) {
+    super(message, status);
     this.name = "TwitchApiError";
   }
+}
+
+/**
+ * Error clasificado para una respuesta NO exitosa de Twitch (429 con su Retry-After, 5xx u otro
+ * rechazo). El mensaje conserva el texto que ya se usaba; nunca lleva la URL ni tokens.
+ */
+export function twitchResponseError(response: Response, message: string) {
+  return providerErrorFromResponse(response, message);
 }
 
 let cachedToken: { token: string; expiresAt: number } | null = null;
@@ -66,22 +77,26 @@ export async function getAppAccessToken(forceRefresh = false): Promise<string> {
     return cachedToken.token;
   }
 
-  const response = await fetch("https://id.twitch.tv/oauth2/token", {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({
-      client_id: clientId,
-      client_secret: clientSecret,
-      grant_type: "client_credentials",
-    }),
-  });
+  const response = await fetchWithTimeout(
+    "Twitch OAuth",
+    "https://id.twitch.tv/oauth2/token",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        client_id: clientId,
+        client_secret: clientSecret,
+        grant_type: "client_credentials",
+      }),
+    },
+  );
 
   if (!response.ok) {
     const message = await getTwitchError(response, "Twitch rechazó las credenciales");
-    throw new TwitchApiError(`Twitch OAuth: ${message}`, 502);
+    throw twitchResponseError(response, `Twitch OAuth: ${message}`);
   }
 
-  const data = (await response.json()) as TwitchTokenResponse;
+  const data = await readProviderJson<TwitchTokenResponse>(response, "Twitch OAuth");
   if (!data.access_token || !data.expires_in) {
     throw new TwitchApiError("Twitch devolvió un token inválido", 502);
   }
@@ -107,7 +122,7 @@ export async function fetchTwitchHelix(
   const { clientId } = getTwitchConfig();
 
   const doFetch = (token: string) =>
-    fetch(`https://api.twitch.tv/helix/${path}`, {
+    fetchWithTimeout("Twitch Helix", `https://api.twitch.tv/helix/${path}`, {
       ...init,
       headers: {
         ...init.headers,
@@ -135,10 +150,13 @@ export async function getBroadcasterId(): Promise<string> {
 
   if (!response.ok) {
     const message = await getTwitchError(response, "Twitch no pudo resolver el canal");
-    throw new TwitchApiError(`Twitch usuario: ${message}`, 502);
+    throw twitchResponseError(response, `Twitch usuario: ${message}`);
   }
 
-  const { data } = (await response.json()) as { data?: TwitchUser[] };
+  const { data } = await readProviderJson<{ data?: TwitchUser[] }>(
+    response,
+    "Twitch usuario",
+  );
   cachedBroadcasterId = data?.[0]?.id ?? null;
   if (!cachedBroadcasterId) {
     throw new TwitchApiError("El canal de Twitch no existe", 404);

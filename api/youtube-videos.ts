@@ -1,10 +1,10 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
+import { sendProviderFailure } from "../src/lib/provider-http.js";
 import {
   getRecentUploads,
   getRecentUploadsByKind,
   getUploadsPlaylistId,
   logYouTubeError,
-  youTubeErrorStatus,
   type YouTubeVideoKind,
 } from "../src/lib/youtube-shared.js";
 
@@ -35,8 +35,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(200).json(videos);
   } catch (err) {
     logYouTubeError("youtube-videos", err);
-    return res
-      .status(youTubeErrorStatus(err))
-      .json({ error: "No se pudieron obtener los videos de YouTube" });
+    return sendProviderFailure(res, err, "No se pudieron obtener los videos de YouTube");
   }
 }

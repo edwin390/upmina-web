@@ -1,11 +1,11 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { parseIsoDuration } from "../src/lib/format.js";
 import type { YouTubePlaylistResponse, YouTubeVideosResponse } from "../src/types/api.js";
+import { sendProviderFailure } from "../src/lib/provider-http.js";
 import {
   fetchYouTube,
   getUploadsPlaylistId,
   logYouTubeError,
-  youTubeErrorStatus,
 } from "../src/lib/youtube-shared.js";
 
 export default async function handler(_req: VercelRequest, res: VercelResponse) {
@@ -40,8 +40,6 @@ export default async function handler(_req: VercelRequest, res: VercelResponse) 
     });
   } catch (err) {
     logYouTubeError("youtube-latest", err);
-    return res
-      .status(youTubeErrorStatus(err))
-      .json({ error: "No se pudo obtener el último video de YouTube" });
+    return sendProviderFailure(res, err, "No se pudo obtener el último video de YouTube");
   }
 }
