@@ -44,7 +44,8 @@ export default function TikTokPlayer({ videoId, title, coverUrl }: TikTokPlayerP
           title={title ? `Reproductor de TikTok: ${title}` : "Reproductor de TikTok"}
           // Sin allow-top-navigation: el reproductor no puede sacar al usuario de la web.
           sandbox="allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox"
-          allow="fullscreen"
+          // autoplay delegado al iframe: sin este permiso el navegador ignora autoplay=1.
+          allow="autoplay; fullscreen"
           allowFullScreen
           referrerPolicy="strict-origin-when-cross-origin"
           onLoad={() => setStatus("ready")}

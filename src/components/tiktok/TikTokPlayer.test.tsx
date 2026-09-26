@@ -132,10 +132,10 @@ describe("tiktokUrl: id de vídeo y URL del reproductor", () => {
     }
   });
 
-  it("la URL del reproductor es el Embed Player oficial, sin autoplay", () => {
+  it("la URL del reproductor es el Embed Player oficial, con autoplay solicitado (el gesto de abrir es la intención)", () => {
     const url = new URL(tikTokPlayerUrl(REAL_ID));
     expect(url.origin + url.pathname).toBe(`https://www.tiktok.com/player/v1/${REAL_ID}`);
-    expect(url.searchParams.get("autoplay")).toBe("0");
+    expect(url.searchParams.get("autoplay")).toBe("1");
     expect(url.searchParams.get("rel")).toBe("0");
     // El id se codifica: nada puede colarse en la ruta.
     expect(tikTokPlayerUrl("1/../../x")).not.toContain("/../");
@@ -143,7 +143,7 @@ describe("tiktokUrl: id de vídeo y URL del reproductor", () => {
 });
 
 describe("TikTokViewer: reproductor oficial de TikTok", () => {
-  it("renderiza el reproductor oficial con el id del vídeo (sin autoplay ni top-navigation)", async () => {
+  it("renderiza el reproductor oficial con el id del vídeo (con autoplay y sin top-navigation)", async () => {
     stubApi();
     renderSection();
     const dialog = await openViewer("Título 2");
@@ -151,7 +151,8 @@ describe("TikTokViewer: reproductor oficial de TikTok", () => {
     const frame = dialog.querySelector("iframe") as HTMLIFrameElement;
     const url = new URL(frame.src);
     expect(url.origin + url.pathname).toBe("https://www.tiktok.com/player/v1/2");
-    expect(url.searchParams.get("autoplay")).toBe("0");
+    expect(url.searchParams.get("autoplay")).toBe("1");
+    expect(frame.getAttribute("allow")).toContain("autoplay");
     expect(frame.title).toContain("Título 2");
     expect(frame.hasAttribute("allowfullscreen")).toBe(true);
     const sandbox = frame.getAttribute("sandbox") ?? "";
@@ -381,5 +382,87 @@ describe("TikTokViewer: reproductor oficial de TikTok", () => {
     await new Promise((resolve) => setTimeout(resolve, 30));
 
     expect(document.activeElement).toBe(frame);
+  });
+});
+
+// ---------- Reproducción con un solo gesto (9H-3, seguimiento) ----------
+
+describe("TikTok: un solo gesto reproduce", () => {
+  it("INICIAL: ningún iframe ni reproductor (solo portadas ligeras)", async () => {
+    stubApi();
+    renderSection();
+    await screen.findAllByRole("button", { name: /Abrir TikTok/ });
+
+    expect(playerIframes()).toHaveLength(0);
+    expect(document.querySelector("dialog")).toBeNull();
+  });
+
+  it("UN clic monta el reproductor del vídeo elegido con autoplay solicitado (sin segundo Play)", async () => {
+    stubApi();
+    renderSection();
+
+    await openViewer("Título 3");
+
+    const frames = playerIframes();
+    expect(frames).toHaveLength(1);
+    expect(playerId(frames[0])).toBe("3");
+    const url = new URL(frames[0].src);
+    expect(url.searchParams.get("autoplay")).toBe("1");
+    // El permiso de autoplay se delega al iframe (sin él el navegador ignora autoplay=1).
+    expect(frames[0].getAttribute("allow")).toContain("autoplay");
+    expect(frames[0].getAttribute("allow")).toContain("fullscreen");
+    // No se fuerza `muted` (desactivaría el control de volumen del reproductor).
+    expect(url.searchParams.has("muted")).toBe(false);
+    // Sin botón de Play propio de la aplicación.
+    expect(screen.queryByRole("button", { name: /^Reproducir/ })).toBeNull();
+  });
+
+  it("abrir otro TikTok: el anterior se desmonta y queda exactamente UNO activo", async () => {
+    stubApi();
+    renderSection();
+    await openViewer("Título 1");
+    const first = playerIframes()[0];
+
+    key("ArrowDown");
+
+    expect(first.isConnected).toBe(false);
+    expect(playerIframes().map(playerId)).toEqual(["2"]);
+    expect(new URL(playerIframes()[0].src).searchParams.get("autoplay")).toBe("1");
+  });
+
+  it("cerrar: cero reproductores; reabrir otro: uno solo", async () => {
+    stubApi();
+    renderSection();
+    await openViewer("Título 1");
+    const frame = playerIframes()[0];
+
+    fireEvent.click(screen.getByRole("button", { name: "Cerrar" }));
+
+    expect(frame.isConnected).toBe(false);
+    expect(playerIframes()).toHaveLength(0);
+
+    await openViewer("Título 4");
+    expect(playerIframes().map(playerId)).toEqual(["4"]);
+  });
+
+  it("Escape cierra y no queda ningún iframe", async () => {
+    stubApi();
+    renderSection();
+    await openViewer("Título 2");
+
+    key("Escape");
+
+    expect(playerIframes()).toHaveLength(0);
+  });
+
+  it("un id de vídeo inválido (enlace corto) no monta iframe: solo la portada", async () => {
+    stubApi(() =>
+      json([video("9", { embedUrl: "https://vm.tiktok.com/ZMabc123/" }), video("2")]),
+    );
+    renderSection();
+
+    await openViewer("Título 9");
+
+    expect(playerIframes()).toHaveLength(0);
   });
 });

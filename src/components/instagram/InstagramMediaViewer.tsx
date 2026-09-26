@@ -1,4 +1,4 @@
-import { useState, type KeyboardEvent } from "react";
+import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { clampAspectRatio, wrapIndex } from "@/lib/media-ratio";
 
 export interface ViewerSlide {
@@ -14,6 +14,81 @@ interface InstagramMediaViewerProps {
   label: string;
   /** Proporción real del primer elemento, en cuanto el recurso carga. */
   onRatio?: (ratio: number) => void;
+}
+
+/**
+ * Video nativo de una publicación con la reproducción SOLICITADA al montarse. El visor solo se monta
+ * tras un gesto explícito (abrir la publicación, cambiar de publicación o de elemento del
+ * carrusel), así que ese gesto es la intención de reproducir: no hace falta un segundo "Play".
+ * Nunca se monta en la grid ni al cargar la página.
+ *
+ * Política de autoplay del navegador: se pide primero con sonido; si el navegador lo rechaza
+ * (NotAllowedError) se reintenta SILENCIADO (el usuario puede activar el sonido con los controles
+ * nativos). Si aun así lo bloquea, el reproductor nativo muestra su propio Play: es una limitación
+ * del navegador, no se simulan clics ni se eluden restricciones.
+ * Al desmontarse (cambiar de elemento/publicación o cerrar) se pausa y se libera el recurso, para
+ * que nada siga sonando de forma invisible.
+ */
+function AutoPlayVideo({
+  src,
+  poster,
+  onRatio,
+}: {
+  src: string;
+  poster?: string;
+  onRatio: (width: number, height: number) => void;
+}) {
+  const ref = useRef<HTMLVideoElement>(null);
+
+  useEffect(() => {
+    const video = ref.current;
+    if (!video) return;
+    const request = (): Promise<void> | undefined => {
+      try {
+        return video.play();
+      } catch {
+        return undefined;
+      }
+    };
+    const attempt = request();
+    attempt?.catch(() => {
+      video.muted = true;
+      request()?.catch(() => undefined);
+    });
+    return () => {
+      try {
+        video.pause();
+      } catch {
+        // El entorno no soporta pause(): al salir del DOM el navegador ya lo pausa.
+      }
+      // Liberar el recurso solo si el elemento salió de verdad del DOM (desmontaje real): el doble
+      // montaje de StrictMode en desarrollo reutiliza el mismo elemento y no debe perder su `src`.
+      queueMicrotask(() => {
+        if (video.isConnected) return;
+        try {
+          video.removeAttribute("src");
+          video.load();
+        } catch {
+          // Sin soporte: el navegador libera el recurso al descartar el elemento.
+        }
+      });
+    };
+  }, []);
+
+  return (
+    <video
+      ref={ref}
+      src={src}
+      poster={poster}
+      controls
+      playsInline
+      preload="metadata"
+      onLoadedMetadata={(event) =>
+        onRatio(event.currentTarget.videoWidth, event.currentTarget.videoHeight)
+      }
+      className="h-full w-full object-contain"
+    />
+  );
 }
 
 const NAV_BUTTON =
@@ -73,18 +148,12 @@ export default function InstagramMediaViewer({
       className="absolute inset-0 flex items-center justify-center overflow-hidden bg-black focus:outline-none"
     >
       {slide.type === "VIDEO" && slide.videoUrl ? (
-        <video
+        <AutoPlayVideo
           // Al cambiar de slide se desmonta el video anterior y se detiene.
           key={slide.id}
           src={slide.videoUrl}
           poster={slide.imageUrl}
-          controls
-          playsInline
-          preload="metadata"
-          onLoadedMetadata={(event) =>
-            report(event.currentTarget.videoWidth, event.currentTarget.videoHeight)
-          }
-          className="h-full w-full object-contain"
+          onRatio={report}
         />
       ) : (
         slide.imageUrl && (

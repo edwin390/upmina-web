@@ -23,9 +23,12 @@ export function tikTokVideoId(embedUrl: string): string | undefined {
 
 /**
  * Reproductor oficial de TikTok (Embed Player): un iframe alojado por TikTok que solo
- * necesita el id del vídeo. Sin autoplay (el usuario pulsa Play), sin vídeos relacionados
- * ni descripción/música superpuestas.
+ * necesita el id del vídeo. `autoplay=1` (parámetro documentado): el reproductor SOLO se monta tras
+ * un gesto explícito (abrir el visor o navegar en él), así que ese gesto es la intención de
+ * reproducir. El navegador/TikTok siguen mandando: si bloquean el autoplay con sonido, el
+ * reproductor muestra su propio Play. No se fuerza `muted` (desactivaría el control de volumen).
+ * Sin vídeos relacionados ni descripción/música superpuestas.
  */
 export function tikTokPlayerUrl(videoId: string): string {
-  return `https://www.tiktok.com/player/v1/${encodeURIComponent(videoId)}?music_info=0&description=0&rel=0&autoplay=0`;
+  return `https://www.tiktok.com/player/v1/${encodeURIComponent(videoId)}?music_info=0&description=0&rel=0&autoplay=1`;
 }

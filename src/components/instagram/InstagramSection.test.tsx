@@ -1,3 +1,4 @@
+import { StrictMode } from "react";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -644,7 +645,7 @@ describe("modal: scroll, foco, desmontaje y video", () => {
         post("4002", { caption: "Foto" }),
       ]);
 
-    it("un Reel se reproduce con controles nativos, sin autoplay y solo carga los metadatos", async () => {
+    it("un Reel se reproduce con controles nativos, sin atributo autoplay y solo carga los metadatos", async () => {
       stubApi({ feed: videoFeed });
       renderSection();
       const dialog = await openPost("Reel");
@@ -697,5 +698,299 @@ describe("modal: scroll, foco, desmontaje y video", () => {
       expect(video.isConnected).toBe(false);
       expect(dialog.querySelector("video")).toBeNull();
     });
+  });
+});
+
+// ---------- Reproducción con un solo gesto (9H-3, seguimiento) ----------
+
+describe("reproducción de video con un solo gesto", () => {
+  const VIDEO_FILE = "https://scontent.cdninstagram.com/v/video.mp4";
+  const VIDEO_FILE_2 = "https://scontent.cdninstagram.com/v/video2.mp4";
+  const feed = () =>
+    json([
+      post("4001", {
+        mediaType: "VIDEO",
+        videoUrl: VIDEO_FILE,
+        productType: "REELS",
+        caption: "Reel A",
+      }),
+      post("4002", { mediaType: "VIDEO", videoUrl: VIDEO_FILE_2, caption: "Video B" }),
+      post("4003", { caption: "Foto C" }),
+    ]);
+
+  let playSpy: ReturnType<typeof vi.spyOn>;
+  let pauseSpy: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    playSpy = vi
+      .spyOn(HTMLMediaElement.prototype, "play")
+      .mockImplementation(() => Promise.resolve());
+    pauseSpy = vi.spyOn(HTMLMediaElement.prototype, "pause").mockImplementation(() => {});
+    vi.spyOn(HTMLMediaElement.prototype, "load").mockImplementation(() => {});
+  });
+
+  const videos = () => [...document.querySelectorAll("video")];
+
+  it("INICIAL: ningún <video> ni reproducción solicitada (la grid solo tiene imágenes)", async () => {
+    stubApi({ feed });
+    renderSection();
+    await screen.findByRole("button", { name: /Reel A\. Abrir/ });
+
+    expect(videos()).toHaveLength(0);
+    expect(document.querySelectorAll("iframe")).toHaveLength(0);
+    expect(playSpy).not.toHaveBeenCalled();
+  });
+
+  it("UN clic en un video monta UN reproductor y SOLICITA la reproducción (sin segundo Play)", async () => {
+    stubApi({ feed });
+    renderSection();
+
+    const dialog = await openPost("Reel A");
+
+    expect(videos()).toHaveLength(1);
+    expect((dialog.querySelector("video") as HTMLVideoElement).getAttribute("src")).toBe(
+      VIDEO_FILE,
+    );
+    expect(playSpy).toHaveBeenCalledTimes(1);
+    // Los controles nativos siguen ahí (el usuario puede pausar / subir volumen).
+    expect((dialog.querySelector("video") as HTMLVideoElement).controls).toBe(true);
+  });
+
+  it("si el navegador rechaza el autoplay con sonido, se reintenta SILENCIADO (sin clics simulados)", async () => {
+    playSpy
+      .mockImplementationOnce(() =>
+        Promise.reject(new DOMException("blocked", "NotAllowedError")),
+      )
+      .mockImplementation(() => Promise.resolve());
+    stubApi({ feed });
+    renderSection();
+
+    const dialog = await openPost("Reel A");
+    const video = dialog.querySelector("video") as HTMLVideoElement;
+
+    await waitFor(() => expect(playSpy).toHaveBeenCalledTimes(2));
+    expect(video.muted).toBe(true);
+  });
+
+  it("si incluso el reintento silenciado falla, no hay error ni bucle (el nativo muestra su Play)", async () => {
+    playSpy.mockImplementation(() =>
+      Promise.reject(new DOMException("blocked", "NotAllowedError")),
+    );
+    stubApi({ feed });
+    renderSection();
+
+    await openPost("Reel A");
+
+    await waitFor(() => expect(playSpy).toHaveBeenCalledTimes(2));
+    expect(videos()).toHaveLength(1);
+  });
+
+  it("una foto (IMAGE) NUNCA se convierte en reproductor", async () => {
+    stubApi({ feed });
+    renderSection();
+
+    const dialog = await openPost("Foto C");
+
+    expect(videos()).toHaveLength(0);
+    expect(dialog.querySelector("img")).not.toBeNull();
+    expect(playSpy).not.toHaveBeenCalled();
+  });
+
+  it("un VIDEO sin videoUrl no monta reproductor (muestra la portada)", async () => {
+    stubApi({
+      feed: () => json([post("4009", { mediaType: "VIDEO", caption: "Sin archivo" })]),
+    });
+    renderSection();
+
+    await openPost("Sin archivo");
+
+    expect(videos()).toHaveLength(0);
+    expect(playSpy).not.toHaveBeenCalled();
+  });
+
+  it("abrir otro video: el anterior se pausa y se desmonta; queda UN reproductor y se solicita el nuevo", async () => {
+    stubApi({ feed });
+    renderSection();
+    const dialog = await openPost("Reel A");
+    const first = dialog.querySelector("video") as HTMLVideoElement;
+
+    nextPost();
+
+    expect(first.isConnected).toBe(false);
+    expect(pauseSpy).toHaveBeenCalled();
+    expect(videos()).toHaveLength(1);
+    expect(videos()[0].getAttribute("src")).toBe(VIDEO_FILE_2);
+    expect(playSpy).toHaveBeenCalledTimes(2);
+  });
+
+  it("pasar de un video a una foto deja cero reproductores", async () => {
+    stubApi({ feed });
+    renderSection();
+    await openPost("Reel A");
+
+    nextPost();
+    nextPost();
+
+    expect(videos()).toHaveLength(0);
+  });
+
+  it("cerrar: cero reproductores, pausado y sin fuente; reabrir: uno solo", async () => {
+    stubApi({ feed });
+    renderSection();
+    await openPost("Reel A");
+    const video = videos()[0];
+
+    fireEvent.click(screen.getByRole("button", { name: "Cerrar" }));
+
+    expect(video.isConnected).toBe(false);
+    await waitFor(() => expect(video.hasAttribute("src")).toBe(false));
+    expect(pauseSpy).toHaveBeenCalled();
+    expect(videos()).toHaveLength(0);
+
+    await openPost("Reel A");
+    expect(videos()).toHaveLength(1);
+    expect(playSpy).toHaveBeenCalledTimes(2);
+  });
+
+  it("Escape cierra y no queda ningún reproductor", async () => {
+    stubApi({ feed });
+    renderSection();
+    await openPost("Reel A");
+
+    fireEvent.keyDown(document, { key: "Escape" });
+
+    expect(videos()).toHaveLength(0);
+  });
+
+  it("activar la tarjeta con el teclado (Enter/clic sintético) también reproduce", async () => {
+    stubApi({ feed });
+    renderSection();
+    const card = await screen.findByRole("button", { name: /Reel A\. Abrir/ });
+    card.focus();
+
+    fireEvent.click(card); // un <button> nativo convierte Enter/Espacio en click
+
+    await screen.findByRole("dialog");
+    expect(playSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("carrusel con video: al llegar al elemento de video (gesto explícito) se solicita; un elemento de imagen no", async () => {
+    stubApi({
+      children: () =>
+        json({
+          children: [
+            { id: "i1", mediaType: "IMAGE", imageUrl: `${IMG}?1` },
+            { id: "v2", mediaType: "VIDEO", imageUrl: IMG, videoUrl: VIDEO_FILE },
+            { id: "i3", mediaType: "IMAGE", imageUrl: `${IMG}?3` },
+          ],
+        }),
+    });
+    renderSection();
+    const dialog = await openPost("Uno");
+    await waitFor(() =>
+      expect(screen.getAllByRole("button", { name: "Elemento siguiente" })).toHaveLength(
+        1,
+      ),
+    );
+
+    expect(videos()).toHaveLength(0);
+    expect(playSpy).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Elemento siguiente" }));
+    expect(dialog.querySelector("video")).not.toBeNull();
+    expect(playSpy).toHaveBeenCalledTimes(1);
+
+    fireEvent.click(screen.getByRole("button", { name: "Elemento siguiente" }));
+    expect(videos()).toHaveLength(0);
+  });
+
+  it("un carrusel solo de imágenes (comportamiento previo) no cambia", async () => {
+    stubApi();
+    renderSection();
+    await openPost("Uno");
+    await screen.findByRole("button", { name: "Elemento siguiente" });
+
+    expect(videos()).toHaveLength(0);
+    expect(playSpy).not.toHaveBeenCalled();
+  });
+
+  it("fallo del proveedor al cargar los children del carrusel: sin reproductor y sin romper el modal", async () => {
+    stubApi({ children: () => json({}, 502) });
+    renderSection();
+
+    const dialog = await openPost("Uno");
+
+    expect(dialog).toBeInTheDocument();
+    expect(videos()).toHaveLength(0);
+    expect(playSpy).not.toHaveBeenCalled();
+  });
+
+  it("si play() lanza de forma síncrona (entorno sin soporte) no rompe la UI", async () => {
+    playSpy.mockImplementation(() => {
+      throw new Error("no soportado");
+    });
+    stubApi({ feed });
+    renderSection();
+
+    await openPost("Reel A");
+
+    expect(videos()).toHaveLength(1);
+  });
+
+  it("abrir un video no hace ninguna petición extra al proveedor", async () => {
+    const fetchMock = stubApi({ feed });
+    renderSection();
+    await screen.findByRole("button", { name: /Reel A\. Abrir/ });
+    const before = fetchMock.mock.calls.length;
+
+    await openPost("Reel A");
+    await screen.findByRole("dialog");
+
+    const extra = fetchMock.mock.calls
+      .slice(before)
+      .map((c) => String(c[0]))
+      .filter(
+        (u) =>
+          !u.startsWith("/api/instagram-profile") &&
+          !u.startsWith("/api/instagram-comments"),
+      );
+    expect(extra).toEqual([]);
+  });
+});
+
+describe("reproducción bajo StrictMode (desarrollo)", () => {
+  it("el doble montaje de efectos no le quita el src al video ni deja de solicitar la reproducción", async () => {
+    vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(() =>
+      Promise.resolve(),
+    );
+    vi.spyOn(HTMLMediaElement.prototype, "pause").mockImplementation(() => {});
+    vi.spyOn(HTMLMediaElement.prototype, "load").mockImplementation(() => {});
+    stubApi({
+      feed: () =>
+        json([
+          post("4001", {
+            mediaType: "VIDEO",
+            videoUrl: "https://scontent.cdninstagram.com/v/video.mp4",
+            caption: "Reel A",
+          }),
+        ]),
+    });
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <StrictMode>
+        <QueryClientProvider client={client}>
+          <InstagramSection />
+        </QueryClientProvider>
+      </StrictMode>,
+    );
+
+    const dialog = await openPost("Reel A");
+    await Promise.resolve();
+
+    const video = dialog.querySelector("video") as HTMLVideoElement;
+    expect(video.getAttribute("src")).toBe(
+      "https://scontent.cdninstagram.com/v/video.mp4",
+    );
+    expect(HTMLMediaElement.prototype.play).toHaveBeenCalled();
   });
 });
