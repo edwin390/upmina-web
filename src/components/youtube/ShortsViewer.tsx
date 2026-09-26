@@ -15,10 +15,14 @@ import { shortEmbedUrl } from "./youtubeUrl";
 // portada 9:16, controles anterior/siguiente); no comparte tipos, URLs ni el reproductor de TikTok.
 // A diferencia de aquel, NO es una superposición a pantalla completa: vive dentro de la página.
 //
-// Reproducción: el reproductor nativo de YouTube (iframe youtube.com/embed) solo se monta cuando la
-// persona pulsa "Reproducir" y ÚNICAMENTE para el Short seleccionado; al cambiar de Short el
-// iframe anterior se desmonta (`key`) y nunca hay dos activos. Antes de pulsar solo hay una portada
-// (no se carga el reproductor de YouTube para un Short que quizá nadie vea).
+// Reproducción: el reproductor nativo de YouTube (iframe youtube.com/embed) solo se monta ante una
+// intención explícita de reproducir y ÚNICAMENTE para el Short seleccionado; al cambiar de Short el
+// iframe anterior se desmonta (`key`) y nunca hay dos activos. Antes solo hay una portada (no se
+// carga el reproductor de YouTube para un Short que quizá nadie vea).
+// Intención explícita = pulsar "Reproducir" O pulsar una miniatura (también la ya seleccionada):
+// un solo gesto. Anterior/Siguiente/flechas solo navegan: con la reproducción ya iniciada cambian
+// de Short al instante; antes de iniciarla siguen mostrando portadas. Un enlace profundo elige el
+// Short pero no es intención de reproducir.
 
 interface ShortsViewerProps {
   shorts: YouTubeVideo[];
@@ -38,8 +42,8 @@ export default function ShortsViewer({
   onSelect,
   headingId,
 }: ShortsViewerProps) {
-  // Una vez pulsado "Reproducir", los Shorts siguientes se reproducen al navegar (decisión de la
-  // persona); antes de eso solo se muestra la portada.
+  // Una vez iniciada la reproducción (Reproducir o miniatura), los Shorts siguientes se reproducen
+  // al navegar (decisión de la persona); antes de eso solo se muestra la portada.
   const [playing, setPlaying] = useState(false);
 
   // Un id que no parece de YouTube nunca llega a un iframe.
@@ -100,9 +104,9 @@ export default function ShortsViewer({
                 aria-label={`Reproducir Short: ${current.title}`}
                 className="group absolute inset-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent-secondary"
               >
-                {current.thumbnailUrl && (
+                {(current.coverUrl ?? current.thumbnailUrl) && (
                   <img
-                    src={current.thumbnailUrl}
+                    src={current.coverUrl ?? current.thumbnailUrl}
                     alt=""
                     className="h-full w-full object-cover"
                   />
@@ -162,7 +166,10 @@ export default function ShortsViewer({
                   <li key={short.id} className="shrink-0">
                     <button
                       type="button"
-                      onClick={() => onSelect(short.id)}
+                      onClick={() => {
+                        setPlaying(true);
+                        onSelect(short.id);
+                      }}
                       aria-label={`Ver Short: ${short.title}`}
                       aria-current={isCurrent ? "true" : undefined}
                       className={clsx(

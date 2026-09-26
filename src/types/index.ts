@@ -43,6 +43,8 @@ export interface YouTubeVideo {
   title: string;
   description: string;
   thumbnailUrl: string;
+  // Portada de mayor resolución (solo si la API la ofrece y supera a `thumbnailUrl`).
+  coverUrl?: string;
   publishedAt: string;
   duration: string; // formato HH:MM:SS
 }

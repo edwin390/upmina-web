@@ -93,7 +93,12 @@ export interface YouTubeSnippet {
   resourceId: { videoId: string };
   title: string;
   description: string;
-  thumbnails?: { high?: YouTubeThumbnail; default?: YouTubeThumbnail };
+  thumbnails?: {
+    maxres?: YouTubeThumbnail;
+    standard?: YouTubeThumbnail;
+    high?: YouTubeThumbnail;
+    default?: YouTubeThumbnail;
+  };
   publishedAt: string;
 }
 

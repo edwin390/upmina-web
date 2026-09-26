@@ -16,6 +16,7 @@ import {
 import type {
   YouTubeChannelResponse,
   YouTubePlaylistResponse,
+  YouTubeSnippet,
   YouTubeVideosResponse,
 } from "../types/api.js";
 
@@ -196,8 +197,28 @@ export interface UploadedVideo {
   title: string;
   description: string;
   thumbnailUrl: string | undefined;
+  /** Portada de mayor resolución que ofrece la API para este video; solo si supera a `thumbnailUrl`. */
+  coverUrl?: string;
   publishedAt: string;
   duration: string;
+}
+
+/**
+ * Mejor portada disponible en la respuesta de la API (sin peticiones extra ni URLs construidas):
+ * maxres → standard → high. Cada video trae solo las variantes que existen para él, así que se
+ * recorre en orden y se descarta cualquier entrada sin una URL https válida. Devuelve `undefined`
+ * si la mejor coincide con la miniatura normal (`high`), para no repetirla en la respuesta.
+ */
+export function pickCoverUrl(
+  thumbnails: YouTubeSnippet["thumbnails"],
+): string | undefined {
+  for (const variant of [thumbnails?.maxres, thumbnails?.standard, thumbnails?.high]) {
+    const url = variant?.url;
+    if (typeof url === "string" && url.startsWith("https://")) {
+      return url === thumbnails?.high?.url ? undefined : url;
+    }
+  }
+  return undefined;
 }
 
 /** Segundos de una duración ISO 8601 (PT#H#M#S). 0 si no es parseable (p. ej. directos "P0D"). */
@@ -291,6 +312,7 @@ async function fetchUploadsPage(
       description: item.snippet.description,
       thumbnailUrl:
         item.snippet.thumbnails?.high?.url ?? item.snippet.thumbnails?.default?.url,
+      coverUrl: pickCoverUrl(item.snippet.thumbnails),
       publishedAt: item.snippet.publishedAt,
       duration: parseIsoDuration(iso ?? "PT0S"),
       durationSeconds: iso === undefined ? null : isoDurationSeconds(iso),
@@ -354,6 +376,7 @@ function toUploadedVideo(video: ScannedVideo): UploadedVideo {
     title: video.title,
     description: video.description,
     thumbnailUrl: video.thumbnailUrl,
+    ...(video.coverUrl ? { coverUrl: video.coverUrl } : {}),
     publishedAt: video.publishedAt,
     duration: video.duration,
   };

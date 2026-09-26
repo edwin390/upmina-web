@@ -334,8 +334,8 @@ describe("independencia entre el reproductor principal y los Shorts", () => {
 
     fireEvent.click(next());
     fireEvent.click(screen.getByRole("button", { name: "Ver Short: Short 3" }));
-    play("Short 3");
 
+    expect(shortFrameId()).toBe("SHORTaaaaa3");
     expect(heroId()).toBe("VIDEOaaaaa3");
     expect(url()).toBe("/youtube?video=VIDEOaaaaa3");
   });
@@ -727,5 +727,208 @@ describe("tira de miniaturas: desplazamiento nativo y barra tematizada", () => {
     const block = css.slice(css.indexOf(".scrollbar-subtle {"));
 
     expect(block).not.toMatch(/overflow(-x)?:\s*hidden/);
+  });
+});
+
+// ---------- Un clic y portada nítida (9H-2.5 pulido final) ----------
+
+const COVER = (id: string) => `https://i.ytimg.com/vi/${id}/maxresdefault.jpg`;
+const withCover = (short: YouTubeVideo): YouTubeVideo => ({
+  ...short,
+  coverUrl: COVER(short.id),
+});
+const thumb = (title: string) =>
+  screen.getByRole("button", { name: `Ver Short: ${title}` });
+const coverImage = () => screen.getByTestId("short-frame").querySelector("img");
+
+describe("un solo gesto reproduce", () => {
+  it("INICIAL: sin iframe de Short, portada visible y botón Reproducir", async () => {
+    stubApi();
+    renderSection();
+    await counter("1 de 3");
+
+    expect(shortFrames()).toHaveLength(0);
+    expect(coverImage()).not.toBeNull();
+    expect(
+      screen.getByRole("button", { name: "Reproducir Short: Short 1" }),
+    ).toBeInTheDocument();
+  });
+
+  it("un clic en la miniatura de OTRO Short monta su iframe al instante (sin pulsar Reproducir)", async () => {
+    stubApi();
+    renderSection();
+    await counter("1 de 3");
+
+    fireEvent.click(thumb("Short 3"));
+
+    expect(await counter("3 de 3")).toBeInTheDocument();
+    expect(shortFrames()).toHaveLength(1);
+    expect(shortFrameId()).toBe("SHORTaaaaa3");
+    expect(shortFrames()[0].src).toBe(shortEmbedUrl("SHORTaaaaa3"));
+    expect(screen.queryByRole("button", { name: /^Reproducir Short/ })).toBeNull();
+  });
+
+  it("un clic en la miniatura del Short YA seleccionado también lo reproduce", async () => {
+    stubApi();
+    renderSection();
+    await counter("1 de 3");
+
+    fireEvent.click(thumb("Short 1"));
+
+    expect(shortFrames()).toHaveLength(1);
+    expect(shortFrameId()).toBe("SHORTaaaaa1");
+  });
+
+  it("Reproducir en la portada inicial monta exactamente un iframe", async () => {
+    stubApi();
+    renderSection();
+    await counter("1 de 3");
+
+    play("Short 1");
+
+    expect(shortFrames()).toHaveLength(1);
+    expect(shortFrameId()).toBe("SHORTaaaaa1");
+  });
+
+  it("ya reproduciendo: miniatura, siguiente, anterior y flechas cambian al instante y dejan UN iframe", async () => {
+    stubApi();
+    renderSection();
+    await counter("1 de 3");
+    fireEvent.click(thumb("Short 1"));
+    const first = shortFrames()[0];
+
+    fireEvent.click(thumb("Short 2"));
+    expect(first.isConnected).toBe(false);
+    expect(shortFrameId()).toBe("SHORTaaaaa2");
+
+    fireEvent.click(next());
+    expect(shortFrameId()).toBe("SHORTaaaaa3");
+
+    fireEvent.click(prev());
+    expect(shortFrameId()).toBe("SHORTaaaaa2");
+
+    fireEvent.keyDown(group(), { key: "ArrowRight" });
+    expect(shortFrameId()).toBe("SHORTaaaaa3");
+    fireEvent.keyDown(group(), { key: "ArrowLeft" });
+    expect(shortFrameId()).toBe("SHORTaaaaa2");
+
+    expect(shortFrames()).toHaveLength(1);
+    expect(iframes()).toHaveLength(2);
+    expect(screen.queryByRole("button", { name: /^Reproducir Short/ })).toBeNull();
+  });
+
+  it("antes de iniciar, siguiente y flechas solo navegan portadas (sin reproducir)", async () => {
+    stubApi();
+    renderSection();
+    await counter("1 de 3");
+
+    fireEvent.click(next());
+    fireEvent.keyDown(group(), { key: "ArrowRight" });
+
+    expect(shortFrames()).toHaveLength(0);
+    expect(screen.getByText("3 de 3")).toBeInTheDocument();
+  });
+
+  it("enlace ?short= o ?video=<Short>: elige sin reproducir; UN gesto después lo monta", async () => {
+    for (const entry of ["/youtube?short=SHORTaaaaa2", "/youtube?video=SHORTaaaaa2"]) {
+      stubApi();
+      renderSection(entry);
+      expect(await counter("2 de 3")).toBeInTheDocument();
+      await waitFor(() => expect(url()).toBe("/youtube"));
+      expect(shortFrames()).toHaveLength(0);
+
+      fireEvent.click(thumb("Short 2"));
+
+      expect(shortFrames()).toHaveLength(1);
+      expect(shortFrameId()).toBe("SHORTaaaaa2");
+      cleanup();
+    }
+  });
+
+  it("un enlace profundo seguido de Reproducir también monta con un solo gesto", async () => {
+    stubApi();
+    renderSection("/youtube?short=SHORTaaaaa3");
+    await counter("3 de 3");
+
+    play("Short 3");
+
+    expect(shortFrameId()).toBe("SHORTaaaaa3");
+  });
+
+  it("los gestos de Short nunca cambian el reproductor principal ni la URL", async () => {
+    stubApi();
+    renderSection("/youtube?video=VIDEOaaaaa3");
+    await waitFor(() => expect(heroId()).toBe("VIDEOaaaaa3"));
+    await counter("1 de 3");
+
+    fireEvent.click(thumb("Short 2"));
+    fireEvent.click(next());
+    fireEvent.click(prev());
+
+    expect(heroId()).toBe("VIDEOaaaaa3");
+    expect(url()).toBe("/youtube?video=VIDEOaaaaa3");
+    expect(shortFrames()).toHaveLength(1);
+  });
+
+  it("24 miniaturas y un clic: un solo iframe de Short", async () => {
+    stubApi({ shorts: () => json(MANY) });
+    renderSection();
+    await counter("1 de 24");
+    expect(shortFrames()).toHaveLength(0);
+
+    fireEvent.click(thumb("Short 12"));
+
+    expect(shortFrames()).toHaveLength(1);
+    expect(shortFrameId()).toBe("SHORT000012");
+  });
+});
+
+describe("portada de alta calidad", () => {
+  it("la portada grande usa coverUrl y la lista usa la miniatura eficiente", async () => {
+    stubApi({ shorts: () => json(SHORTS.map(withCover)) });
+    renderSection();
+    await counter("1 de 3");
+
+    expect(coverImage()).toHaveAttribute("src", COVER("SHORTaaaaa1"));
+    const list = screen.getByRole("list", { name: "Lista de Shorts" });
+    for (const image of list.querySelectorAll("img")) {
+      expect(image.getAttribute("src")).toContain("/hq.jpg");
+      expect(image.getAttribute("src")).not.toContain("maxres");
+    }
+  });
+
+  it("sin coverUrl la portada usa thumbnailUrl", async () => {
+    stubApi();
+    renderSection();
+    await counter("1 de 3");
+
+    expect(coverImage()).toHaveAttribute("src", SHORTS[0].thumbnailUrl);
+  });
+
+  it("sin ninguna imagen no se renderiza un <img> roto ni falla", async () => {
+    stubApi({
+      shorts: () => json(SHORTS.map((s) => ({ ...s, thumbnailUrl: undefined }))),
+    });
+    renderSection();
+    await counter("1 de 3");
+
+    expect(coverImage()).toBeNull();
+    expect(shortFrames()).toHaveLength(0);
+  });
+
+  it("la portada cambia con el Short elegido y las 24 miniaturas no piden la portada grande", async () => {
+    stubApi({ shorts: () => json(MANY.map(withCover)) });
+    renderSection();
+    await counter("1 de 24");
+    const list = screen.getByRole("list", { name: "Lista de Shorts" });
+    const heavy = [...list.querySelectorAll("img")].filter((i) =>
+      i.getAttribute("src")?.includes("maxres"),
+    );
+    expect(heavy).toHaveLength(0);
+
+    fireEvent.click(next());
+    await counter("2 de 24");
+
+    expect(coverImage()).toHaveAttribute("src", COVER("SHORT000002"));
   });
 });
