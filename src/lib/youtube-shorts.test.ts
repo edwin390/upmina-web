@@ -6,6 +6,7 @@ import {
   UPLOADS_PAGE_SIZE,
   classifyYouTubeVideo,
   isoDurationSeconds,
+  resetYouTubeCacheForTests,
 } from "./youtube-shared";
 
 // Separación videos normales / Shorts. La clasificación es una heurística (la
@@ -182,6 +183,7 @@ describe("api/youtube-videos: ?type=videos|shorts", () => {
   const originalEnv = { ...process.env };
 
   beforeEach(() => {
+    resetYouTubeCacheForTests();
     Object.assign(process.env, {
       YOUTUBE_API_KEY: API_KEY,
       YOUTUBE_CHANNEL_ID: "UCcanal-de-prueba",

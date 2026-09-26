@@ -5,6 +5,7 @@ import { readProviderJson, sendProviderFailure } from "../src/lib/provider-http.
 import {
   fetchTwitchHelix,
   getBroadcasterId,
+  logTwitchError,
   twitchResponseError,
 } from "../src/lib/twitch-shared.js";
 
@@ -41,7 +42,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       duration: video.duration,
     });
   } catch (err) {
-    console.error("[twitch-latest-video]", err);
+    logTwitchError("twitch-latest-video", err);
     return sendProviderFailure(res, err, "No se pudo obtener el último stream de Twitch");
   }
 }

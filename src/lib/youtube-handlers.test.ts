@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import latestHandler from "../../api/youtube-latest";
 import videosHandler from "../../api/youtube-videos";
+import { resetYouTubeCacheForTests } from "./youtube-shared";
 
 // Fijan el manejo de errores del backend de YouTube (config ausente, fallos de
 // Google, secretos) y el contrato de las respuestas exitosas. No cubren la UI.
@@ -112,6 +113,7 @@ describe.each(handlers)("api/%s: manejo de errores", (_name, handler, publicErro
   const loggedText = () => JSON.stringify(errorSpy.mock.calls);
 
   beforeEach(() => {
+    resetYouTubeCacheForTests();
     Object.assign(process.env, {
       YOUTUBE_API_KEY: API_KEY,
       YOUTUBE_CHANNEL_ID: CHANNEL_ID,
@@ -270,6 +272,7 @@ describe("api/youtube-latest: respuesta exitosa", () => {
   const originalEnv = { ...process.env };
 
   beforeEach(() => {
+    resetYouTubeCacheForTests();
     Object.assign(process.env, {
       YOUTUBE_API_KEY: API_KEY,
       YOUTUBE_CHANNEL_ID: CHANNEL_ID,
@@ -335,6 +338,7 @@ describe("api/youtube-videos: respuesta exitosa", () => {
   const originalEnv = { ...process.env };
 
   beforeEach(() => {
+    resetYouTubeCacheForTests();
     Object.assign(process.env, {
       YOUTUBE_API_KEY: API_KEY,
       YOUTUBE_CHANNEL_ID: CHANNEL_ID,

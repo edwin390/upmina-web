@@ -105,19 +105,85 @@ export async function fetchYouTube<T>(
   return readProviderJson<T>(response, `YouTube ${operation}`);
 }
 
-/** Resuelve la playlist de subidas del canal configurado. */
-export async function getUploadsPlaylistId(): Promise<string> {
-  const { channelId } = getYouTubeConfig();
+// ---------- Playlist de subidas: caché en memoria ----------
+
+/**
+ * TTL de la playlist de subidas resuelta. El id de esa playlist de un canal no cambia (es
+ * derivable del id del canal); 6 h solo acota cuánto sobrevive una entrada errónea si Google
+ * alguna vez devolviera otra cosa. Evita 1 unidad de cuota (llamada a `channels`) por petición.
+ */
+export const UPLOADS_PLAYLIST_TTL_MS = 6 * 60 * 60 * 1000;
+
+/** Forma de un id de playlist de YouTube: solo caracteres de id, longitud acotada. */
+const PLAYLIST_ID_FORMAT = /^[A-Za-z0-9_-]{2,64}$/;
+
+// La aplicación sirve UN canal configurado (YOUTUBE_CHANNEL_ID), así que basta UNA entrada: la
+// caché queda acotada por construcción (no hay Map que crezca) y va ligada al id del canal para que
+// un cambio de configuración nunca reutilice la de otro. Vive en la memoria del lambda: un arranque
+// en frío la vacía y se comporta exactamente como antes (una llamada a `channels`).
+let uploadsCache: { channelId: string; playlistId: string; expiresAt: number } | null =
+  null;
+// Una sola resolución en vuelo por canal: las peticiones simultáneas de una instancia en frío
+// comparten la llamada en lugar de gastar una unidad de cuota cada una.
+let uploadsInflight: { channelId: string; promise: Promise<string> } | null = null;
+
+/** Solo para pruebas: olvida la playlist cacheada y la resolución en vuelo. */
+export function resetYouTubeCacheForTests(): void {
+  uploadsCache = null;
+  uploadsInflight = null;
+}
+
+async function resolveUploadsPlaylistId(channelId: string): Promise<string> {
   const data = await fetchYouTube<YouTubeChannelResponse>("channels", "channels", {
     part: "contentDetails",
     id: channelId,
   });
 
-  const uploadsPlaylistId = data.items?.[0]?.contentDetails?.relatedPlaylists?.uploads;
-  if (!uploadsPlaylistId) {
+  const uploadsPlaylistId: unknown =
+    data.items?.[0]?.contentDetails?.relatedPlaylists?.uploads;
+  if (
+    typeof uploadsPlaylistId !== "string" ||
+    !PLAYLIST_ID_FORMAT.test(uploadsPlaylistId)
+  ) {
     throw new YouTubeApiError("YouTube channels: canal no encontrado", 502);
   }
   return uploadsPlaylistId;
+}
+
+/**
+ * Resuelve la playlist de subidas del canal configurado. Solo se cachea un id VALIDADO tras una
+ * respuesta correcta: un fallo (timeout, 429, 5xx, cuerpo inválido, canal inexistente o id
+ * malformado) nunca se guarda ni sustituye una entrada válida vigente.
+ */
+export async function getUploadsPlaylistId(): Promise<string> {
+  // La configuración se comprueba SIEMPRE primero: sin credenciales no se sirve ni la caché.
+  const { channelId } = getYouTubeConfig();
+
+  if (
+    uploadsCache &&
+    uploadsCache.channelId === channelId &&
+    uploadsCache.expiresAt > Date.now()
+  ) {
+    return uploadsCache.playlistId;
+  }
+  if (uploadsInflight?.channelId === channelId) return uploadsInflight.promise;
+
+  const promise = (async () => {
+    try {
+      const playlistId = await resolveUploadsPlaylistId(channelId);
+      uploadsCache = {
+        channelId,
+        playlistId,
+        expiresAt: Date.now() + UPLOADS_PLAYLIST_TTL_MS,
+      };
+      return playlistId;
+    } finally {
+      // Solo puede haber una resolución en vuelo por canal (arriba se reutiliza), así que esta es la nuestra.
+      if (uploadsInflight?.channelId === channelId) uploadsInflight = null;
+    }
+  })();
+  uploadsInflight = { channelId, promise };
+  return promise;
 }
 
 // ---------- Videos normales vs. Shorts ----------

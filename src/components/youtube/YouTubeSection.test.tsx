@@ -300,3 +300,142 @@ describe("YouTubeSection: ids no válidos o no disponibles", () => {
     expect(console.error).not.toHaveBeenCalled();
   });
 });
+
+describe("YouTubeSection: carga, vacíos y fallos visibles", () => {
+  const neverResolves = () => new Promise<Response>(() => {});
+  // El RouterProbe del test usa <output> (role status): solo cuentan los avisos de la sección.
+  const statusMessages = () =>
+    screen.queryAllByRole("status").filter((el) => el.tagName !== "OUTPUT");
+  const VIDEOS_ERROR = /No se pudieron cargar los videos de YouTube ahora mismo/;
+  const SHORTS_ERROR = /No se pudieron cargar los Shorts de YouTube ahora mismo/;
+  const LATEST_ERROR = /No se pudo cargar el último video de YouTube ahora mismo/;
+  const ALL_ERROR = /No se pudo cargar el contenido de YouTube ahora mismo/;
+
+  it("cargando: cada grupo muestra su texto de carga (y no un error ni un vacío)", async () => {
+    stubApi({ videos: neverResolves, shorts: neverResolves });
+    renderSection(["/youtube"]);
+
+    expect(await screen.findByText("Cargando videos…")).toBeInTheDocument();
+    expect(screen.getByText("Cargando Shorts…")).toBeInTheDocument();
+    expect(screen.queryByText(VIDEOS_ERROR)).toBeNull();
+    expect(screen.queryByText(SHORTS_ERROR)).toBeNull();
+  });
+
+  it("éxito: videos, Shorts y hero, sin ningún aviso de fallo", async () => {
+    stubApi();
+    renderSection(["/youtube"]);
+
+    await waitFor(() => expect(heroId()).toBe("VIDEOaaaaa1"));
+    await screen.findByText("Shorts");
+    expect(screen.getByText("Más videos")).toBeInTheDocument();
+    expect(statusMessages()).toHaveLength(0);
+  });
+
+  it("vacío VÁLIDO (200 []): los grupos no se pintan y NO se muestra un fallo", async () => {
+    stubApi({ videos: () => json([]), shorts: () => json([]) });
+    renderSection(["/youtube"]);
+
+    await waitFor(() => expect(heroId()).toBe("VIDEOaaaaa1"));
+    await waitFor(() => expect(screen.queryByText("Cargando videos…")).toBeNull());
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(screen.queryByText("Más videos")).toBeNull();
+    expect(screen.queryByText("Shorts")).toBeNull();
+    expect(statusMessages()).toHaveLength(0);
+  });
+
+  it("fallo de 'Más videos' (502): aviso propio; hero y Shorts siguen funcionando", async () => {
+    stubApi({ videos: () => json({ error: "x" }, 502) });
+    renderSection(["/youtube"]);
+
+    expect(await screen.findByText(VIDEOS_ERROR)).toBeInTheDocument();
+    expect(screen.getByText("Más videos")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Short 1/ })).toBeInTheDocument();
+    expect(heroId()).toBe("VIDEOaaaaa1");
+    expect(screen.queryByText(SHORTS_ERROR)).toBeNull();
+    expect(screen.queryByText("Cargando videos…")).toBeNull();
+  });
+
+  it("fallo de Shorts (502): aviso propio; hero y videos siguen funcionando", async () => {
+    stubApi({ shorts: () => json({ error: "x" }, 502) });
+    renderSection(["/youtube"]);
+
+    expect(await screen.findByText(SHORTS_ERROR)).toBeInTheDocument();
+    expect(screen.getByText("Shorts")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Video 2/ })).toBeInTheDocument();
+    expect(heroId()).toBe("VIDEOaaaaa1");
+    expect(screen.queryByText(VIDEOS_ERROR)).toBeNull();
+  });
+
+  it("fallo del último video: aviso en su hueco; las listas siguen y la página no se rompe", async () => {
+    stubApi({ latest: () => json({ error: "x" }, 502) });
+    renderSection(["/youtube"]);
+
+    expect(await screen.findByText(LATEST_ERROR)).toBeInTheDocument();
+    expect(await screen.findByText("Más videos")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Short 1/ })).toBeInTheDocument();
+    expect(heroFrame()).toBeNull();
+  });
+
+  it("canal sin subidas (404 'Sin videos'): NO es un fallo, no hay aviso ni hero", async () => {
+    stubApi({ latest: () => json({ error: "Sin videos" }, 404) });
+    renderSection(["/youtube"]);
+
+    await screen.findByText("Más videos");
+    // Deja que TERMINEN las tres consultas: un aviso tardío no debe pasar inadvertido.
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(screen.queryByText(LATEST_ERROR)).toBeNull();
+    expect(statusMessages()).toHaveLength(0);
+    expect(heroFrame()).toBeNull();
+  });
+
+  it("las tres consultas fallan: un único aviso, sin encabezados de grupo ni textos de carga", async () => {
+    stubApi({
+      latest: () => json({ error: "x" }, 502),
+      videos: () => json({ error: "x" }, 502),
+      shorts: () => json({ error: "x" }, 502),
+    });
+    renderSection(["/youtube"]);
+
+    expect(await screen.findByText(ALL_ERROR)).toBeInTheDocument();
+    expect(statusMessages()).toHaveLength(1);
+    expect(screen.queryByText("Más videos")).toBeNull();
+    expect(screen.queryByText("Shorts")).toBeNull();
+    expect(screen.getByRole("heading", { name: "YOUTUBE" })).toBeInTheDocument();
+  });
+
+  it("fallo de configuración (503) y error de red: mismo aviso breve, sin detalles técnicos", async () => {
+    stubApi({
+      videos: () => json({ error: "No se pudieron obtener los videos de YouTube" }, 503),
+      shorts: () => Promise.reject(new TypeError("fetch failed")),
+    });
+    renderSection(["/youtube"]);
+
+    const videosMessage = await screen.findByText(VIDEOS_ERROR);
+    const shortsMessage = await screen.findByText(SHORTS_ERROR);
+    for (const node of [videosMessage, shortsMessage]) {
+      expect(node.textContent).not.toMatch(
+        /503|502|fetch|TypeError|clave|configuraci|API/i,
+      );
+    }
+  });
+
+  it("accesibilidad: el aviso es una región de estado visible (role=status), no aria-hidden", async () => {
+    stubApi({ videos: () => json({ error: "x" }, 502) });
+    renderSection(["/youtube"]);
+
+    const message = await screen.findByText(VIDEOS_ERROR);
+    const status = message.closest("[role='status']");
+    expect(status).not.toBeNull();
+    expect(message.closest("[aria-hidden='true']")).toBeNull();
+    expect(screen.getByRole("heading", { name: "Más videos" })).toBeInTheDocument();
+  });
+
+  it("un fallo de una consulta no destruye el deep link ni el resto de la selección", async () => {
+    stubApi({ videos: () => json({ error: "x" }, 502) });
+    renderSection(["/youtube?video=SHORTaaaaa1"]);
+
+    await screen.findByText(VIDEOS_ERROR);
+    await waitFor(() => expect(heroId()).toBe("SHORTaaaaa1"));
+    expect(url()).toBe("/youtube?video=SHORTaaaaa1");
+  });
+});

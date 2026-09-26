@@ -44,10 +44,29 @@
 // conjunto puede variar ligeramente entre consultas (la caché de 5 min lo
 // amortigua), pero el orden devuelto siempre es por fecha descendente.
 import type { TwitchClipApiItem } from "../types/api.js";
-import { readProviderJson } from "./provider-http.js";
+import { ProviderApiError, readProviderJson, type Deadline } from "./provider-http.js";
 import { fetchTwitchHelix, twitchResponseError } from "./twitch-shared.js";
 
 export const MAX_CLIPS = 12;
+
+// Plazo TOTAL de la operación de clips (token + canal + ventanas). El peor caso del algoritmo son
+// MAX_HELIX_CALLS (12) peticiones y cada una admite hasta PROVIDER_REQUEST_TIMEOUT_MS (8 s): sumar
+// eso (96 s) no acota nada. En la práctica una consulta normal son 1-3 peticiones de cientos de
+// ms. Como el proyecto no fija `maxDuration` en Vercel, se asume el límite clásico del plan Hobby
+// (10 s): 8 s deja margen para responder y para un arranque en frío. Cada petición usa como
+// máximo lo que quede de este plazo y no se inicia ninguna una vez agotado.
+export const TWITCH_CLIPS_DEADLINE_MS = 8_000;
+
+export interface RecentClipsOptions {
+  /** Plazo total compartido con quien llama (token y resolución del canal incluidos). */
+  deadline?: Deadline;
+  /**
+   * Se invoca si la búsqueda se cortó por un fallo del proveedor (timeout, 429, 5xx, red, cuerpo
+   * inválido) PERO ya había clips válidos: se devuelven esos (los más recientes hallados hasta
+   * entonces) y quien llama decide cómo presentarlo (p. ej. caché más corta).
+   */
+  onIncomplete?: (error: ProviderApiError) => void;
+}
 
 const PAGE_SIZE = 100;
 // Límites duros para no encadenar llamadas a Helix sin control.
@@ -111,52 +130,70 @@ function isPlayableClip(clip: TwitchClipApiItem): boolean {
 export async function getRecentClips(
   broadcasterId: string,
   now: Date = new Date(),
+  options: RecentClipsOptions = {},
 ): Promise<TwitchClipApiItem[]> {
   const clipsById = new Map<string, TwitchClipApiItem>();
   let calls = 0;
 
-  for (
-    let w = 0;
-    w < WINDOW_BOUNDARIES_MS.length &&
-    clipsById.size < MAX_CLIPS &&
-    calls < MAX_HELIX_CALLS;
-    w++
-  ) {
-    const endedAt = new Date(now.getTime() - (WINDOW_BOUNDARIES_MS[w] ?? 0));
-    const olderBoundary = WINDOW_BOUNDARIES_MS[w + 1];
-    const startedAt =
-      olderBoundary === undefined
-        ? CLIPS_EPOCH
-        : toRfc3339(new Date(now.getTime() - olderBoundary));
+  async function collectClips(): Promise<void> {
+    for (
+      let w = 0;
+      w < WINDOW_BOUNDARIES_MS.length &&
+      clipsById.size < MAX_CLIPS &&
+      calls < MAX_HELIX_CALLS;
+      w++
+    ) {
+      const endedAt = new Date(now.getTime() - (WINDOW_BOUNDARIES_MS[w] ?? 0));
+      const olderBoundary = WINDOW_BOUNDARIES_MS[w + 1];
+      const startedAt =
+        olderBoundary === undefined
+          ? CLIPS_EPOCH
+          : toRfc3339(new Date(now.getTime() - olderBoundary));
 
-    let cursor: string | undefined;
-    let pages = 0;
-    do {
-      const params = new URLSearchParams({
-        broadcaster_id: broadcasterId,
-        first: String(PAGE_SIZE),
-        started_at: startedAt,
-        ended_at: toRfc3339(endedAt),
-      });
-      if (cursor) params.set("after", cursor);
+      let cursor: string | undefined;
+      let pages = 0;
+      do {
+        const params = new URLSearchParams({
+          broadcaster_id: broadcasterId,
+          first: String(PAGE_SIZE),
+          started_at: startedAt,
+          ended_at: toRfc3339(endedAt),
+        });
+        if (cursor) params.set("after", cursor);
 
-      const response = await fetchTwitchHelix(`clips?${params.toString()}`);
-      calls++;
-      pages++;
-      if (!response.ok) {
-        throw twitchResponseError(response, "Twitch no pudo consultar los clips");
-      }
+        const response = await fetchTwitchHelix(
+          `clips?${params.toString()}`,
+          {},
+          options.deadline,
+        );
+        calls++;
+        pages++;
+        if (!response.ok) {
+          throw twitchResponseError(response, "Twitch no pudo consultar los clips");
+        }
 
-      const page = await readProviderJson<ClipsPage>(response, "Twitch clips");
-      for (const clip of page.data ?? []) {
-        if (isUsableClip(clip) && isPlayableClip(clip)) clipsById.set(clip.id, clip);
-      }
+        const page = await readProviderJson<ClipsPage>(response, "Twitch clips");
+        for (const clip of page.data ?? []) {
+          if (isUsableClip(clip) && isPlayableClip(clip)) clipsById.set(clip.id, clip);
+        }
 
-      const nextCursor = page.pagination?.cursor;
-      // Un cursor repetido indicaría un bucle; se corta igualmente por los
-      // límites duros de páginas y de llamadas.
-      cursor = nextCursor && nextCursor !== cursor ? nextCursor : undefined;
-    } while (cursor && pages < MAX_PAGES_PER_WINDOW && calls < MAX_HELIX_CALLS);
+        const nextCursor = page.pagination?.cursor;
+        // Un cursor repetido indicaría un bucle; se corta igualmente por los
+        // límites duros de páginas y de llamadas.
+        cursor = nextCursor && nextCursor !== cursor ? nextCursor : undefined;
+      } while (cursor && pages < MAX_PAGES_PER_WINDOW && calls < MAX_HELIX_CALLS);
+    }
+  }
+
+  // Política ante un fallo a mitad de la búsqueda: las ventanas van de lo más reciente a lo más
+  // antiguo, así que los clips ya reunidos son los más recientes y ninguna ventana posterior podría
+  // desplazarlos; devolverlos es correcto (solo faltan los más antiguos). Sin ningún clip NO se
+  // oculta el fallo: no puede distinguirse de "el canal no tiene clips", así que se relanza.
+  try {
+    await collectClips();
+  } catch (err) {
+    if (!(err instanceof ProviderApiError) || clipsById.size === 0) throw err;
+    options.onIncomplete?.(err);
   }
 
   return [...clipsById.values()]

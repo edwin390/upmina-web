@@ -1,15 +1,19 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { VercelResponse } from "@vercel/node";
 import {
+  MAX_PROVIDER_TEXT_LENGTH,
   MAX_RETRY_AFTER_SECONDS,
   PROVIDER_REQUEST_TIMEOUT_MS,
   ProviderApiError,
   ProviderRequestError,
   classifyProviderStatus,
+  createDeadline,
   fetchWithTimeout,
   parseRetryAfter,
   providerErrorFromResponse,
   readProviderJson,
+  requestTimeoutWithin,
+  sanitizeProviderText,
   sendProviderFailure,
 } from "./provider-http";
 
@@ -457,5 +461,157 @@ describe("sendProviderFailure", () => {
     expect(state.status).toBe(502);
     expect(state.body).toEqual({ error: "Mensaje" });
     expect(JSON.stringify(state.body)).not.toContain(SECRET);
+  });
+});
+
+describe("createDeadline / requestTimeoutWithin", () => {
+  it("restante decreciente con reloj inyectado, sin bajar de 0", () => {
+    let clock = 1_000;
+    const deadline = createDeadline(5_000, () => clock);
+
+    expect(deadline.remainingMs()).toBe(5_000);
+    clock += 3_000;
+    expect(deadline.remainingMs()).toBe(2_000);
+    clock += 10_000;
+    expect(deadline.remainingMs()).toBe(0);
+  });
+
+  it("usa el reloj global (falso en los tests) por defecto", () => {
+    const deadline = createDeadline(5_000);
+
+    vi.advanceTimersByTime(2_000);
+
+    expect(deadline.remainingMs()).toBe(3_000);
+  });
+
+  it("sin plazo: el máximo por petición", () => {
+    expect(requestTimeoutWithin("Prov op", undefined)).toBe(PROVIDER_REQUEST_TIMEOUT_MS);
+    expect(requestTimeoutWithin("Prov op", undefined, 1_234)).toBe(1_234);
+  });
+
+  it("con plazo: el menor entre el máximo por petición y lo que queda", () => {
+    let clock = 0;
+    const deadline = createDeadline(10_000, () => clock);
+
+    expect(requestTimeoutWithin("Prov op", deadline)).toBe(PROVIDER_REQUEST_TIMEOUT_MS);
+    clock = 7_000;
+    expect(requestTimeoutWithin("Prov op", deadline)).toBe(3_000);
+    clock = 9_999;
+    expect(requestTimeoutWithin("Prov op", deadline)).toBe(1);
+  });
+
+  it("plazo agotado: lanza TIMEOUT (504) ANTES de iniciar la petición", () => {
+    let clock = 0;
+    const deadline = createDeadline(1_000, () => clock);
+    clock = 1_000;
+
+    let error: unknown;
+    try {
+      requestTimeoutWithin("Prov op", deadline);
+    } catch (err) {
+      error = err;
+    }
+
+    expect(error).toBeInstanceOf(ProviderRequestError);
+    expect(error).toMatchObject({
+      kind: "TIMEOUT",
+      status: 504,
+      code: "provider_timeout",
+    });
+    expect((error as Error).message).toBe("Prov op: plazo total agotado");
+  });
+});
+
+/** Independiente de la implementación: C0/C1 y separadores Unicode de línea. */
+const hasControlCode = (code: number) =>
+  code < 0x20 || (code >= 0x7f && code <= 0x9f) || code === 0x2028 || code === 0x2029;
+
+describe("sanitizeProviderText", () => {
+  it("texto normal: intacto", () => {
+    expect(sanitizeProviderText("Invalid OAuth token")).toBe("Invalid OAuth token");
+  });
+
+  it.each([
+    ["saltos de línea", "a\nb\r\nc", "a b c"],
+    ["escape ANSI", "\u001b[31mrojo\u001b[0m", "[31mrojo [0m"],
+    ["NUL y DEL", "a\u0000b\u007fc", "a b c"],
+    ["separadores Unicode de línea", "a\u2028b\u2029c", "a b c"],
+    ["tabuladores", "a\tb", "a b"],
+  ])("sin caracteres de control (%s)", (_name, input, expected) => {
+    const out = sanitizeProviderText(input);
+
+    expect(out).toBe(expected);
+    expect([...out].some((char) => hasControlCode(char.codePointAt(0) ?? 0))).toBe(false);
+  });
+
+  it("acota la longitud (con elipsis) y respeta un máximo propio", () => {
+    const out = sanitizeProviderText("palabra ".repeat(1_000));
+
+    expect(out.length).toBeLessThanOrEqual(MAX_PROVIDER_TEXT_LENGTH);
+    expect(out.endsWith("…")).toBe(true);
+    expect(sanitizeProviderText("abcdefghij", { maxLength: 5 })).toBe("abcd…");
+  });
+
+  it("un texto enorme se procesa rápido y sigue acotado", () => {
+    const start = Date.now();
+    const out = sanitizeProviderText("x ".repeat(5_000_000));
+
+    expect(out.length).toBeLessThanOrEqual(MAX_PROVIDER_TEXT_LENGTH);
+    expect(Date.now() - start).toBeLessThan(1_000);
+  });
+
+  it("URLs fuera", () => {
+    const out = sanitizeProviderText(
+      "fallo en https://api.example/v1?key=SECRETO&x=1 y http://a.b/c",
+    );
+
+    expect(out).toBe("fallo en [url] y [url]");
+  });
+
+  it.each([
+    ["Bearer", "auth Bearer abcDEF123.456_789-xyz fin"],
+    ["par credencial=valor", "client_secret=abc123 fin"],
+    ["par con dos puntos", "access_token: abc123 fin"],
+    ["api_key", "api_key=AIza123 fin"],
+    ["password", "password=hunter2 fin"],
+  ])("credenciales fuera (%s)", (_name, input) => {
+    const out = sanitizeProviderText(input);
+
+    expect(out).not.toMatch(/abc123|abcDEF|AIza123|hunter2/);
+    expect(out).toContain("fin");
+  });
+
+  it("cadenas opacas largas (tokens/JWT) fuera", () => {
+    // Sintética: no es un token real ni tiene forma de JWT válido.
+    const opaque = `${"Zm9vYmFy".repeat(6)}.${"cXV4".repeat(8)}`;
+    const out = sanitizeProviderText(`token recibido ${opaque} ok`);
+
+    expect(out).not.toContain("Zm9vYmFy");
+    expect(out).toContain("ok");
+  });
+
+  it("los secretos exactos indicados se eliminan aunque no tengan formato reconocible", () => {
+    const out = sanitizeProviderText("cliente mi-secreto-raro rechazado", {
+      secrets: ["mi-secreto-raro"],
+    });
+
+    expect(out).toBe("cliente [redacted] rechazado");
+  });
+
+  it("un secreto demasiado corto (< 6) no se usa como patrón para no destrozar el texto", () => {
+    expect(sanitizeProviderText("abc def", { secrets: ["abc", ""] })).toBe("abc def");
+  });
+
+  it.each([undefined, null, 42, {}, [], true])(
+    "entrada no textual (%j) → cadena vacía",
+    (v) => {
+      expect(sanitizeProviderText(v)).toBe("");
+    },
+  );
+
+  it("conserva el diagnóstico útil (no borra todo)", () => {
+    expect(sanitizeProviderText("Twitch OAuth: invalid client")).toBe(
+      "Twitch OAuth: invalid client",
+    );
   });
 });

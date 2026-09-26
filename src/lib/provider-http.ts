@@ -17,6 +17,9 @@ import type { VercelResponse } from "@vercel/node";
 /** Timeout por petición saliente. Explícito y único punto donde se ajusta. */
 export const PROVIDER_REQUEST_TIMEOUT_MS = 8_000;
 
+/** Longitud máxima del texto de un proveedor que llega a un mensaje o a un log. */
+export const MAX_PROVIDER_TEXT_LENGTH = 200;
+
 /** Retry-After mayor que esto (1 h) se considera no fiable y se descarta. */
 export const MAX_RETRY_AFTER_SECONDS = 3_600;
 
@@ -135,6 +138,96 @@ export function providerErrorFromResponse(
         ? parseRetryAfter(response.headers?.get("retry-after"), nowMs)
         : undefined,
   });
+}
+
+// ---------- Plazo total de una operación con varias peticiones ----------
+
+/**
+ * Plazo TOTAL de una operación que encadena varias peticiones (p. ej. los clips de Twitch). El
+ * timeout por petición no basta: N peticiones lentas suman N veces ese timeout. El reloj es
+ * inyectable (por defecto Date.now, que un reloj falso controla en los tests).
+ */
+export interface Deadline {
+  /** Milisegundos que quedan (nunca negativo). */
+  remainingMs(): number;
+}
+
+export function createDeadline(totalMs: number, now: () => number = Date.now): Deadline {
+  const end = now() + totalMs;
+  return { remainingMs: () => Math.max(0, end - now()) };
+}
+
+/**
+ * Timeout de UNA petición dentro de un plazo total: el menor entre el máximo por petición y lo que
+ * queda del plazo, de modo que ninguna petición sobrevive al plazo. Si el plazo ya se agotó lanza
+ * TIMEOUT ANTES de iniciar la petición: nunca se empieza una más después de agotar el presupuesto.
+ * Sin plazo devuelve el máximo por petición.
+ */
+export function requestTimeoutWithin(
+  operation: string,
+  deadline: Deadline | undefined,
+  perRequestMs: number = PROVIDER_REQUEST_TIMEOUT_MS,
+): number {
+  if (!deadline) return perRequestMs;
+  const remaining = deadline.remainingMs();
+  if (remaining <= 0) {
+    throw new ProviderRequestError("TIMEOUT", `${operation}: plazo total agotado`);
+  }
+  return Math.min(perRequestMs, remaining);
+}
+
+// ---------- Texto controlado por el proveedor ----------
+
+/** Caracteres de control C0/C1 y separadores de línea/párrafo Unicode (inyección de líneas en logs). */
+function isControlChar(code: number): boolean {
+  return (
+    code < 0x20 || (code >= 0x7f && code <= 0x9f) || code === 0x2028 || code === 0x2029
+  );
+}
+
+/** Sustituye cada carácter de control por un espacio (recorre puntos de código: sin regex). */
+function stripControlChars(text: string): string {
+  let out = "";
+  for (const char of text) {
+    out += isControlChar(char.codePointAt(0) ?? 0) ? " " : char;
+  }
+  return out;
+}
+
+const URL_TEXT = /https?:\/\/\S+/gi;
+const BEARER_TEXT = /\bbearer\s+[A-Za-z0-9._~+/=-]+/gi;
+const CREDENTIAL_PAIR =
+  /\b(authorization|access_token|refresh_token|client_secret|client_id|api[_-]?key|token|secret|password|key)\s*[:=]\s*[^\s,;"']+/gi;
+const OPAQUE_LONG = /[A-Za-z0-9_\-+/=.]{32,}/g;
+/** Se recorta antes de aplicar las expresiones regulares: acota su coste con textos enormes. */
+const SANITIZE_INPUT_CAP = 1_000;
+
+/**
+ * Texto de un proveedor apto para un mensaje de error o un log: sin caracteres de control (evita
+ * inyectar líneas), sin URLs, sin pares credencial=valor, sin cadenas opacas largas (tokens/JWT),
+ * sin los `secrets` exactos indicados y acotado a `maxLength`. Conserva el resto del texto como
+ * diagnóstico. Nunca lanza.
+ */
+export function sanitizeProviderText(
+  value: unknown,
+  options: { maxLength?: number; secrets?: readonly string[] } = {},
+): string {
+  const maxLength = options.maxLength ?? MAX_PROVIDER_TEXT_LENGTH;
+  let text = typeof value === "string" ? value : "";
+
+  for (const secret of options.secrets ?? []) {
+    if (secret.length >= 6) text = text.split(secret).join("[redacted]");
+  }
+
+  text = stripControlChars(text.slice(0, SANITIZE_INPUT_CAP))
+    .replace(URL_TEXT, "[url]")
+    .replace(BEARER_TEXT, "Bearer [redacted]")
+    .replace(CREDENTIAL_PAIR, "$1=[redacted]")
+    .replace(OPAQUE_LONG, "[redacted]")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  return text.length > maxLength ? `${text.slice(0, Math.max(0, maxLength - 1))}…` : text;
 }
 
 /** Un status "sin cuerpo" no admite cuerpo en el constructor de Response. */

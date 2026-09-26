@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import latestHandler from "../../api/youtube-latest";
 import videosHandler from "../../api/youtube-videos";
+import { resetYouTubeCacheForTests } from "./youtube-shared";
 
 // Fiabilidad de las peticiones a YouTube (9H-1): timeout real, 429 con Retry-After, 5xx y la
 // conservación de la semántica existente (403 quotaExceeded/forbidden → 502, la key nunca se
@@ -102,6 +103,7 @@ let errorSpy: ReturnType<typeof vi.spyOn>;
 const logged = () => JSON.stringify(errorSpy.mock.calls);
 
 beforeEach(() => {
+  resetYouTubeCacheForTests();
   Object.assign(process.env, {
     YOUTUBE_API_KEY: API_KEY,
     YOUTUBE_CHANNEL_ID: CHANNEL_ID,

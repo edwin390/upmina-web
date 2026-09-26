@@ -9,6 +9,9 @@ import {
   fetchWithTimeout,
   providerErrorFromResponse,
   readProviderJson,
+  requestTimeoutWithin,
+  sanitizeProviderText,
+  type Deadline,
 } from "./provider-http.js";
 
 type TwitchConfig = {
@@ -39,12 +42,41 @@ export function twitchResponseError(response: Response, message: string) {
 let cachedToken: { token: string; expiresAt: number } | null = null;
 let cachedBroadcasterId: string | null = null;
 
+/**
+ * Texto de Twitch apto para mensajes y logs: sin caracteres de control, URLs ni credenciales
+ * (incluidos el client id/secret configurados), y acotado. Ver sanitizeProviderText.
+ */
+export function sanitizeTwitchText(value: unknown): string {
+  return sanitizeProviderText(value, {
+    secrets: [
+      process.env.TWITCH_CLIENT_ID?.trim() ?? "",
+      process.env.TWITCH_CLIENT_SECRET?.trim() ?? "",
+    ],
+  });
+}
+
+/** Mensaje de error de una respuesta de Twitch, YA saneado (viene del proveedor: no es de fiar). */
 async function getTwitchError(response: Response, fallback: string): Promise<string> {
   try {
-    const body = (await response.json()) as { message?: string; error?: string };
-    return body.message ?? body.error ?? fallback;
+    const body = (await response.json()) as { message?: unknown; error?: unknown };
+    const text = sanitizeTwitchText(body.message ?? body.error);
+    return text || fallback;
   } catch {
     return fallback;
+  }
+}
+
+/**
+ * Registro de un fallo de Twitch: alcance y mensaje saneados, sin stack ni objetos del proveedor.
+ * El detalle del proveedor nunca llega al cliente (lo decide sendProviderFailure).
+ */
+export function logTwitchError(scope: string, err: unknown): void {
+  if (err instanceof ProviderApiError) {
+    console.error(`[${scope}] ${sanitizeTwitchText(err.message)}`);
+  } else if (err instanceof Error) {
+    console.error(`[${scope}] error inesperado: ${sanitizeTwitchText(err.name)}`);
+  } else {
+    console.error(`[${scope}] error inesperado`);
   }
 }
 
@@ -70,7 +102,10 @@ function invalidateCachedToken(): void {
   cachedToken = null;
 }
 
-export async function getAppAccessToken(forceRefresh = false): Promise<string> {
+export async function getAppAccessToken(
+  forceRefresh = false,
+  deadline?: Deadline,
+): Promise<string> {
   const { clientId, clientSecret } = getTwitchConfig();
 
   if (!forceRefresh && cachedToken && cachedToken.expiresAt > Date.now()) {
@@ -89,6 +124,7 @@ export async function getAppAccessToken(forceRefresh = false): Promise<string> {
         grant_type: "client_credentials",
       }),
     },
+    requestTimeoutWithin("Twitch OAuth", deadline),
   );
 
   if (!response.ok) {
@@ -118,35 +154,45 @@ export async function getAppAccessToken(forceRefresh = false): Promise<string> {
 export async function fetchTwitchHelix(
   path: string,
   init: RequestInit = {},
+  deadline?: Deadline,
 ): Promise<Response> {
   const { clientId } = getTwitchConfig();
 
   const doFetch = (token: string) =>
-    fetchWithTimeout("Twitch Helix", `https://api.twitch.tv/helix/${path}`, {
-      ...init,
-      headers: {
-        ...init.headers,
-        "Client-Id": clientId,
-        Authorization: `Bearer ${token}`,
+    fetchWithTimeout(
+      "Twitch Helix",
+      `https://api.twitch.tv/helix/${path}`,
+      {
+        ...init,
+        headers: {
+          ...init.headers,
+          "Client-Id": clientId,
+          Authorization: `Bearer ${token}`,
+        },
       },
-    });
+      requestTimeoutWithin("Twitch Helix", deadline),
+    );
 
-  const firstToken = await getAppAccessToken();
+  const firstToken = await getAppAccessToken(false, deadline);
   const firstResponse = await doFetch(firstToken);
   if (firstResponse.status !== 401) {
     return firstResponse;
   }
 
   invalidateCachedToken();
-  const freshToken = await getAppAccessToken(true);
+  const freshToken = await getAppAccessToken(true, deadline);
   return doFetch(freshToken);
 }
 
-export async function getBroadcasterId(): Promise<string> {
+export async function getBroadcasterId(deadline?: Deadline): Promise<string> {
   if (cachedBroadcasterId) return cachedBroadcasterId;
 
   const { channel } = getTwitchConfig();
-  const response = await fetchTwitchHelix(`users?login=${encodeURIComponent(channel)}`);
+  const response = await fetchTwitchHelix(
+    `users?login=${encodeURIComponent(channel)}`,
+    {},
+    deadline,
+  );
 
   if (!response.ok) {
     const message = await getTwitchError(response, "Twitch no pudo resolver el canal");

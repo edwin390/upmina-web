@@ -5,6 +5,8 @@ import { readProviderJson, sendProviderFailure } from "../src/lib/provider-http.
 import {
   fetchTwitchHelix,
   getTwitchConfig,
+  logTwitchError,
+  sanitizeTwitchText,
   twitchResponseError,
 } from "../src/lib/twitch-shared.js";
 
@@ -26,7 +28,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       } | null;
       throw twitchResponseError(
         streamRes,
-        `Twitch streams: ${body?.message ?? streamRes.statusText}`,
+        `Twitch streams: ${sanitizeTwitchText(body?.message ?? streamRes.statusText)}`,
       );
     }
 
@@ -51,7 +53,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       startedAt: stream.started_at,
     });
   } catch (err) {
-    console.error("[twitch-status]", err);
+    logTwitchError("twitch-status", err);
     return sendProviderFailure(res, err, "No se pudo obtener el estado de Twitch");
   }
 }

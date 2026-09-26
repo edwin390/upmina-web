@@ -21,6 +21,8 @@ async function fetchLatestYouTubeVideo(): Promise<YouTubeVideo | null> {
   if (isDemoMode) return null;
 
   const res = await fetch("/api/youtube-latest");
+  // 404 "Sin videos": el canal no tiene subidas. Es un vacío legítimo, no un fallo.
+  if (res.status === 404) return null;
   if (!res.ok) throw new Error("No se pudo obtener el último video de YouTube");
   return res.json();
 }
