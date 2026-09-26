@@ -41,7 +41,8 @@ export default function TwitchClipPlayer({ clip }: TwitchClipPlayerProps) {
         <iframe
           src={twitchClipEmbedUrl(clip, parent)}
           title={clip.title ? `Clip de Twitch: ${clip.title}` : "Clip de Twitch"}
-          allow="fullscreen"
+          // autoplay delegado al iframe: sin este permiso el navegador ignora autoplay=true.
+          allow="autoplay; fullscreen"
           allowFullScreen
           referrerPolicy="strict-origin-when-cross-origin"
           onLoad={() => setStatus("ready")}

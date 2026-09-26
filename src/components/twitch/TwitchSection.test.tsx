@@ -22,6 +22,7 @@ import TwitchSection from "./TwitchSection";
 import TwitchClipPlayer, { PLAYER_LOAD_TIMEOUT_MS } from "./TwitchClipPlayer";
 import { SWIPE_THRESHOLD_PX } from "./TwitchClipViewer";
 import { safeTwitchUrl, twitchClipEmbedUrl } from "./twitchUrl";
+import { FakeTwitchPlayer, installFakeTwitch, removeFakeTwitch } from "./twitchTestUtils";
 
 // Fijan la presentación de los clips (tarjetas con miniatura, SIN iframe) y el visor interno:
 // un único reproductor a la vez, navegación circular por teclado/botones/swipe, cierre,
@@ -142,10 +143,12 @@ beforeAll(() => {
 
 beforeEach(() => {
   vi.spyOn(console, "error").mockImplementation(() => {});
+  installFakeTwitch();
 });
 
 afterEach(() => {
   cleanup();
+  removeFakeTwitch();
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
   document.body.style.overflow = "";
@@ -241,18 +244,25 @@ describe("TwitchSection: tarjetas de clips", () => {
   });
 });
 
-describe("TwitchSection: reproductor principal (sin cambios)", () => {
-  it("offline: reproduce dentro de la web el último stream grabado (VOD)", async () => {
+describe("TwitchSection: reproductor principal", () => {
+  it("offline: reproduce dentro de la web el último stream grabado (VOD), silenciado al inicio", async () => {
     stubApi();
     renderSection();
 
     const player = await screen.findByTitle("Último stream de Twitch");
     expect(player.getAttribute("src")).toBe(
-      "https://player.twitch.tv/?video=123&parent=localhost&muted=true",
+      "https://player.twitch.tv/?video=123&parent=localhost",
     );
+    expect(FakeTwitchPlayer.instances).toHaveLength(1);
+    expect(FakeTwitchPlayer.instances[0].options).toMatchObject({
+      video: "123",
+      parent: ["localhost"],
+      autoplay: true,
+      muted: true,
+    });
   });
 
-  it("en directo: reproduce el canal en vivo dentro de la web", async () => {
+  it("en directo: reproduce el canal en vivo dentro de la web, silenciado al inicio", async () => {
     stubApi();
     const base = vi.mocked(fetch);
     vi.stubGlobal("fetch", (input: RequestInfo | URL) =>
@@ -264,8 +274,13 @@ describe("TwitchSection: reproductor principal (sin cambios)", () => {
 
     const player = await screen.findByTitle("Directo de Twitch");
     expect(player.getAttribute("src")).toBe(
-      "https://player.twitch.tv/?channel=upminaa&parent=localhost&muted=true",
+      "https://player.twitch.tv/?channel=upminaa&parent=localhost",
     );
+    expect(FakeTwitchPlayer.instances[0].options).toMatchObject({
+      channel: "upminaa",
+      autoplay: true,
+      muted: true,
+    });
   });
 });
 
@@ -285,10 +300,10 @@ describe("TwitchClipViewer: apertura, un único iframe y cierre", () => {
     expect(dialog.querySelectorAll("iframe")).toHaveLength(1);
     const frame = dialog.querySelector("iframe") as HTMLIFrameElement;
     expect(frame.getAttribute("src")).toBe(
-      "https://clips.twitch.tv/embed?clip=Clip3-abc&parent=localhost",
+      "https://clips.twitch.tv/embed?clip=Clip3-abc&parent=localhost&autoplay=true",
     );
-    expect(frame.getAttribute("src")).not.toContain("autoplay");
-    expect(frame.getAttribute("allow")).not.toContain("autoplay");
+    expect(frame.getAttribute("src")).not.toContain("muted");
+    expect(frame.getAttribute("allow")).toContain("autoplay");
     expect(frame.getAttribute("allow")).toContain("fullscreen");
     expect(frame.getAttribute("title")).toBe("Clip de Twitch: Clip 3");
     expect(viewerTitle()).toBe("Clip 3");
@@ -620,20 +635,22 @@ describe("URLs de Twitch", () => {
     expect(safeTwitchUrl("")).toBeUndefined();
   });
 
-  it("twitchClipEmbedUrl usa el embed oficial con parent y SIN autoplay, y reconstruye si no es oficial", () => {
+  it("twitchClipEmbedUrl usa el embed oficial con parent y autoplay, y reconstruye si no es oficial", () => {
     expect(
       twitchClipEmbedUrl(
         { id: "A", embedUrl: "https://clips.twitch.tv/embed?clip=A" },
         "upmina-web.vercel.app",
       ),
-    ).toBe("https://clips.twitch.tv/embed?clip=A&parent=upmina-web.vercel.app");
+    ).toBe(
+      "https://clips.twitch.tv/embed?clip=A&parent=upmina-web.vercel.app&autoplay=true",
+    );
     for (const bad of [
       "https://evil.com/embed?clip=A",
       "http://clips.twitch.tv/embed?clip=A",
       "",
     ]) {
       expect(twitchClipEmbedUrl({ id: "A/B", embedUrl: bad }, "localhost")).toBe(
-        "https://clips.twitch.tv/embed?clip=A%2FB&parent=localhost",
+        "https://clips.twitch.tv/embed?clip=A%2FB&parent=localhost&autoplay=true",
       );
     }
   });
@@ -657,7 +674,7 @@ describe("Deep link /twitch?clip=<id>", () => {
     expect(navType()).toBe("POP");
   });
 
-  it("abre el visor con exactamente ese clip (1 iframe, autoplay OFF) al cargar la URL", async () => {
+  it("abre el visor con exactamente ese clip (1 iframe, autoplay solicitado) al cargar la URL", async () => {
     stubApi();
     renderSection(["/twitch?clip=Clip3-abc"]);
 
@@ -666,9 +683,8 @@ describe("Deep link /twitch?clip=<id>", () => {
     expect(clipIframes()).toHaveLength(1);
     const frame = dialog.querySelector("iframe") as HTMLIFrameElement;
     expect(frame.getAttribute("src")).toBe(
-      "https://clips.twitch.tv/embed?clip=Clip3-abc&parent=localhost",
+      "https://clips.twitch.tv/embed?clip=Clip3-abc&parent=localhost&autoplay=true",
     );
-    expect(frame.getAttribute("src")).not.toContain("autoplay");
     expect(url()).toBe("/twitch?clip=Clip3-abc");
     expect(noticeVisible()).toBe(false);
   });

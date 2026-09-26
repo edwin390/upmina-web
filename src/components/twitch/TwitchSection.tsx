@@ -65,6 +65,9 @@ export default function TwitchSection() {
     setClipParam(null);
   };
 
+  // Con un clip abierto el reproductor principal se detiene (nunca suenan dos a la vez).
+  const clipOpen = clipId !== null && selectedIndex >= 0;
+
   const badgeStatus: LiveBadgeStatus = statusLoading
     ? "loading"
     : statusError
@@ -120,12 +123,22 @@ export default function TwitchSection() {
       <div className="mb-10">
         {status?.isLive ? (
           <>
-            <TwitchPlayer channel={status.channel} title="Directo de Twitch" />
+            <TwitchPlayer
+              channel={status.channel}
+              title="Directo de Twitch"
+              suspended={clipOpen}
+              onActivate={clipOpen ? closeViewer : undefined}
+            />
             {status.title && <p className="mt-3 text-text-secondary">{status.title}</p>}
           </>
         ) : latestVideo ? (
           <>
-            <TwitchPlayer videoId={latestVideo.id} title="Último stream de Twitch" />
+            <TwitchPlayer
+              videoId={latestVideo.id}
+              title="Último stream de Twitch"
+              suspended={clipOpen}
+              onActivate={clipOpen ? closeViewer : undefined}
+            />
             <p className="mt-3 text-text-secondary">{latestVideo.title}</p>
             <p className="mt-1 flex flex-wrap items-center gap-2 text-sm text-text-muted">
               <span>Último stream grabado</span>
