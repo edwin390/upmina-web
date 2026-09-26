@@ -8,6 +8,7 @@ import {
   claimInstagramOAuthNonce,
   getInstagramConnection,
   getUsableInstagramAccessToken,
+  markInstagramAuthorizationInvalid,
   saveInstagramConnection,
   type InstagramTokenSet,
 } from "./instagram-connection";
@@ -125,7 +126,10 @@ describe("getInstagramConnection", () => {
     };
 
     expect(await getInstagramConnection()).toBeNull();
-    expect(await getUsableInstagramAccessToken(NOW)).toBe(ENV_TOKEN);
+    // Sin fila de Instagram (Supabase configurado) = desconectado: nunca el env ni la fila ajena.
+    await expect(getUsableInstagramAccessToken(NOW)).rejects.toMatchObject({
+      reason: "missing_token",
+    });
     expect(igFakeDb.queries.every((q) => q.filters[0][1] === "instagram")).toBe(true);
   });
 
@@ -222,8 +226,12 @@ describe("getUsableInstagramAccessToken: prioridad de resolución", () => {
     expect(await getUsableInstagramAccessToken(NOW)).toBe(DB_TOKEN);
   });
 
-  it("B) sin fila de Instagram → fallback al env", async () => {
-    expect(await getUsableInstagramAccessToken(NOW)).toBe(ENV_TOKEN);
+  it("B) sin fila de Instagram con Supabase configurado → desconectado (503), NUNCA el env", async () => {
+    const error = await getUsableInstagramAccessToken(NOW).catch((e: unknown) => e);
+
+    expect(error).toBeInstanceOf(InstagramConnectionError);
+    expect((error as InstagramConnectionError).reason).toBe("missing_token");
+    expect((error as InstagramConnectionError).status).toBe(503);
     expect(errorSpy).not.toHaveBeenCalled();
   });
 
@@ -235,19 +243,24 @@ describe("getUsableInstagramAccessToken: prioridad de resolución", () => {
     expect(errorSpy).not.toHaveBeenCalled();
   });
 
-  it("D) error al leer Supabase → env, con un log saneado", async () => {
+  it("D) error al leer Supabase (configurado) → error de almacenamiento saneado, NUNCA el env", async () => {
     igFakeDb.failWith = { code: "08006", message: `caída con ${DB_TOKEN}` };
 
-    expect(await getUsableInstagramAccessToken(NOW)).toBe(ENV_TOKEN);
+    const error = await getUsableInstagramAccessToken(NOW).catch((e: unknown) => e);
+
+    expect(error).toBeInstanceOf(InstagramStorageError);
     expect(errorSpy).toHaveBeenCalledWith(
-      "[instagram-connection] Error de almacenamiento (get) (code=08006); usando INSTAGRAM_ACCESS_TOKEN",
+      "[instagram-connection] Error de almacenamiento (get) (code=08006)",
     );
+    expect(logged()).not.toContain(ENV_TOKEN);
   });
 
-  it("D) excepción de red al leer Supabase → env", async () => {
+  it("D) excepción de red al leer Supabase → error de almacenamiento, sin fallback ni secretos", async () => {
     igFakeDb.throwWith = new Error(`fetch failed ${SUPABASE_URL} ${SERVICE_ROLE_KEY}`);
 
-    expect(await getUsableInstagramAccessToken(NOW)).toBe(ENV_TOKEN);
+    await expect(getUsableInstagramAccessToken(NOW)).rejects.toBeInstanceOf(
+      InstagramStorageError,
+    );
     expect(logged()).not.toContain(SERVICE_ROLE_KEY);
     expect(logged()).not.toContain(SUPABASE_URL);
   });
@@ -270,7 +283,7 @@ describe("getUsableInstagramAccessToken: prioridad de resolución", () => {
     expect(error).toBeInstanceOf(InstagramConnectionError);
     expect((error as InstagramConnectionError).status).toBe(503);
     expect((error as Error).message).toBe(
-      "Falta la variable de entorno de Instagram: INSTAGRAM_ACCESS_TOKEN",
+      "No hay una conexión de Instagram: hace falta conectarla desde el panel",
     );
   });
 
@@ -284,6 +297,7 @@ describe("getUsableInstagramAccessToken: prioridad de resolución", () => {
   });
 
   it("el env se recorta como antes (espacios alrededor del token)", async () => {
+    vi.stubEnv("VITE_SUPABASE_URL", ""); // el env solo se usa sin Supabase (desarrollo local)
     vi.stubEnv("INSTAGRAM_ACCESS_TOKEN", `  ${ENV_TOKEN}  `);
     expect(await getUsableInstagramAccessToken(NOW)).toBe(ENV_TOKEN);
   });
@@ -778,9 +792,18 @@ describe("getUsableInstagramAccessToken: renovación automática", () => {
 // resolviéndose exactamente como antes de introducir el auto-refresh.
 
 describe("getUsableInstagramAccessToken: el fallback al env es ajeno a la renovación", () => {
-  it("sin fila persistida, el env sigue funcionando sin tocar Meta", async () => {
+  it("sin Supabase configurado (desarrollo local), el env sigue funcionando sin tocar Meta", async () => {
+    vi.stubEnv("SUPABASE_SERVICE_ROLE_KEY", "");
     const fetchMock = stubInstagramRefresh();
     expect(await getUsableInstagramAccessToken(NOW)).toBe(ENV_TOKEN);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("sin fila persistida con Supabase configurado no se enmascara con el env ni se toca Meta", async () => {
+    const fetchMock = stubInstagramRefresh();
+    await expect(getUsableInstagramAccessToken(NOW)).rejects.toMatchObject({
+      reason: "missing_token",
+    });
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
@@ -807,7 +830,7 @@ describe("secretos", () => {
     };
     const errors: unknown[] = [];
 
-    await getUsableInstagramAccessToken(NOW); // fallback: se registra
+    errors.push(await getUsableInstagramAccessToken(NOW).catch((e: unknown) => e));
     vi.stubEnv("INSTAGRAM_ACCESS_TOKEN", "");
     errors.push(await getUsableInstagramAccessToken(NOW).catch((e: unknown) => e));
 
@@ -1076,5 +1099,182 @@ describe("claimInstagramOAuthNonce", () => {
     expect(await claimInstagramOAuthNonce(NONCE, EXPIRES_AT_MS + 60_000, NOW)).toBe(
       "already_used",
     );
+  });
+});
+
+// ---------- Ciclo de vida (9H-3): autorización rechazada, transitorios y desconexión ----------
+
+describe("autorización rechazada por Meta (OAuthException 190) durante la renovación", () => {
+  const soon = () =>
+    igRow({ access_token_expires_at: new Date(NOW + 3 * DAY).toISOString() });
+  const metaRejects = (code: number, status = 400) =>
+    jsonResponse(
+      { error: { message: `Detalle con ${DB_TOKEN}`, type: "OAuthException", code } },
+      status,
+    );
+
+  it("190 con el token AÚN vigente: no se sirve, se pide reconectar y se persiste (caducidad = ahora)", async () => {
+    igFakeDb.rows.instagram = soon();
+    stubInstagramRefresh(() => metaRejects(190));
+
+    const error = await getUsableInstagramAccessToken(NOW).catch((e: unknown) => e);
+
+    expect(error).toBeInstanceOf(InstagramConnectionError);
+    expect((error as InstagramConnectionError).reason).toBe("reauthorization_required");
+    expect((error as InstagramConnectionError).status).toBe(503);
+    expect(countIgOps("invalidate")).toBe(1);
+    expect(igFakeDb.rows.instagram.access_token_expires_at).toBe(
+      new Date(NOW).toISOString(),
+    );
+    // El token no se borra ni se altera; el lease queda liberado.
+    expect(igFakeDb.rows.instagram.access_token).toBe(DB_TOKEN);
+    expect(igFakeDb.rows.instagram.refresh_lock_until ?? null).toBeNull();
+    expect(logged()).not.toContain(DB_TOKEN);
+  });
+
+  it("tras persistir el rechazo, las siguientes peticiones responden 'caducado' SIN volver a llamar a Meta", async () => {
+    igFakeDb.rows.instagram = soon();
+    stubInstagramRefresh(() => metaRejects(190));
+    await getUsableInstagramAccessToken(NOW).catch(() => undefined);
+
+    const fetchMock = stubInstagramRefresh();
+    const error = await getUsableInstagramAccessToken(NOW + 1000).catch(
+      (e: unknown) => e,
+    );
+
+    expect((error as InstagramConnectionError).reason).toBe("expired");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["429 limitado", () => metaRejects(4, 429)],
+    ["500 de Meta", () => metaRejects(2, 500)],
+    ["503 de Meta", () => jsonResponse({}, 503)],
+    ["rate limit 17 con 400", () => metaRejects(17, 400)],
+    ["error 100 (parámetro inválido)", () => metaRejects(100, 400)],
+    ["cuerpo no JSON", () => new Response("<html>", { status: 502 })],
+    [
+      "fallo de red",
+      () => {
+        throw new Error(`ECONNRESET ${DB_TOKEN}`);
+      },
+    ],
+  ])(
+    "transitorio o ambiguo (%s) NO se toma por revocación: se sigue sirviendo el token vigente",
+    async (_n, respond) => {
+      igFakeDb.rows.instagram = soon();
+      stubInstagramRefresh(respond);
+
+      expect(await getUsableInstagramAccessToken(NOW)).toBe(DB_TOKEN);
+      expect(countIgOps("invalidate")).toBe(0);
+      expect(igFakeDb.rows.instagram.access_token_expires_at).toBe(
+        new Date(NOW + 3 * DAY).toISOString(),
+      );
+    },
+  );
+
+  it("el rechazo se persiste condicionado al token rechazado: una reautorización posterior no se pisa", async () => {
+    igFakeDb.rows.instagram = soon();
+    igFakeDb.before["invalidate"] = () => {
+      igFakeDb.rows.instagram = igRow({
+        access_token: "IGAA-token-de-otra-reautorizacion",
+        access_token_expires_at: new Date(NOW + 60 * DAY).toISOString(),
+      });
+    };
+    stubInstagramRefresh(() => metaRejects(190));
+
+    await getUsableInstagramAccessToken(NOW).catch(() => undefined);
+
+    expect(igFakeDb.rows.instagram.access_token).toBe(
+      "IGAA-token-de-otra-reautorizacion",
+    );
+    expect(igFakeDb.rows.instagram.access_token_expires_at).toBe(
+      new Date(NOW + 60 * DAY).toISOString(),
+    );
+  });
+
+  it("si persistir el rechazo falla, igual responde 'reconectar' y solo se registra un error saneado", async () => {
+    igFakeDb.rows.instagram = soon();
+    igFakeDb.failOn["invalidate"] = { code: "08006", message: `caída ${DB_TOKEN}` };
+    stubInstagramRefresh(() => metaRejects(190));
+
+    const error = await getUsableInstagramAccessToken(NOW).catch((e: unknown) => e);
+
+    expect((error as InstagramConnectionError).reason).toBe("reauthorization_required");
+    expect(errorSpy).toHaveBeenCalledWith(
+      "[instagram-connection] Error de almacenamiento (invalidate) (code=08006)",
+    );
+    expect(logged()).not.toContain(DB_TOKEN);
+  });
+
+  it("markInstagramAuthorizationInvalid sobre una fila inexistente (desconectada) no crea ni restaura nada", async () => {
+    await markInstagramAuthorizationInvalid(DB_TOKEN, NOW);
+
+    expect(igFakeDb.rows.instagram).toBeUndefined();
+    expect(igFakeDb.upserts).toHaveLength(0);
+  });
+
+  it("markInstagramAuthorizationInvalid sin Supabase configurado es un no-op silencioso", async () => {
+    vi.stubEnv("SUPABASE_SERVICE_ROLE_KEY", "");
+
+    await expect(
+      markInstagramAuthorizationInvalid(DB_TOKEN, NOW),
+    ).resolves.toBeUndefined();
+    expect(errorSpy).not.toHaveBeenCalled();
+  });
+});
+
+describe("desconexión gana a una renovación en vuelo (sin resurrección)", () => {
+  it("la fila se borra mientras Meta respondía: el token renovado NO se guarda y no se sirve", async () => {
+    igFakeDb.rows.instagram = igRow({
+      access_token_expires_at: new Date(NOW + 3 * DAY).toISOString(),
+    });
+    igFakeDb.before["refresh-save"] = () => {
+      delete igFakeDb.rows.instagram; // desconexión confirmada entretanto
+    };
+    stubInstagramRefresh();
+
+    const error = await getUsableInstagramAccessToken(NOW).catch((e: unknown) => e);
+
+    expect(error).toBeInstanceOf(InstagramConnectionError);
+    expect((error as InstagramConnectionError).reason).toBe("missing_token");
+    expect(igFakeDb.rows.instagram).toBeUndefined();
+    expect(igFakeDb.upserts).toHaveLength(0);
+  });
+
+  it("la fila se borra justo antes de adquirir el lease: no se llama a Meta y no se escribe nada", async () => {
+    igFakeDb.rows.instagram = igRow({
+      access_token_expires_at: new Date(NOW + 3 * DAY).toISOString(),
+    });
+    igFakeDb.before["lease"] = () => {
+      delete igFakeDb.rows.instagram;
+    };
+    const fetchMock = stubInstagramRefresh();
+
+    const error = await getUsableInstagramAccessToken(NOW, {
+      sleep: async () => undefined,
+    }).catch((e: unknown) => e);
+
+    expect((error as InstagramConnectionError).reason).toBe("missing_token");
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(igFakeDb.rows.instagram).toBeUndefined();
+    expect(igFakeDb.upserts).toHaveLength(0);
+  });
+
+  it("un rechazo 190 tardío tampoco resucita una fila ya desconectada", async () => {
+    igFakeDb.rows.instagram = igRow({
+      access_token_expires_at: new Date(NOW + 3 * DAY).toISOString(),
+    });
+    igFakeDb.before["invalidate"] = () => {
+      delete igFakeDb.rows.instagram;
+    };
+    stubInstagramRefresh(() =>
+      jsonResponse({ error: { type: "OAuthException", code: 190 } }, 400),
+    );
+
+    await getUsableInstagramAccessToken(NOW).catch(() => undefined);
+
+    expect(igFakeDb.rows.instagram).toBeUndefined();
+    expect(igFakeDb.upserts).toHaveLength(0);
   });
 });

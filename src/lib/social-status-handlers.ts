@@ -1,8 +1,11 @@
 import { createClient } from "@supabase/supabase-js";
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { AdminAuthError, authErrorBody, requireCapability } from "./admin-auth.js";
-import { isInstagramAccessTokenExpired } from "./instagram-connection.js";
-import { isTikTokRefreshTokenExpired } from "./tiktok-connection.js";
+import {
+  socialLifecycle,
+  type SocialConnectionRow,
+  type SocialLifecycleStatus,
+} from "./social-lifecycle.js";
 
 // Handler HTTP de GET /api/admin/social-status (Bloque 8E): estado de las conexiones
 // sociales globales para el panel /admin. SOLO ADMIN con AAL2 (requireCapability social_admin); solo después
@@ -10,69 +13,23 @@ import { isTikTokRefreshTokenExpired } from "./tiktok-connection.js";
 // se seleccionan ni se devuelven tokens, identificadores de cuenta, scopes ni filas crudas.
 //
 // Contrato:
-//   200 : { connections: { instagram: { status }, tiktok: { status } } } con
-//         status ∈ "connected" | "not_connected" | "reauth_required" (Cache-Control: no-store).
+//   200 : { connections: { instagram: { status, expiresAt? }, tiktok: { status, expiresAt? } } } con
+//         status ∈ "connected" | "expiring_soon" | "reauth_required" | "not_connected"
+//         (Cache-Control: no-store). La semántica exacta de cada estado (reglas, umbrales, fail
+//         closed) vive en social-lifecycle.ts; `expiresAt` es la fecha que gobierna el estado.
 //   401/403 : requireCapability social_admin.   405 : método distinto de GET (Allow: GET).
 //   500 : cualquier fallo (auth infra, configuración, lectura) sin detalles. NUNCA se
 //         interpreta un fallo de lectura como "not_connected".
 //
-// Semántica exacta (no afirma más de lo que se sabe):
-//   not_connected   — NO existe fila en social_connections para ese proveedor.
-//   connected       — existe una conexión almacenada cuyas credenciales persistidas NO han
-//                     caducado según la MISMA regla que usa el feed. No prueba que el
-//                     proveedor no la haya revocado.
-//   reauth_required — existe la fila pero sus credenciales persistidas ya no sirven:
-//                       Instagram: access token caducado o a ≤ 60 s de caducar
-//                                  (isInstagramAccessTokenExpired, misma regla que el feed);
-//                       TikTok:    refresh token caducado (isTikTokRefreshTokenExpired);
-//                       o la fila tiene una fecha de expiración ilegible (no es utilizable).
-//                     Se deriva SOLO de fechas absolutas persistidas, nunca de un error
-//                     transitorio del proveedor. NO detecta, todavía, una revocación anterior
-//                     a la caducidad ni un invalid_grant de TikTok: eso no se persiste hoy.
+// Es de SOLO LECTURA y no toca al proveedor: no rota tokens, no crea flujos OAuth ni desconecta.
+// Solo se seleccionan columnas de expiración: nunca tokens, ids de cuenta, scopes ni filas crudas.
 //
-// Nota: mientras exista el fallback temporal INSTAGRAM_ACCESS_TOKEN, el feed de Instagram puede
-// funcionar sin fila; este panel refleja solo la conexión OAuth almacenada.
+// Nota: el feed de Instagram solo usa INSTAGRAM_ACCESS_TOKEN si Supabase no está configurado
+// (desarrollo local); con Supabase configurado, este estado y el feed leen la misma fila.
 
-export type SocialConnectionStatus = "connected" | "not_connected" | "reauth_required";
+export type SocialConnectionStatus = SocialLifecycleStatus;
 
 const GENERIC_ERROR_BODY = { error: "Error interno" };
-
-interface ConnectionRow {
-  provider?: unknown;
-  access_token_expires_at?: unknown;
-  refresh_token_expires_at?: unknown;
-}
-
-function isExpiredOrUnreadable(
-  value: unknown,
-  isExpired: (iso: string, now: number) => boolean,
-  now: number,
-): boolean {
-  if (typeof value !== "string" || Number.isNaN(Date.parse(value))) return true;
-  return isExpired(value, now);
-}
-
-function statusOf(
-  provider: "instagram" | "tiktok",
-  rows: ConnectionRow[],
-  now: number,
-): SocialConnectionStatus {
-  const row = rows.find((r) => r.provider === provider);
-  if (!row) return "not_connected";
-  const expired =
-    provider === "instagram"
-      ? isExpiredOrUnreadable(
-          row.access_token_expires_at,
-          isInstagramAccessTokenExpired,
-          now,
-        )
-      : isExpiredOrUnreadable(
-          row.refresh_token_expires_at,
-          isTikTokRefreshTokenExpired,
-          now,
-        );
-  return expired ? "reauth_required" : "connected";
-}
 
 export async function handleAdminSocialStatus(
   req: VercelRequest,
@@ -96,7 +53,7 @@ export async function handleAdminSocialStatus(
   const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY?.trim();
   if (!url || !serviceRoleKey) return res.status(500).json(GENERIC_ERROR_BODY);
 
-  let rows: ConnectionRow[];
+  let rows: SocialConnectionRow[];
   try {
     const client = createClient(url, serviceRoleKey, {
       auth: { persistSession: false, autoRefreshToken: false },
@@ -106,7 +63,7 @@ export async function handleAdminSocialStatus(
       .select("provider, access_token_expires_at, refresh_token_expires_at")
       .in("provider", ["instagram", "tiktok"]);
     if (error || !Array.isArray(data)) return res.status(500).json(GENERIC_ERROR_BODY);
-    rows = data as ConnectionRow[];
+    rows = data as SocialConnectionRow[];
   } catch {
     return res.status(500).json(GENERIC_ERROR_BODY);
   }
@@ -115,8 +72,8 @@ export async function handleAdminSocialStatus(
   res.setHeader("Cache-Control", "no-store");
   return res.status(200).json({
     connections: {
-      instagram: { status: statusOf("instagram", rows, now) },
-      tiktok: { status: statusOf("tiktok", rows, now) },
+      instagram: socialLifecycle("instagram", rows, now),
+      tiktok: socialLifecycle("tiktok", rows, now),
     },
   });
 }

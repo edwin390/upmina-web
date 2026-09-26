@@ -11,11 +11,13 @@ type Row = Record<string, unknown>;
 /** Operaciones de `update` distinguibles por la forma de los valores escritos (ver
  *  `classifyUpdate`): adquisición/liberación del lease de renovación y guardado del
  *  token renovado. */
-export type FakeUpdateOp = "lease" | "release" | "refresh-save";
+export type FakeUpdateOp = "lease" | "release" | "refresh-save" | "invalidate";
 
 function classifyUpdate(values: Row): FakeUpdateOp {
   if (values.refresh_lock_until && values.refresh_lock_until !== null) return "lease";
-  return "access_token" in values ? "refresh-save" : "release";
+  if ("access_token" in values) return "refresh-save";
+  // Rechazo explícito del proveedor: solo escribe la caducidad (y libera el lease).
+  return "access_token_expires_at" in values ? "invalidate" : "release";
 }
 
 function matchesOr(row: Row, expression: string): boolean {

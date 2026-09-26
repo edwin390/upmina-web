@@ -350,7 +350,8 @@ describe("api/instagram-feed", () => {
     await feedHandler(getReq(), res);
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
-    expect(state.status).toBe(502);
+    // Rechazo explícito de la autorización → "hay que reconectar" (503 saneado), no un 502 genérico.
+    expect(state.status).toBe(503);
   });
 
   it("200 con lista vacía cuando la cuenta no tiene publicaciones", async () => {
@@ -388,7 +389,7 @@ describe("api/instagram-feed", () => {
     expect(state.body).toEqual({ error: "No se pudo obtener el feed de Instagram" });
   });
 
-  it("502 genérico si Meta rechaza el token, sin filtrar mensaje ni token", async () => {
+  it("503 saneado si Meta rechaza el token (190), sin filtrar mensaje ni token", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async () => metaError(190)),
@@ -397,10 +398,10 @@ describe("api/instagram-feed", () => {
     const { res, state } = mockRes();
     await feedHandler(getReq(), res);
 
-    expect(state.status).toBe(502);
+    expect(state.status).toBe(503);
     expect(state.body).toEqual({ error: "No se pudo obtener el feed de Instagram" });
     expect(errorSpy).toHaveBeenCalledWith(
-      expect.stringContaining("HTTP 400 (OAuthException/190)"),
+      "[instagram-feed] Meta rechazó la autorización de Instagram guardada: hace falta reconectar",
     );
     expect(leaked(state)).toBe(false);
   });
@@ -510,7 +511,7 @@ describe("api/instagram-media (children de carrusel)", () => {
 
     r = mockRes();
     await mediaHandler(getReq({ id: "1" }), r.res);
-    expect(r.state.status).toBe(502);
+    expect(r.state.status).toBe(503);
     expect(r.state.body).toEqual({
       error: "No se pudo obtener la publicación de Instagram",
     });
@@ -645,14 +646,14 @@ describe("api/instagram-comments", () => {
     expect(r.state.body).not.toHaveProperty("debug");
   });
 
-  it("error real de Meta (token 190, HTTP 500, red) → 502 genérico, sin filtrar el token", async () => {
+  it("error real de Meta (token 190 → 503 reconectar; HTTP 500 y red → 502 genérico), sin filtrar el token", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async () => metaError(190)),
     );
     let r = mockRes();
     await commentsHandler(getReq({ id: "123" }), r.res);
-    expect(r.state.status).toBe(502);
+    expect(r.state.status).toBe(503);
     expect(r.state.body).toEqual({
       error: "No se pudieron obtener los comentarios de Instagram",
     });
@@ -776,14 +777,14 @@ describe("api/instagram-profile", () => {
     expect(leaked(state)).toBe(false);
   });
 
-  it("502 genérico si Meta rechaza el token y 503 sin token, sin filtrar el token", async () => {
+  it("503 saneado si Meta rechaza el token (190) y 503 sin token, sin filtrar el token", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async () => metaError(190)),
     );
     let r = mockRes();
     await profileHandler(getReq(), r.res);
-    expect(r.state.status).toBe(502);
+    expect(r.state.status).toBe(503);
     expect(r.state.body).toEqual({ error: "No se pudo obtener el perfil de Instagram" });
     expect(leaked(r.state)).toBe(false);
 
@@ -1004,15 +1005,18 @@ describe("token resuelto desde Supabase", () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
-  it("sin fila en Supabase configurado, se sigue usando el env (transición)", async () => {
+  it("sin fila en Supabase configurado (desconectado): 503 y el env NO lo enmascara", async () => {
     connectSupabase();
     delete igFakeDb.rows.instagram;
     const fetchMock = vi.fn(async () => jsonResponse({ data: [] }));
     vi.stubGlobal("fetch", fetchMock);
 
-    await feedHandler(getReq(), mockRes().res);
+    const { res, state } = mockRes();
+    await feedHandler(getReq(), res);
 
-    expect(tokensSent(fetchMock)).toEqual([TOKEN]);
+    expect(state.status).toBe(503);
+    expect(state.body).toEqual({ error: "No se pudo obtener el feed de Instagram" });
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it("fila caducada: 503 en los cuatro endpoints, sin llamar a Meta ni usar el env", async () => {
@@ -1057,7 +1061,7 @@ describe("token resuelto desde Supabase", () => {
     expect(leakedSecret(state)).toBe(false);
   });
 
-  it("error al leer Supabase: usa el env y registra solo un código saneado", async () => {
+  it("error al leer Supabase: 500 saneado, NO usa el env y registra solo un código", async () => {
     connectSupabase();
     igFakeDb.failWith = { code: "08006", message: `caída ${SERVICE_ROLE_KEY}` };
     const fetchMock = vi.fn(async () => jsonResponse({ data: [] }));
@@ -1066,10 +1070,10 @@ describe("token resuelto desde Supabase", () => {
     const { res, state } = mockRes();
     await feedHandler(getReq(), res);
 
-    expect(state.status).toBe(200);
-    expect(tokensSent(fetchMock)).toEqual([TOKEN]);
+    expect(state.status).toBe(500);
+    expect(fetchMock).not.toHaveBeenCalled();
     expect(errorSpy).toHaveBeenCalledWith(
-      "[instagram-connection] Error de almacenamiento (get) (code=08006); usando INSTAGRAM_ACCESS_TOKEN",
+      "[instagram-connection] Error de almacenamiento (get) (code=08006)",
     );
     expect(leakedSecret(state)).toBe(false);
   });
@@ -1114,7 +1118,11 @@ describe("token resuelto desde Supabase", () => {
     const { res, state } = mockRes();
     await feedHandler(getReq(), res);
 
-    expect(state.status).toBe(502);
+    expect(state.status).toBe(503);
     expect(leakedSecret(state)).toBe(false);
+    // El rechazo se persiste como caducidad inmediata: el panel lo verá como "reautorizar".
+    expect(
+      Date.parse(String(igFakeDb.rows.instagram.access_token_expires_at)),
+    ).toBeLessThanOrEqual(Date.now());
   });
 });

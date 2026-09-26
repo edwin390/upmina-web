@@ -871,3 +871,171 @@ describe("api/tiktok-videos: refresh automático", () => {
     }
   });
 });
+
+// ---------- Ciclo de vida (9H-3): invalid_grant persistente, transitorios y desconexión ----------
+
+describe("api/tiktok-videos: ciclo de vida de la autorización", () => {
+  const invalidGrant = () =>
+    jsonResponse(
+      {
+        error: "invalid_grant",
+        error_description: `Refresh token ${REFRESH} is invalid`,
+      },
+      400,
+    );
+
+  it("invalid_grant se PERSISTE (caducidad del refresh = ahora) y limpia el lease; los tokens no se borran", async () => {
+    fakeDb.row = expiredRow();
+    stubTikTok(invalidGrant);
+
+    const { res, state } = mockRes();
+    await handler(req(), res);
+
+    expect(state.status).toBe(503);
+    expect(countOps("invalidate")).toBe(1);
+    expect(fakeDb.row).toMatchObject({
+      access_token: ACCESS,
+      refresh_token: REFRESH,
+      refresh_token_expires_at: iso(0),
+      refresh_lock_until: null,
+    });
+    expect(leaked(state)).toBe(false);
+    expect(logged()).not.toContain(REFRESH);
+  });
+
+  it("tras persistirlo, las siguientes peticiones responden 'refresh caducado' SIN volver a llamar a TikTok", async () => {
+    fakeDb.row = expiredRow();
+    stubTikTok(invalidGrant);
+    await handler(req(), mockRes().res);
+
+    const tiktok = stubTikTok();
+    const { res, state } = mockRes();
+    await handler(req(), res);
+
+    expect(state.status).toBe(503);
+    expect(tiktok.fetchMock).not.toHaveBeenCalled();
+    expect(logged()).toMatch(/reason=refresh_token_expired/);
+  });
+
+  it.each([
+    ["429 limitado", () => jsonResponse({ error: "rate_limit_exceeded" }, 429)],
+    ["500 de TikTok", () => jsonResponse({ error: "internal_error" }, 500)],
+    ["503 de TikTok", () => jsonResponse({}, 503)],
+    ["cuerpo no JSON", () => new Response("<html>", { status: 502 })],
+    [
+      "fallo de red",
+      () => {
+        throw new Error(`ECONNRESET ${REFRESH}`);
+      },
+    ],
+    ["server_error con 200", () => jsonResponse({ error: "server_error" }, 200)],
+  ])(
+    "transitorio o ambiguo (%s) NO se toma por revocación: nada se persiste",
+    async (_n, respond) => {
+      fakeDb.row = expiredRow();
+      stubTikTok(respond);
+
+      const { res, state } = mockRes();
+      await handler(req(), res);
+
+      expect(state.status).toBe(502);
+      expect(countOps("invalidate")).toBe(0);
+      expect(fakeDb.row).toMatchObject({
+        refresh_token: REFRESH,
+        refresh_token_expires_at: iso(300 * DAY),
+      });
+    },
+  );
+
+  it("el rechazo se persiste condicionado al refresh token rechazado: una reautorización posterior no se pisa", async () => {
+    fakeDb.row = expiredRow();
+    fakeDb.before["invalidate"] = () => {
+      fakeDb.row = storedRow({
+        access_token: "act.reautorizado",
+        refresh_token: "rft.reautorizado",
+      });
+    };
+    stubTikTok(invalidGrant);
+
+    await handler(req(), mockRes().res);
+
+    expect(fakeDb.row).toMatchObject({
+      refresh_token: "rft.reautorizado",
+      refresh_token_expires_at: iso(300 * DAY),
+    });
+  });
+
+  it("si persistir el rechazo falla, igual responde 503 (reautorizar) y solo se registra un código saneado", async () => {
+    fakeDb.row = expiredRow();
+    fakeDb.failOn["invalidate"] = { code: "08006", message: `caída ${REFRESH}` };
+    stubTikTok(invalidGrant);
+
+    const { res, state } = mockRes();
+    await handler(req(), res);
+
+    expect(state.status).toBe(503);
+    expect(logged()).toMatch(/\(invalidate\) \(code=08006\)/);
+    expect(logged()).not.toContain(REFRESH);
+  });
+
+  it("access token caducado con refresh token vigente es recuperable: se renueva y se sirve", async () => {
+    fakeDb.row = expiredRow();
+    const tiktok = stubTikTok();
+
+    const { res, state } = mockRes();
+    await handler(req(), res);
+
+    expect(state.status).toBe(200);
+    expect(tiktok.tokenCalls()).toHaveLength(1);
+    expect(countOps("invalidate")).toBe(0);
+  });
+
+  it("la desconexión gana a un refresh en vuelo: la fila borrada NO se resucita ni se guardan los tokens rotados", async () => {
+    fakeDb.row = expiredRow();
+    fakeDb.before["refresh-save"] = () => {
+      fakeDb.row = null; // desconexión confirmada mientras TikTok respondía
+    };
+    stubTikTok();
+
+    const { res, state } = mockRes();
+    await handler(req(), res);
+
+    expect(state.status).toBe(500);
+    expect(fakeDb.row).toBeNull();
+    expect(countOps("refresh-save")).toBe(1); // sin reintento
+    expect(leaked(state)).toBe(false);
+  });
+
+  it("la desconexión llega antes del refresh: sin fila → 503 'no hay conexión', sin llamar a TikTok", async () => {
+    fakeDb.row = null;
+    const tiktok = stubTikTok();
+
+    const { res, state } = mockRes();
+    await handler(req(), res);
+
+    expect(state.status).toBe(503);
+    expect(tiktok.fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("un invalid_grant tardío tampoco resucita una fila ya desconectada", async () => {
+    fakeDb.row = expiredRow();
+    fakeDb.before["invalidate"] = () => {
+      fakeDb.row = null;
+    };
+    stubTikTok(invalidGrant);
+
+    await handler(req(), mockRes().res);
+
+    expect(fakeDb.row).toBeNull();
+  });
+
+  it("dos peticiones simultáneas con invalid_grant: un único rechazo contra TikTok y la fila queda marcada una vez", async () => {
+    fakeDb.row = expiredRow();
+    const tiktok = stubTikTok(invalidGrant);
+
+    await Promise.all([handler(req(), mockRes().res), handler(req(), mockRes().res)]);
+
+    expect(tiktok.tokenCalls()).toHaveLength(1);
+    expect(countOps("invalidate")).toBe(1);
+  });
+});

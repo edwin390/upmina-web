@@ -183,9 +183,17 @@ describe("carga del estado", () => {
       expect(items).toHaveLength(2);
       expect(items[0]).toHaveTextContent(labels[ig]);
       expect(items[1]).toHaveTextContent(labels[tt]);
-      // Con un estado conectado no hay botón en esa tarjeta.
-      expect(items[0].querySelector("button") === null).toBe(ig === "connected");
-      expect(items[1].querySelector("button") === null).toBe(tt === "connected");
+      // Con un estado conectado no hay botón de conectar/reconectar (sí el de desconectar, 9H-3).
+      const buttons = (item: Element) =>
+        [...item.querySelectorAll("button")].map((b) => b.textContent);
+      const expected = (status: Status, name: string) =>
+        status === "connected"
+          ? [`Desconectar ${name}`]
+          : status === "not_connected"
+            ? [`Conectar ${name}`]
+            : [`Reconectar ${name}`, `Desconectar ${name}`];
+      expect(buttons(items[0])).toEqual(expected(ig, "Instagram"));
+      expect(buttons(items[1])).toEqual(expected(tt, "TikTok"));
     },
   );
 

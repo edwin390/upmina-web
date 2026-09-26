@@ -27,7 +27,9 @@ import {
   InstagramConnectionError,
   InstagramStorageError,
   getUsableInstagramAccessToken,
+  markInstagramAuthorizationInvalid,
 } from "./instagram-connection.js";
+import { META_INVALID_TOKEN_CODE } from "./instagram-oauth-shared.js";
 import type {
   InstagramChild,
   InstagramComment,
@@ -141,6 +143,13 @@ async function fetchInstagram<T>(
 
   if (!response.ok) {
     const { type, code, subcode } = await getMetaError(response);
+    // OAuthException 190: Meta rechaza la autorización (token inválido, caducado o revocado).
+    // Se persiste para que el panel lo refleje y se responde como "hay que reconectar" (503
+    // saneado), no como un fallo genérico del proveedor. 429/5xx/red nunca llegan aquí.
+    if (code === META_INVALID_TOKEN_CODE) {
+      await markInstagramAuthorizationInvalid(accessToken);
+      throw new InstagramConnectionError("reauthorization_required");
+    }
     const detail = `${type}/${code ?? "unknown"}${subcode ? `/${subcode}` : ""}`;
     throw new InstagramApiError(
       `Instagram ${operation}: HTTP ${response.status} (${detail})`,

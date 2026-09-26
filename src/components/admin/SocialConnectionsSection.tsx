@@ -2,22 +2,35 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { usePrivilegedFailureReporter } from "@/hooks/privileged-failure";
 
-// Sección "Redes sociales" de /admin (Bloque 8E). Vive DENTRO del shell ya autorizado por
-// GET /api/admin/me: el frontend no decide quién es ADMIN. Las dos llamadas que hace son
-// privilegiadas y las resuelve el backend (ADMIN + AAL2):
-//   - GET  /api/admin/social-status  → estado de cada conexión (solo el estado, sin tokens).
-//   - POST /api/admin/social-connect → { provider } → { authorization_url }; el navegador
-//     navega a esa URL. El frontend NO genera `state`, NO construye URLs de autorización y NO
-//     envía redirect_uri ni scopes: todo eso es del servidor. Solo comprueba que recibió una
-//     https del host oficial de ese proveedor antes de navegar (la seguridad real de la URL
-//     sigue siendo server-side).
-// Un fallo de carga, de sesión o de MFA NUNCA se presenta como "No conectado".
+// Sección "Redes sociales" de /admin (Bloque 8E, ciclo de vida en la Fase 9H-3). Vive DENTRO del
+// shell ya autorizado por GET /api/admin/me: el frontend no decide quién es ADMIN. Las llamadas que
+// hace son privilegiadas y las resuelve el backend (ADMIN + social_admin + MFA reciente):
+//   - GET  /api/admin/social-status     → estado de cada conexión (solo estado y fecha, sin tokens).
+//   - POST /api/admin/social-connect    → { provider } → { authorization_url }; el navegador navega a
+//     esa URL. El frontend NO genera `state`, NO construye URLs de autorización y NO envía
+//     redirect_uri ni scopes: todo eso es del servidor. Solo comprueba que recibió una https del
+//     host oficial de ese proveedor antes de navegar (la seguridad real de la URL es server-side).
+//   - POST /api/admin/social-disconnect → { provider } → DESTRUCTIVA. Nunca se ejecuta sola: exige
+//     abrir una confirmación y aceptarla. Si el servidor responde `step_up_required` (MFA vencido),
+//     el contenedor lleva a /admin/mfa y al volver aquí NO se reproduce nada: esta sección se monta
+//     de nuevo sin confirmación abierta y hay que confirmar OTRA VEZ. No se guarda ninguna intención
+//     (ni en URL, ni en storage) ni credencial alguna: el backend revalida rol, capacidad y MFA.
+// Un fallo de carga, de sesión o de MFA NUNCA se presenta como "No conectado", y un fallo al
+// desconectar nunca cambia el estado mostrado: el estado solo cambia si el servidor lo confirma.
 
 export type SocialProvider = "instagram" | "tiktok";
-export type SocialConnectionStatus = "connected" | "not_connected" | "reauth_required";
+export type SocialConnectionStatus =
+  "connected" | "expiring_soon" | "reauth_required" | "not_connected";
+
+interface ConnectionInfo {
+  status: SocialConnectionStatus;
+  /** ISO de la fecha que gobierna el estado (solo si el servidor la envió y es legible). */
+  expiresAt?: string;
+}
 
 const STATUS_ENDPOINT = "/api/admin/social-status";
 const CONNECT_ENDPOINT = "/api/admin/social-connect";
+const DISCONNECT_ENDPOINT = "/api/admin/social-disconnect";
 
 const PROVIDERS: { id: SocialProvider; name: string; host: string }[] = [
   { id: "instagram", name: "Instagram", host: "www.instagram.com" },
@@ -26,14 +39,23 @@ const PROVIDERS: { id: SocialProvider; name: string; host: string }[] = [
 
 const STATUS_LABEL: Record<SocialConnectionStatus, string> = {
   connected: "Conectado",
+  expiring_soon: "Caduca pronto",
   not_connected: "No conectado",
   reauth_required: "Requiere autorización",
 };
 
 const STATUS_DOT: Record<SocialConnectionStatus, string> = {
   connected: "bg-accent-success",
+  expiring_soon: "bg-accent-warning",
   not_connected: "bg-text-muted",
   reauth_required: "bg-accent-warning",
+};
+
+const STATUS_HINT: Partial<Record<SocialConnectionStatus, string>> = {
+  expiring_soon:
+    "La autorización necesita renovarse pronto: reconecta antes de que caduque.",
+  reauth_required:
+    "La autorización guardada ya no es válida. Reconecta para que la sección vuelva a mostrar contenido.",
 };
 
 const MSG_SESSION = "Tu sesión ya no es válida. Inicia sesión de nuevo.";
@@ -49,9 +71,12 @@ const PRIMARY_BUTTON_CLASS =
   "inline-flex min-h-11 items-center justify-center rounded-md border border-accent-primary/60 bg-accent-primary px-5 py-2.5 text-sm font-bold uppercase tracking-[0.18em] text-text-inverse shadow-glow-primary transition duration-200 ease-bounce hover:-translate-y-1 hover:bg-accent-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-secondary focus-visible:ring-offset-2 focus-visible:ring-offset-bg-surface disabled:pointer-events-none disabled:opacity-50";
 
 const SECONDARY_BUTTON_CLASS =
-  "inline-flex min-h-11 items-center rounded-md border border-border-subtle px-5 py-2.5 text-sm font-semibold text-text-secondary transition-colors duration-200 ease-smooth hover:border-accent-primary/60 hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-secondary";
+  "inline-flex min-h-11 items-center rounded-md border border-border-subtle px-5 py-2.5 text-sm font-semibold text-text-secondary transition-colors duration-200 ease-smooth hover:border-accent-primary/60 hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-secondary disabled:pointer-events-none disabled:opacity-50";
 
-type Connections = Record<SocialProvider, SocialConnectionStatus>;
+const DANGER_BUTTON_CLASS =
+  "inline-flex min-h-11 items-center justify-center rounded-md border border-accent-live/60 px-5 py-2.5 text-sm font-semibold text-accent-live transition-colors duration-200 ease-smooth hover:bg-accent-live/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-live disabled:pointer-events-none disabled:opacity-50";
+
+type Connections = Record<SocialProvider, ConnectionInfo>;
 
 type LoadState =
   | { kind: "loading" }
@@ -60,17 +85,38 @@ type LoadState =
 
 function isStatus(value: unknown): value is SocialConnectionStatus {
   return (
-    value === "connected" || value === "not_connected" || value === "reauth_required"
+    value === "connected" ||
+    value === "expiring_soon" ||
+    value === "not_connected" ||
+    value === "reauth_required"
   );
 }
 
-/** Extrae solo los dos estados; cualquier otra forma se trata como error de carga. */
+function parseInfo(raw: unknown): ConnectionInfo | null {
+  const status = (raw as { status?: unknown } | null)?.status;
+  if (!isStatus(status)) return null;
+  const expiresAt = (raw as { expiresAt?: unknown }).expiresAt;
+  return typeof expiresAt === "string" && !Number.isNaN(Date.parse(expiresAt))
+    ? { status, expiresAt }
+    : { status };
+}
+
+/** Extrae solo estado y fecha; cualquier otra forma se trata como error de carga. */
 function parseConnections(body: unknown): Connections | null {
-  const raw = (body as { connections?: Record<string, { status?: unknown }> } | null)
-    ?.connections;
-  const instagram = raw?.instagram?.status;
-  const tiktok = raw?.tiktok?.status;
-  return isStatus(instagram) && isStatus(tiktok) ? { instagram, tiktok } : null;
+  const raw = (body as { connections?: Record<string, unknown> } | null)?.connections;
+  const instagram = parseInfo(raw?.instagram);
+  const tiktok = parseInfo(raw?.tiktok);
+  return instagram && tiktok ? { instagram, tiktok } : null;
+}
+
+/** Fecha legible y determinista (UTC): nunca depende de la zona horaria del navegador. */
+function formatDate(iso: string): string {
+  return new Date(iso).toLocaleDateString("es", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+    timeZone: "UTC",
+  });
 }
 
 /** Comprobación mínima: https del host oficial del proveedor. No construye ni modifica la URL. */
@@ -89,6 +135,12 @@ function connectMessage(status: number): string {
   if (status === 401) return MSG_SESSION;
   if (status === 403) return MSG_FORBIDDEN;
   return MSG_CONNECT;
+}
+
+function disconnectMessage(status: number, name: string): string {
+  if (status === 401) return MSG_SESSION;
+  if (status === 403) return MSG_FORBIDDEN;
+  return `No pudimos desconectar ${name}. Inténtalo de nuevo.`;
 }
 
 /** ¿Es el 403 "no disponible en este entorno"? Solo ese cuerpo exacto; cualquier otro 403 (incluido
@@ -116,30 +168,66 @@ async function getAccessToken(): Promise<string | null> {
   }
 }
 
+interface DisconnectControls {
+  /** ¿Está abierta la confirmación de esta red? */
+  confirming: boolean;
+  /** ¿Hay una desconexión en vuelo para esta red? */
+  busy: boolean;
+  onRequest: () => void;
+  onConfirm: () => void;
+  onCancel: () => void;
+}
+
 interface CardProps {
   name: string;
   status: SocialConnectionStatus;
+  expiresAt?: string;
   pending: boolean;
   disabled: boolean;
   error: string | null;
+  notice?: string | null;
   onConnect: () => void;
+  /** Sin este objeto la tarjeta no ofrece desconexión (uso aislado y pruebas). */
+  disconnect?: DisconnectControls;
 }
 
-/** Tarjeta de una red: estado en texto (no solo color) y, si hace falta, el botón de acción. */
+/** Tarjeta de una red: estado en texto (no solo color) y las acciones que corresponden. */
 export function SocialConnectionCard({
   name,
   status,
+  expiresAt,
   pending,
   disabled,
   error,
+  notice,
   onConnect,
+  disconnect,
 }: CardProps) {
+  const triggerRef = useRef<HTMLButtonElement | null>(null);
+  const cancelRef = useRef<HTMLButtonElement | null>(null);
+  const wasConfirmingRef = useRef(false);
+  const confirming = disconnect?.confirming ?? false;
+
+  // Foco: al abrir la confirmación va a "Cancelar" (la opción segura); al cerrarla vuelve al botón
+  // que la abrió (que desaparece mientras se confirma).
+  useEffect(() => {
+    if (confirming) {
+      cancelRef.current?.focus();
+    } else if (wasConfirmingRef.current) {
+      triggerRef.current?.focus();
+    }
+    wasConfirmingRef.current = confirming;
+  }, [confirming]);
+
   const action =
     status === "not_connected"
       ? `Conectar ${name}`
-      : status === "reauth_required"
+      : status === "reauth_required" || status === "expiring_soon"
         ? `Reconectar ${name}`
         : null;
+  const hint = STATUS_HINT[status];
+  const canDisconnect = disconnect !== undefined && status !== "not_connected";
+  const warn = status === "reauth_required" || status === "expiring_soon";
 
   return (
     <li className="min-w-0 rounded-md border border-border-subtle p-4">
@@ -148,7 +236,7 @@ export function SocialConnectionCard({
           <h3 className="font-semibold text-text-primary">{name}</h3>
           <p
             className={`mt-1 flex items-center gap-2 text-sm ${
-              status === "reauth_required" ? "text-accent-warning" : "text-text-secondary"
+              warn ? "text-accent-warning" : "text-text-secondary"
             }`}
           >
             <span
@@ -157,19 +245,80 @@ export function SocialConnectionCard({
             />
             <span>{STATUS_LABEL[status]}</span>
           </p>
+          {expiresAt && (status === "connected" || status === "expiring_soon") ? (
+            <p className="mt-1 text-xs text-text-muted">
+              {status === "expiring_soon" ? "Caduca el" : "Vigente hasta el"}{" "}
+              <time dateTime={expiresAt}>{formatDate(expiresAt)}</time>
+            </p>
+          ) : null}
+          {hint ? <p className="mt-2 text-sm text-text-secondary">{hint}</p> : null}
         </div>
-        {action ? (
-          <button
-            type="button"
-            onClick={onConnect}
-            disabled={disabled}
-            aria-busy={pending}
-            className={PRIMARY_BUTTON_CLASS}
-          >
-            {pending ? `Conectando ${name}…` : action}
-          </button>
-        ) : null}
+        <div className="flex flex-wrap items-center gap-2">
+          {action ? (
+            <button
+              type="button"
+              onClick={onConnect}
+              disabled={disabled}
+              aria-busy={pending}
+              className={PRIMARY_BUTTON_CLASS}
+            >
+              {pending ? `Conectando ${name}…` : action}
+            </button>
+          ) : null}
+          {canDisconnect && !confirming ? (
+            <button
+              ref={triggerRef}
+              type="button"
+              onClick={disconnect.onRequest}
+              disabled={disabled}
+              className={DANGER_BUTTON_CLASS}
+            >
+              Desconectar {name}
+            </button>
+          ) : null}
+        </div>
       </div>
+
+      {canDisconnect && confirming ? (
+        <div
+          role="group"
+          aria-label={`Confirmar desconexión de ${name}`}
+          className="mt-4 rounded-md border border-accent-live/40 p-3"
+        >
+          <p className="text-sm text-text-secondary">
+            ¿Desconectar {name}? El sitio dejará de mostrar contenido de esta cuenta hasta
+            que la vuelvas a conectar.
+          </p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={disconnect.onConfirm}
+              disabled={disconnect.busy}
+              aria-busy={disconnect.busy}
+              className={DANGER_BUTTON_CLASS}
+            >
+              {disconnect.busy
+                ? `Desconectando ${name}…`
+                : `Confirmar desconexión de ${name}`}
+            </button>
+            <button
+              ref={cancelRef}
+              type="button"
+              onClick={disconnect.onCancel}
+              disabled={disconnect.busy}
+              className={SECONDARY_BUTTON_CLASS}
+            >
+              Cancelar
+            </button>
+          </div>
+        </div>
+      ) : null}
+
+      {notice ? (
+        <p role="status" className="mt-3 text-sm text-text-secondary">
+          {notice}
+        </p>
+      ) : null}
       {error ? (
         <p role="alert" className="mt-3 text-sm text-accent-live">
           {error}
@@ -190,15 +339,22 @@ export default function SocialConnectionsSection({
   const reportFailure = usePrivilegedFailureReporter();
   const [load, setLoad] = useState<LoadState>({ kind: "loading" });
   const [pending, setPending] = useState<SocialProvider | null>(null);
+  const [confirming, setConfirming] = useState<SocialProvider | null>(null);
+  const [disconnecting, setDisconnecting] = useState<SocialProvider | null>(null);
   const [actionError, setActionError] = useState<{
+    provider: SocialProvider;
+    message: string;
+  } | null>(null);
+  const [notice, setNotice] = useState<{
     provider: SocialProvider;
     message: string;
   } | null>(null);
 
   const isMountedRef = useRef(true);
   const requestRef = useRef(0);
-  // Guard síncrono contra doble click (el estado tarda un render en reflejarse).
+  // Guardas síncronas contra doble click (el estado tarda un render en reflejarse).
   const connectLockRef = useRef(false);
+  const disconnectLockRef = useRef(false);
 
   useEffect(() => {
     isMountedRef.current = true;
@@ -259,8 +415,8 @@ export default function SocialConnectionsSection({
     );
   }, [reportFailure]);
 
-  // Al montar (incluye volver a /admin tras el OAuth) y al restaurar la página desde el
-  // historial del navegador (bfcache): un único fetch, sin polling.
+  // Al montar (incluye volver a /admin tras el OAuth o tras un MFA) y al restaurar la página desde
+  // el historial del navegador (bfcache): un único fetch, sin polling.
   useEffect(() => {
     void loadStatus();
     const onPageShow = (event: PageTransitionEvent) => {
@@ -271,10 +427,12 @@ export default function SocialConnectionsSection({
   }, [loadStatus]);
 
   const connect = async (provider: SocialProvider) => {
-    if (connectLockRef.current) return;
+    if (connectLockRef.current || disconnectLockRef.current) return;
     connectLockRef.current = true;
     setPending(provider);
     setActionError(null);
+    setNotice(null);
+    setConfirming(null);
 
     let navigated = false;
     try {
@@ -326,6 +484,77 @@ export default function SocialConnectionsSection({
     }
   };
 
+  const requestDisconnect = (provider: SocialProvider) => {
+    if (connectLockRef.current || disconnectLockRef.current) return;
+    setActionError(null);
+    setNotice(null);
+    setConfirming(provider);
+  };
+
+  const cancelDisconnect = () => {
+    if (disconnectLockRef.current) return; // con una petición en vuelo no se puede cancelar
+    setConfirming(null);
+  };
+
+  const disconnect = async (provider: SocialProvider) => {
+    // Solo la confirmación explícita de ESTA red ejecuta la operación.
+    if (confirming !== provider) return;
+    if (disconnectLockRef.current || connectLockRef.current) return;
+    disconnectLockRef.current = true;
+    setDisconnecting(provider);
+    setActionError(null);
+    const name = PROVIDERS.find((p) => p.id === provider)?.name ?? provider;
+
+    try {
+      const token = await getAccessToken();
+      if (!token) {
+        if (isMountedRef.current) {
+          setConfirming(null);
+          setActionError({ provider, message: MSG_SESSION });
+        }
+        return;
+      }
+
+      const response = await fetch(DISCONNECT_ENDPOINT, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ provider }),
+      });
+      if (!isMountedRef.current) return;
+
+      if (response.status === 200) {
+        // Sin actualización optimista: se cierra la confirmación y se RELEE lo que el servidor
+        // confirmó (si la relectura falla se muestra el error de carga, nunca "desconectado").
+        setConfirming(null);
+        setNotice({ provider, message: `${name} desconectado.` });
+        void loadStatus();
+        return;
+      }
+
+      // Cualquier rechazo cierra la confirmación: reintentar exige abrirla y confirmar de nuevo.
+      // step_up_required lo maneja el contenedor (lleva a MFA); nada se reproduce después.
+      reportFailure(response);
+      const unavailable = await isEnvironmentUnavailable(response);
+      if (!isMountedRef.current) return;
+      setConfirming(null);
+      setActionError({
+        provider,
+        message: unavailable ? MSG_UNAVAILABLE : disconnectMessage(response.status, name),
+      });
+    } catch {
+      if (isMountedRef.current) {
+        setConfirming(null);
+        setActionError({ provider, message: disconnectMessage(0, name) });
+      }
+    } finally {
+      disconnectLockRef.current = false;
+      if (isMountedRef.current) setDisconnecting(null);
+    }
+  };
+
   return (
     <section aria-labelledby="admin-social-heading" className="mt-8">
       <h2
@@ -365,11 +594,20 @@ export default function SocialConnectionsSection({
             <SocialConnectionCard
               key={provider.id}
               name={provider.name}
-              status={load.connections[provider.id]}
+              status={load.connections[provider.id].status}
+              expiresAt={load.connections[provider.id].expiresAt}
               pending={pending === provider.id}
-              disabled={pending !== null}
+              disabled={pending !== null || disconnecting !== null}
               error={actionError?.provider === provider.id ? actionError.message : null}
+              notice={notice?.provider === provider.id ? notice.message : null}
               onConnect={() => void connect(provider.id)}
+              disconnect={{
+                confirming: confirming === provider.id,
+                busy: disconnecting === provider.id,
+                onRequest: () => requestDisconnect(provider.id),
+                onConfirm: () => void disconnect(provider.id),
+                onCancel: cancelDisconnect,
+              }}
             />
           ))}
         </ul>

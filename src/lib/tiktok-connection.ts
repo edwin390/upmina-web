@@ -247,6 +247,36 @@ async function releaseTikTokRefreshLease(refreshToken: string): Promise<void> {
 }
 
 /**
+ * Marca como no utilizable la autorización guardada cuando TikTok rechaza el refresh token
+ * (invalid_grant): fija la caducidad del refresh token en `now`, con lo que el feed y el panel
+ * (reglas existentes, `isTikTokRefreshTokenExpired`) la tratan como caducada → reautorización
+ * requerida, sin migración ni columnas nuevas. Condicionado al refresh token rechazado: no toca
+ * una reautorización posterior ni resucita una fila desconectada (0 filas afectadas). Best
+ * effort: un fallo de almacenamiento solo se registra (la petición ya responde "reautorizar").
+ */
+export async function markTikTokAuthorizationInvalid(
+  rejectedRefreshToken: string,
+  now: number = Date.now(),
+): Promise<void> {
+  try {
+    const { error } = await getSupabaseAdmin()
+      .from(TABLE)
+      .update({
+        refresh_token_expires_at: new Date(now).toISOString(),
+        refresh_lock_until: null,
+        updated_at: new Date(now).toISOString(),
+      })
+      .eq("provider", PROVIDER)
+      .eq("refresh_token", rejectedRefreshToken);
+    if (error) throw storageError("invalidate", error);
+  } catch (err) {
+    const safe =
+      err instanceof TikTokStorageError ? err : storageError("invalidate", err);
+    if (safe.status !== 503) logTikTokStorageError("tiktok-connection", safe);
+  }
+}
+
+/**
  * Guarda el token set NUEVO completo tras un refresh (access, refresh y ambas
  * expiraciones) y limpia el lease. Es una escritura condicionada al refresh token que se
  * usó: si otra autorización lo cambió entretanto no se sobrescribe nada y devuelve false.
@@ -323,11 +353,15 @@ async function refreshUnderLease(
   try {
     tokens = await refreshTikTokTokens(fresh.refreshToken, credentials);
   } catch (err) {
-    // El lease NO se libera: su caducidad actúa como espera antes de reintentar contra
-    // TikTok (y evita martillearlo si está rechazando). La conexión sigue intacta.
+    // invalid_grant = TikTok rechaza el refresh token: se persiste (la misma UPDATE limpia el
+    // lease) para que el panel lo refleje y no se vuelva a intentar contra TikTok.
     if (err instanceof TikTokOAuthError && err.providerCode === "invalid_grant") {
+      await markTikTokAuthorizationInvalid(fresh.refreshToken, now);
       throw new TikTokConnectionError("reauthorization_required");
     }
+    // Cualquier otro fallo (429/5xx/red/timeout/respuesta inválida) NO es evidencia de
+    // revocación. El lease NO se libera: su caducidad actúa como espera antes de reintentar
+    // contra TikTok (y evita martillearlo si está rechazando). La conexión sigue intacta.
     throw err;
   }
 

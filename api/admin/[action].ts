@@ -5,6 +5,7 @@ import {
   handleAdminMe,
 } from "../../src/lib/admin-handlers.js";
 import { handleAdminSocialConnect } from "../../src/lib/social-connect-handlers.js";
+import { handleAdminSocialDisconnect } from "../../src/lib/social-disconnect-handlers.js";
 import { handleAdminSocialStatus } from "../../src/lib/social-status-handlers.js";
 import {
   handleAdminTeamInvitationRevoke,
@@ -34,6 +35,8 @@ import {
 // lógica en src/lib/social-connect-handlers.ts).
 // "social-status" (Bloque 8E — estado de las conexiones sociales para el panel /admin, ADMIN+AAL2,
 // lógica en src/lib/social-status-handlers.ts).
+// "social-disconnect" (Fase 9H-3 — desconexión explícita de Instagram/TikTok, ADMIN+social_admin+MFA
+// reciente, lógica en src/lib/social-disconnect-handlers.ts).
 // "team-invitations" (Bloque 9D — GET lista / POST crea invitaciones standard, team_admin+AAL2) y
 // "team-invitations-revoke" (Bloque 9D — revoca una standard pendiente vía RPC), lógica en
 // src/lib/admin-team-invitations.ts.
@@ -55,6 +58,8 @@ export default function handler(req: VercelRequest, res: VercelResponse) {
       return handleAdminSocialConnect(req, res);
     case "social-status":
       return handleAdminSocialStatus(req, res);
+    case "social-disconnect":
+      return handleAdminSocialDisconnect(req, res);
     case "team-invitations":
       return handleAdminTeamInvitations(req, res);
     case "team-invitations-revoke":

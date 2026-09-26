@@ -297,7 +297,7 @@ describe("estado de las conexiones", () => {
     expect((await call(req())).body).toEqual({
       connections: {
         instagram: { status: "not_connected" },
-        tiktok: { status: "connected" },
+        tiktok: { status: "connected", expiresAt: iso(NOW + 300 * DAY) },
       },
     });
   });
@@ -316,7 +316,10 @@ describe("reauth_required (solo a partir de fechas absolutas persistidas)", () =
   it("Instagram: a ≤ 60 s de caducar → reauth_required (misma regla que el feed); con 61 s → connected", async () => {
     fake.rows = [igRow(60_000)];
     expect(statuses(await call(req())).instagram).toBe("reauth_required");
+    // A 61 s todavía es utilizable (no reauth); ya está dentro de la ventana de "caduca pronto".
     fake.rows = [igRow(61_000)];
+    expect(statuses(await call(req())).instagram).toBe("expiring_soon");
+    fake.rows = [igRow(30 * DAY)];
     expect(statuses(await call(req())).instagram).toBe("connected");
   });
 
@@ -380,14 +383,15 @@ describe("fail-closed y secretos", () => {
     expect(fake.connectionsQueries[0].providers).toEqual(["instagram", "tiktok"]);
   });
 
-  it("la respuesta contiene EXACTAMENTE {connections:{instagram:{status},tiktok:{status}}}, sin tokens ni datos de cuenta", async () => {
+  it("la respuesta contiene EXACTAMENTE {connections:{instagram:{status,expiresAt},tiktok:{status,expiresAt}}}, sin tokens ni datos de cuenta", async () => {
     fake.rows = [igRow(30 * DAY), ttRow(300 * DAY)];
     const state = await call(req());
     expect(Object.keys(state.body as object)).toEqual(["connections"]);
     const connections = (state.body as Body).connections;
     expect(Object.keys(connections).sort()).toEqual(["instagram", "tiktok"]);
     for (const provider of ["instagram", "tiktok"] as const) {
-      expect(Object.keys(connections[provider])).toEqual(["status"]);
+      // Solo el estado y la fecha que lo gobierna: nunca tokens ni datos de la cuenta.
+      expect(Object.keys(connections[provider]).sort()).toEqual(["expiresAt", "status"]);
     }
     const wire = JSON.stringify(state);
     for (const secret of [
@@ -439,5 +443,80 @@ describe("9G-1 — MFA reciente: capacidad ANTES del step-up", () => {
     expect(state.status).toBe(403);
     expect(state.body).toEqual({ error: "No autorizado" });
     expect(fake.connectionsQueries).toHaveLength(0);
+  });
+});
+
+describe("ciclo de vida (9H-3): connected / expiring_soon / reauth_required / not_connected", () => {
+  it("Instagram: umbral de 'caduca pronto' = 7 días (inclusive) y expiresAt es el access token", async () => {
+    fake.rows = [igRow(7 * DAY + 1000)];
+    let c = ((await call(req())).body as Body).connections;
+    expect(c.instagram.status).toBe("connected");
+
+    fake.rows = [igRow(7 * DAY)];
+    c = ((await call(req())).body as Body).connections;
+    expect(c.instagram.status).toBe("expiring_soon");
+    expect((c.instagram as { expiresAt?: string }).expiresAt).toBe(iso(NOW + 7 * DAY));
+
+    fake.rows = [igRow(2 * DAY)];
+    expect(statuses(await call(req())).instagram).toBe("expiring_soon");
+  });
+
+  it("Instagram: expirado nunca es connected ni expiring_soon", async () => {
+    for (const ms of [-1000, 0, 30_000, 60_000]) {
+      fake.rows = [igRow(ms)];
+      expect(statuses(await call(req())).instagram).toBe("reauth_required");
+    }
+  });
+
+  it("Instagram: rechazo persistido del proveedor (caducidad = ahora) → reauth_required", async () => {
+    fake.rows = [{ ...igRow(30 * DAY), access_token_expires_at: iso(NOW) }];
+    expect(statuses(await call(req())).instagram).toBe("reauth_required");
+  });
+
+  it("TikTok: umbral de 'caduca pronto' = 14 días sobre el REFRESH token", async () => {
+    fake.rows = [ttRow(14 * DAY + 1000)];
+    expect(statuses(await call(req())).tiktok).toBe("connected");
+    fake.rows = [ttRow(14 * DAY)];
+    expect(statuses(await call(req())).tiktok).toBe("expiring_soon");
+    fake.rows = [ttRow(1 * DAY)];
+    expect(statuses(await call(req())).tiktok).toBe("expiring_soon");
+  });
+
+  it("TikTok: access token caducado con refresh lejano es recuperable (connected); con refresh próximo, expiring_soon", async () => {
+    fake.rows = [ttRow(200 * DAY, -DAY)];
+    expect(statuses(await call(req())).tiktok).toBe("connected");
+    fake.rows = [ttRow(3 * DAY, -DAY)];
+    expect(statuses(await call(req())).tiktok).toBe("expiring_soon");
+  });
+
+  it("TikTok: refresh token caducado (o rechazo persistido = ahora) nunca es healthy", async () => {
+    for (const ms of [-DAY, -1, 0]) {
+      fake.rows = [ttRow(ms)];
+      expect(statuses(await call(req())).tiktok).toBe("reauth_required");
+    }
+  });
+
+  it("TikTok: expiración del access token ilegible → reauth_required (el feed no podría usar la fila)", async () => {
+    fake.rows = [{ ...ttRow(300 * DAY), access_token_expires_at: "basura" }];
+    expect(statuses(await call(req())).tiktok).toBe("reauth_required");
+    fake.rows = [{ ...ttRow(300 * DAY), access_token_expires_at: null }];
+    expect(statuses(await call(req())).tiktok).toBe("reauth_required");
+  });
+
+  it("expiresAt se omite si la fecha no es legible y nunca se inventa", async () => {
+    fake.rows = [{ ...igRow(30 * DAY), access_token_expires_at: "basura" }];
+    const c = ((await call(req())).body as Body).connections;
+    expect(c.instagram).toEqual({ status: "reauth_required" });
+    expect(c.tiktok).toEqual({ status: "not_connected" });
+  });
+
+  it("es de solo lectura: un único SELECT y ninguna llamada a proveedores", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    fake.rows = [igRow(2 * DAY), ttRow(3 * DAY)];
+    await call(req());
+    vi.unstubAllGlobals();
+    expect(fake.connectionsQueries).toHaveLength(1);
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });

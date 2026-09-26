@@ -62,6 +62,8 @@ export class InstagramOAuthError extends Error {
     readonly httpStatus?: number,
     /** `error_type` de Instagram, si tiene forma de código (ver `safeCode`). */
     readonly providerCode?: string,
+    /** `error.code` numérico de Meta, solo en la renovación (190 = autorización inválida). */
+    readonly metaCode?: number,
   ) {
     super(message);
     this.name = "InstagramOAuthError";
@@ -231,6 +233,20 @@ const isTimeout = (err: unknown): boolean =>
 interface InstagramProviderErrorBody {
   error_type?: unknown;
   error_message?: unknown;
+  /** Forma estándar de errores de Graph: `{ error: { type, code, ... } }`. */
+  error?: unknown;
+}
+
+/** Código de error de Meta que documenta un access token inválido, caducado o revocado
+ *  (OAuthException 190 y sus subcódigos 458/460/463/467). Ver la guía de errores de Graph API. */
+export const META_INVALID_TOKEN_CODE = 190;
+
+/** `error.code` numérico de Meta, o undefined. Nunca lee `message`. */
+function metaErrorCode(body: InstagramProviderErrorBody): number | undefined {
+  const error = body.error;
+  if (!error || typeof error !== "object") return undefined;
+  const code = (error as { code?: unknown }).code;
+  return typeof code === "number" && Number.isInteger(code) ? code : undefined;
 }
 
 /** Tokens de Instagram ya validados. SOLO para código servidor: nunca se serializan a una
@@ -478,6 +494,7 @@ export async function refreshInstagramAccessToken(
       502,
       res.status,
       safeCode(providerError.error_type),
+      metaErrorCode(providerError),
     );
   }
 

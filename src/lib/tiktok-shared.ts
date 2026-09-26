@@ -273,6 +273,49 @@ export function refreshTikTokTokens(
   );
 }
 
+// ---------- revocación remota ----------
+
+const TIKTOK_REVOKE_URL = "https://open.tiktokapis.com/v2/oauth/revoke/";
+const REVOKE_TIMEOUT_MS = 5_000;
+
+/**
+ * Revoca el access token en TikTok (POST /v2/oauth/revoke/, documentado). Solo se usa
+ * DESPUÉS de haber desconectado localmente y es best effort: devuelve true si TikTok aceptó,
+ * false ante cualquier fallo (red, timeout, HTTP no OK, error en el cuerpo). Nunca lanza, nunca
+ * registra ni devuelve el token o el cuerpo del proveedor.
+ */
+export async function revokeTikTokToken(
+  accessToken: string,
+  { clientKey, clientSecret }: TikTokCredentials,
+): Promise<boolean> {
+  try {
+    const res = await fetch(TIKTOK_REVOKE_URL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+        "Cache-Control": "no-cache",
+      },
+      body: new URLSearchParams({
+        client_key: clientKey,
+        client_secret: clientSecret,
+        token: accessToken,
+      }),
+      signal: AbortSignal.timeout(REVOKE_TIMEOUT_MS),
+    });
+    if (!res.ok) return false;
+    const text = await res.text();
+    if (!text.trim()) return true; // cuerpo vacío = éxito según la documentación
+    const parsed: unknown = JSON.parse(text);
+    return !(
+      parsed &&
+      typeof parsed === "object" &&
+      isNonEmptyString((parsed as { error?: unknown }).error)
+    );
+  } catch {
+    return false;
+  }
+}
+
 // ---------- logs y respuestas seguras ----------
 
 /** Registra solo mensaje genérico, status HTTP y código del proveedor (nunca cuerpos). */

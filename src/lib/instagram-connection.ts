@@ -1,6 +1,8 @@
 import { createHash } from "node:crypto";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import {
+  InstagramOAuthError,
+  META_INVALID_TOKEN_CODE,
   logInstagramOAuthError,
   refreshInstagramAccessToken,
   type InstagramRefreshedToken,
@@ -27,6 +29,10 @@ const ACCESS_TOKEN_EXPIRY_SKEW_MS = 60_000;
  *  contra Meta, muy por encima del margen duro de arriba y del mínimo de 24h que exige
  *  Meta para poder renovar un token de ~60 días de vida. */
 const RENEWAL_THRESHOLD_MS = 7 * 24 * 60 * 60_000;
+/** Antelación con la que el panel avisa "caduca pronto": la misma ventana en la que la
+ *  renovación perezosa ya debería haber ocurrido. Si el token sigue aquí, nadie lo ha
+ *  renovado (sin tráfico, o la renovación falla) y conviene reconectar antes de que caduque. */
+export const INSTAGRAM_EXPIRING_SOON_MS = RENEWAL_THRESHOLD_MS;
 /** Vigencia del lease de renovación: igual que el de TikTok (cubre una renovación normal
  *  y caduca solo si la función muere a mitad). */
 const REFRESH_LEASE_MS = 30_000;
@@ -54,11 +60,14 @@ export class InstagramConnectionFormatError extends InstagramStorageError {
   }
 }
 
-export type InstagramConnectionErrorReason = "missing_token" | "expired";
+export type InstagramConnectionErrorReason =
+  "missing_token" | "expired" | "reauthorization_required";
 
 const CONNECTION_ERROR_MESSAGES: Record<InstagramConnectionErrorReason, string> = {
-  missing_token: "Falta la variable de entorno de Instagram: INSTAGRAM_ACCESS_TOKEN",
+  missing_token: "No hay una conexión de Instagram: hace falta conectarla desde el panel",
   expired: "La conexión de Instagram guardada ha caducado: hace falta reconectar",
+  reauthorization_required:
+    "Meta rechazó la autorización de Instagram guardada: hace falta reconectar",
 };
 
 /** No hay un token de Instagram utilizable. Responde 503; el mensaje no lleva secretos. */
@@ -320,8 +329,10 @@ export async function saveInstagramConnection(
 }
 
 /**
- * Token de respaldo TEMPORAL (INSTAGRAM_ACCESS_TOKEN) mientras no exista la conexión OAuth
- * persistida. Se eliminará en un lote posterior, junto con los fallbacks de más abajo.
+ * Token de respaldo (INSTAGRAM_ACCESS_TOKEN) SOLO para desarrollo local sin Supabase
+ * configurado. Desde la Fase 9H-3 nunca sustituye a una conexión OAuth persistida ausente,
+ * caducada o desconectada ni a un fallo de lectura: si Supabase está configurado, la tabla es
+ * la única fuente de verdad (si no, "Desconectar" y el estado del panel mentirían).
  */
 function getEnvFallbackToken(): string | undefined {
   return process.env.INSTAGRAM_ACCESS_TOKEN?.trim() || undefined;
@@ -382,6 +393,37 @@ async function releaseInstagramRefreshLease(accessToken: string): Promise<void> 
       .eq("access_token", accessToken);
   } catch {
     // Se ignora: el lease caduca solo.
+  }
+}
+
+/**
+ * Marca como no utilizable la autorización guardada cuando Meta la rechaza de forma
+ * explícita (OAuthException 190): fija su caducidad en `now`, con lo que TODA la lógica
+ * existente (feed y panel) la trata como caducada → reautorización requerida, sin migración
+ * ni columnas nuevas. Condicionado al access token rechazado: no toca una reautorización
+ * posterior ni resucita una fila desconectada (0 filas afectadas). Best effort: un fallo de
+ * almacenamiento solo se registra; la petición ya responde "reconectar".
+ */
+export async function markInstagramAuthorizationInvalid(
+  rejectedAccessToken: string,
+  now: number = Date.now(),
+): Promise<void> {
+  try {
+    const { error } = await getSupabaseAdmin()
+      .from(TABLE)
+      .update({
+        access_token_expires_at: new Date(now).toISOString(),
+        refresh_lock_until: null,
+        updated_at: new Date(now).toISOString(),
+      })
+      .eq("provider", PROVIDER)
+      .eq("access_token", rejectedAccessToken);
+    if (error) throw storageError("invalidate", error);
+  } catch (err) {
+    const safe =
+      err instanceof InstagramStorageError ? err : storageError("invalidate", err);
+    // 503 = Supabase sin configurar (desarrollo local con el env): no hay fila que marcar.
+    if (safe.status !== 503) logInstagramStorageError("instagram-connection", safe);
   }
 }
 
@@ -462,11 +504,18 @@ async function renewInstagramConnectionUnderLease(
   try {
     refreshed = await refreshInstagramAccessToken(fresh.accessToken);
   } catch (err) {
+    logInstagramOAuthError("instagram-connection", err);
+    // Rechazo explícito de la autorización (190): el token actual ya no sirve aunque su
+    // fecha no haya llegado. Se persiste (misma UPDATE libera el lease) y se pide reconectar.
+    // Un 429/5xx/timeout/red NO entra aquí: no son evidencia de revocación.
+    if (err instanceof InstagramOAuthError && err.metaCode === META_INVALID_TOKEN_CODE) {
+      await markInstagramAuthorizationInvalid(fresh.accessToken, now);
+      throw new InstagramConnectionError("reauthorization_required");
+    }
     // A diferencia de TikTok, Instagram no rota el token en cada intento: no hay ventaja
     // en mantener el lease bloqueado hasta que caduque solo, así que se libera de una
     // vez para no bloquear el próximo intento.
     await releaseInstagramRefreshLease(fresh.accessToken);
-    logInstagramOAuthError("instagram-connection", err);
     if (isStillUsable(fresh, now)) return fresh.accessToken;
     throw new InstagramConnectionError("expired");
   }
@@ -485,6 +534,9 @@ async function renewInstagramConnectionUnderLease(
     if (!changed) throw new InstagramConnectionError("missing_token");
     return changed.accessToken;
   } catch (err) {
+    // La conexión desapareció (desconexión confirmada entretanto): la desconexión gana, no se
+    // sirve el token viejo ni el recién renovado.
+    if (err instanceof InstagramConnectionError) throw err;
     // Meta ya emitió el token nuevo, pero no se pudo guardar: la renovación NO se da por
     // completada y el token nuevo se descarta (nunca se devuelve como fuente persistida
     // definitiva). La fila anterior sigue intacta —el UPDATE condicionado nunca llegó a
@@ -543,10 +595,9 @@ async function resolveInstagramAccessToken(
  *   (503), SIN fallback: no se sirve en silencio el token de otra cuenta si ya hay una
  *   conexión guardada, y tampoco se intenta renovar un token que Meta rechazaría igual.
  * - Fila con formato inválido → error 500, tampoco hay fallback.
- * - Sin fila, Supabase sin configurar o error al leerlo (registrado de forma saneada) →
- *   fallback TEMPORAL a INSTAGRAM_ACCESS_TOKEN.
- * - Sin nada de lo anterior → `InstagramConnectionError("missing_token")` (503), o el
- *   error de almacenamiento si fue un fallo de lectura.
+ * - Sin fila (Supabase configurado) → `InstagramConnectionError("missing_token")` (503), sin
+ *   fallback. Solo con Supabase SIN configurar (desarrollo local) se usa INSTAGRAM_ACCESS_TOKEN.
+ * - Error al leer con Supabase configurado → error de almacenamiento (registrado saneado).
  */
 export async function getUsableInstagramAccessToken(
   now: number = Date.now(),
@@ -562,21 +613,19 @@ export async function getUsableInstagramAccessToken(
     ) {
       throw err;
     }
-    // 503 = Supabase sin configurar (caso normal hoy): fallback silencioso. Cualquier otro
-    // fallo de lectura se registra (sin secretos) antes de usar el fallback temporal.
-    const fallback = getEnvFallbackToken();
-    if (err.status !== 503)
-      logInstagramStorageError("instagram-connection", err, !!fallback);
-    if (fallback) return fallback;
-    if (err.status === 503) throw new InstagramConnectionError("missing_token");
+    // 503 = Supabase sin configurar (solo desarrollo local): único caso con fallback al env.
+    // Un fallo de lectura con Supabase configurado NO usa el fallback: se registra y se propaga.
+    if (err.status === 503) {
+      const fallback = getEnvFallbackToken();
+      if (fallback) return fallback;
+      throw new InstagramConnectionError("missing_token");
+    }
+    logInstagramStorageError("instagram-connection", err);
     throw err;
   }
 
-  if (!connection) {
-    const fallback = getEnvFallbackToken();
-    if (!fallback) throw new InstagramConnectionError("missing_token");
-    return fallback;
-  }
+  // Sin fila con Supabase configurado = desconectado: nunca se enmascara con el env.
+  if (!connection) throw new InstagramConnectionError("missing_token");
 
   if (isInstagramAccessTokenExpired(connection.accessTokenExpiresAt, now)) {
     throw new InstagramConnectionError("expired");
