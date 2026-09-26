@@ -20,6 +20,14 @@ export function youTubeVideoPath(id: string | null | undefined): string {
   return isYouTubeVideoId(id) ? `/youtube?video=${id}` : "/youtube";
 }
 
+/**
+ * `/youtube?short=<id>`: elige un Short en su visor vertical (nunca en el reproductor principal);
+ * sin id válido, la ruta normal.
+ */
+export function youTubeShortPath(id: string | null | undefined): string {
+  return isYouTubeVideoId(id) ? `/youtube?short=${id}` : "/youtube";
+}
+
 /** `/twitch?clip=<id>`; sin id válido, la ruta normal. */
 export function twitchClipPath(id: string | null | undefined): string {
   return isTwitchClipId(id) ? `/twitch?clip=${id}` : "/twitch";

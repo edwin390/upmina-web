@@ -5,6 +5,7 @@ import {
   isTwitchClipId,
   isYouTubeVideoId,
   twitchClipPath,
+  youTubeShortPath,
   youTubeVideoPath,
 } from "./deep-links";
 
@@ -54,6 +55,13 @@ describe("rutas de deep link", () => {
     for (const bad of [undefined, null, "", "mal id"]) {
       expect(youTubeVideoPath(bad)).toBe("/youtube");
       expect(twitchClipPath(bad)).toBe("/twitch");
+    }
+  });
+
+  it("un Short usa ?short= (nunca ?video=, que es el reproductor principal)", () => {
+    expect(youTubeShortPath("dQw4w9WgXcQ")).toBe("/youtube?short=dQw4w9WgXcQ");
+    for (const bad of [undefined, null, "", "mal id", "corto"]) {
+      expect(youTubeShortPath(bad)).toBe("/youtube");
     }
   });
 });

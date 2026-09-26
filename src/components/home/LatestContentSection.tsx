@@ -1,7 +1,7 @@
 import { useTwitchClips } from "@/hooks/useTwitchClips";
 import { useYouTubeVideos } from "@/hooks/useYouTubeVideos";
 import { formatRelativeDate } from "@/lib/format";
-import { twitchClipPath, youTubeVideoPath } from "@/lib/deep-links";
+import { twitchClipPath, youTubeShortPath, youTubeVideoPath } from "@/lib/deep-links";
 import PreviewCard, { PreviewCardSkeleton } from "./PreviewCard";
 import SectionHeading from "./SectionHeading";
 
@@ -46,7 +46,7 @@ export default function LatestContentSection() {
         ) : (
           short && (
             <PreviewCard
-              to={youTubeVideoPath(short.id)}
+              to={youTubeShortPath(short.id)}
               badge="YouTube · Short"
               title={short.title}
               thumbnailUrl={short.thumbnailUrl}

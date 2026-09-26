@@ -6,16 +6,9 @@ interface VideoCardProps {
   video: YouTubeVideo;
   isSelected: boolean;
   onSelect: (id: string) => void;
-  /** Miniatura vertical 9:16 (Shorts). Las miniaturas de YouTube traen barras negras: object-cover las recorta. */
-  vertical?: boolean;
 }
 
-export default function VideoCard({
-  video,
-  isSelected,
-  onSelect,
-  vertical = false,
-}: VideoCardProps) {
+export default function VideoCard({ video, isSelected, onSelect }: VideoCardProps) {
   return (
     <button
       type="button"
@@ -27,7 +20,7 @@ export default function VideoCard({
           : "border-transparent hover:border-accent-secondary",
       )}
     >
-      <div className={clsx("relative", vertical ? "aspect-[9/16]" : "aspect-video")}>
+      <div className="relative aspect-video">
         <img
           src={video.thumbnailUrl}
           alt={video.title}

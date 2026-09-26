@@ -97,7 +97,7 @@ describe("Home: enlaces de contenido (deep links)", () => {
       expect(hrefOf("YouTube · Video")).toBe("/youtube?video=VIDEOaaaaa1"),
     );
     await waitFor(() =>
-      expect(hrefOf("YouTube · Short")).toBe("/youtube?video=SHORTaaaaa1"),
+      expect(hrefOf("YouTube · Short")).toBe("/youtube?short=SHORTaaaaa1"),
     );
     await waitFor(() => expect(hrefOf("Twitch · Clip")).toBe("/twitch?clip=Clip1-abc"));
     await waitFor(() => expect(hrefOf("Twitch · Último stream")).toBe("/twitch"));
@@ -119,7 +119,9 @@ describe("Home: enlaces de contenido (deep links)", () => {
     await waitFor(() => expect(hrefOf("Twitch · Clip")).toBeTruthy());
 
     const links = [...document.querySelectorAll("a")].map((a) => a.getAttribute("href"));
-    expect(links.filter((h) => h?.startsWith("/youtube?video="))).toHaveLength(3);
+    // Dos videos largos (?video=) y UN Short (?short=): el Short nunca usa el enlace del reproductor.
+    expect(links.filter((h) => h?.startsWith("/youtube?video="))).toHaveLength(2);
+    expect(links.filter((h) => h?.startsWith("/youtube?short="))).toHaveLength(1);
     expect(links.filter((h) => h?.startsWith("/twitch?clip="))).toHaveLength(1);
     expect(screen.queryByText("Video 2")).toBeNull();
     expect(screen.queryByText("Short 2")).toBeNull();

@@ -144,14 +144,15 @@ describe("YouTubeSection con ?video=<id>", () => {
     expect(screen.queryByText(UNAVAILABLE)).toBeNull();
   });
 
-  it("Short: reproduce exactamente ese Short en el hero", async () => {
+  it("enlace antiguo ?video=<Short>: elige el Short en SU visor, NO en el hero, y limpia la URL sin aviso", async () => {
     stubApi();
     renderSection(["/youtube?video=SHORTaaaaa2"]);
 
-    await waitFor(() => expect(heroId()).toBe("SHORTaaaaa2"));
-    expect(playing()).toHaveLength(1);
-    expect(playing()[0]).toContain("Short 2");
-    expect(url()).toBe("/youtube?video=SHORTaaaaa2");
+    expect(await screen.findByText("2 de 2")).toBeInTheDocument();
+    await waitFor(() => expect(url()).toBe("/youtube"));
+    expect(heroId()).toBe("VIDEOaaaaa1");
+    expect(navType()).toBe("REPLACE");
+    expect(screen.queryByText(UNAVAILABLE)).toBeNull();
   });
 
   it("el último upload aún fuera de las listas (caché desfasada) también se reproduce", async () => {
@@ -164,17 +165,17 @@ describe("YouTubeSection con ?video=<id>", () => {
     expect(url()).toBe("/youtube?video=NUEVOaaaaa1");
   });
 
-  it("recargar o pegar la URL en otra pestaña conserva la selección", async () => {
+  it("recargar o pegar la URL en otra pestaña conserva la selección del video largo", async () => {
     stubApi();
     const first = renderSection(["/youtube"]);
     await waitFor(() => expect(heroId()).toBe("VIDEOaaaaa1"));
-    fireEvent.click(await screen.findByRole("button", { name: /Short 1/ }));
+    fireEvent.click(card("Video 3"));
     const lastUrl = url() as string;
-    expect(lastUrl).toBe("/youtube?video=SHORTaaaaa1");
+    expect(lastUrl).toBe("/youtube?video=VIDEOaaaaa3");
     first.unmount();
 
     renderSection([lastUrl]);
-    await waitFor(() => expect(heroId()).toBe("SHORTaaaaa1"));
+    await waitFor(() => expect(heroId()).toBe("VIDEOaaaaa3"));
   });
 
   it("clic en una tarjeta actualiza la URL con REPLACE y mueve 'Reproduciendo'", async () => {
@@ -210,7 +211,7 @@ describe("YouTubeSection con ?video=<id>", () => {
     await waitFor(() => expect(heroId()).toBe("VIDEOaaaaa2"));
 
     fireEvent.click(card("Video 3"));
-    fireEvent.click(card("Short 1"));
+    fireEvent.click(screen.getByRole("button", { name: "Short siguiente" }));
     fireEvent.click(card("Video 1"));
     fireEvent.click(screen.getByRole("button", { name: "__atrás" }));
 
@@ -254,18 +255,18 @@ describe("YouTubeSection: ids no válidos o no disponibles", () => {
 
   it("mientras las consultas cargan NO se limpia el parámetro ni se monta otro video", async () => {
     let release: (value: Response) => void = () => {};
-    stubApi({ shorts: () => new Promise<Response>((resolve) => (release = resolve)) });
-    renderSection(["/youtube?video=SHORTaaaaa1"]);
+    stubApi({ videos: () => new Promise<Response>((resolve) => (release = resolve)) });
+    renderSection(["/youtube?video=VIDEOaaaaa3"]);
 
     await new Promise((resolve) => setTimeout(resolve, 150));
-    expect(url()).toBe("/youtube?video=SHORTaaaaa1");
+    expect(url()).toBe("/youtube?video=VIDEOaaaaa3");
     expect(screen.queryByText(UNAVAILABLE)).toBeNull();
     expect(heroFrame()).toBeNull(); // ni el último video ni el pedido: solo un marcador
     expect(playing()).toHaveLength(0);
 
-    await act(async () => release(json(SHORTS)));
-    await waitFor(() => expect(heroId()).toBe("SHORTaaaaa1"));
-    expect(url()).toBe("/youtube?video=SHORTaaaaa1");
+    await act(async () => release(json(VIDEOS)));
+    await waitFor(() => expect(heroId()).toBe("VIDEOaaaaa3"));
+    expect(url()).toBe("/youtube?video=VIDEOaaaaa3");
   });
 
   it("si una consulta falla NO se destruye el deep link (fallo temporal)", async () => {
@@ -349,7 +350,9 @@ describe("YouTubeSection: carga, vacíos y fallos visibles", () => {
 
     expect(await screen.findByText(VIDEOS_ERROR)).toBeInTheDocument();
     expect(screen.getByText("Más videos")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Short 1/ })).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Reproducir Short: Short 1" }),
+    ).toBeInTheDocument();
     expect(heroId()).toBe("VIDEOaaaaa1");
     expect(screen.queryByText(SHORTS_ERROR)).toBeNull();
     expect(screen.queryByText("Cargando videos…")).toBeNull();
@@ -372,7 +375,9 @@ describe("YouTubeSection: carga, vacíos y fallos visibles", () => {
 
     expect(await screen.findByText(LATEST_ERROR)).toBeInTheDocument();
     expect(await screen.findByText("Más videos")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Short 1/ })).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Reproducir Short: Short 1" }),
+    ).toBeInTheDocument();
     expect(heroFrame()).toBeNull();
   });
 
@@ -430,12 +435,12 @@ describe("YouTubeSection: carga, vacíos y fallos visibles", () => {
     expect(screen.getByRole("heading", { name: "Más videos" })).toBeInTheDocument();
   });
 
-  it("un fallo de una consulta no destruye el deep link ni el resto de la selección", async () => {
-    stubApi({ videos: () => json({ error: "x" }, 502) });
-    renderSection(["/youtube?video=SHORTaaaaa1"]);
+  it("un fallo de Shorts no destruye el deep link del video largo", async () => {
+    stubApi({ shorts: () => json({ error: "x" }, 502) });
+    renderSection(["/youtube?video=VIDEOaaaaa3"]);
 
-    await screen.findByText(VIDEOS_ERROR);
-    await waitFor(() => expect(heroId()).toBe("SHORTaaaaa1"));
-    expect(url()).toBe("/youtube?video=SHORTaaaaa1");
+    await screen.findByText(SHORTS_ERROR);
+    await waitFor(() => expect(heroId()).toBe("VIDEOaaaaa3"));
+    expect(url()).toBe("/youtube?video=VIDEOaaaaa3");
   });
 });
