@@ -5,6 +5,13 @@ import { isDemoMode } from "@/lib/runtime";
 /** `videos` = solo videos normales, `shorts` = solo Shorts, sin valor = los más recientes sin clasificar. */
 export type YouTubeVideoType = "videos" | "shorts";
 
+// Cuántos elementos pide cada lista. Vive aquí para que /youtube y Home usen EXACTAMENTE la misma
+// URL (misma queryKey y misma caché de navegador y CDN). Shorts: 24 (9H-2.5) en lugar de 12 porque
+// con este canal cuesta lo mismo (una página de 50 uploads = 2 unidades de cuota) y un visor con
+// 12 miniaturas queda visualmente vacío en escritorio.
+export const YOUTUBE_VIDEOS_LIMIT = 12;
+export const YOUTUBE_SHORTS_LIMIT = 24;
+
 async function fetchYouTubeVideos(
   maxResults = 12,
   type?: YouTubeVideoType,

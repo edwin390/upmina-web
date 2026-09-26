@@ -258,3 +258,32 @@
 @media (pointer: coarse) {
   .ambient-particle { display: none; }
 }
+
+/* Tira horizontal de miniaturas (visor de Shorts): el desplazamiento nativo se conserva, pero sin la
+   barra clásica. Puntero fino (ratón): barra delgada con los colores del tema. Táctil: sin barra
+   visible (el gesto de deslizar sigue funcionando). Firefox/Chromium usan las propiedades estándar;
+   WebKit, los pseudo-elementos. */
+@layer utilities {
+  .scrollbar-subtle {
+    scrollbar-width: thin;
+    scrollbar-color: theme("colors.border.strong") transparent;
+  }
+  .scrollbar-subtle::-webkit-scrollbar {
+    height: 4px;
+  }
+  .scrollbar-subtle::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  .scrollbar-subtle::-webkit-scrollbar-thumb {
+    background: theme("colors.border.strong");
+    border-radius: 9999px;
+  }
+  @media (pointer: coarse) {
+    .scrollbar-subtle {
+      scrollbar-width: none;
+    }
+    .scrollbar-subtle::-webkit-scrollbar {
+      display: none;
+    }
+  }
+}

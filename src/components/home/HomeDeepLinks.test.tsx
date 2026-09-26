@@ -6,7 +6,7 @@ import HomePage from "@/pages/HomePage";
 
 // Fijan los enlaces de contenido de Home: cada tarjeta lleva al contenido concreto por URL
 // (?video= / ?clip=), el LIVE/VOD de Twitch va a /twitch, y Home solo muestra un elemento por
-// categoría aunque pida las mismas listas de 12 que /youtube (misma URL y caché).
+// categoría aunque pida las mismas listas que /youtube (12 videos y 24 Shorts: misma URL y caché).
 
 const yt = (id: string, title: string) => ({
   id,
@@ -112,7 +112,7 @@ describe("Home: enlaces de contenido (deep links)", () => {
     await waitFor(() => expect(hrefOf("Twitch · En directo")).toBe("/twitch"));
   });
 
-  it("Home muestra solo UN elemento por categoría y pide las mismas listas de 12 que /youtube", async () => {
+  it("Home muestra solo UN elemento por categoría y pide las mismas listas que /youtube (12 videos, 24 Shorts)", async () => {
     const fetchMock = stubApi();
     renderHome();
     await waitFor(() => expect(hrefOf("YouTube · Short")).toBeTruthy());
@@ -129,7 +129,8 @@ describe("Home: enlaces de contenido (deep links)", () => {
 
     const urls = fetchMock.mock.calls.map(([u]) => String(u));
     expect(urls).toContain("/api/youtube-videos?maxResults=12&type=videos");
-    expect(urls).toContain("/api/youtube-videos?maxResults=12&type=shorts");
+    expect(urls).toContain("/api/youtube-videos?maxResults=24&type=shorts");
+    expect(urls).not.toContain("/api/youtube-videos?maxResults=12&type=shorts");
     expect(urls.some((u) => u.includes("maxResults=1&"))).toBe(false);
   });
 

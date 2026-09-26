@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   cleanup,
@@ -589,5 +591,141 @@ describe("accesibilidad", () => {
     expect(list.className).toContain("overflow-x-auto");
     expect(list.className).toContain("max-w-full");
     expect(list.className).toContain("md:flex-wrap");
+  });
+});
+
+// ---------- Densidad: 24 Shorts (9H-2.5) ----------
+
+const MANY = Array.from({ length: 24 }, (_v, i) =>
+  video(`SHORT${String(i + 1).padStart(6, "0")}`, `Short ${i + 1}`),
+);
+
+describe("24 Shorts: densidad sin coste de reproductores", () => {
+  const requestedUrls = () =>
+    (fetch as unknown as { mock: { calls: unknown[][] } }).mock.calls.map(([u]) =>
+      String(u),
+    );
+
+  it("la sección pide 24 Shorts y 12 videos largos (las mismas URL que Home)", async () => {
+    stubApi({ shorts: () => json(MANY) });
+    renderSection();
+    await counter("1 de 24");
+
+    expect(requestedUrls()).toContain("/api/youtube-videos?maxResults=24&type=shorts");
+    expect(requestedUrls()).toContain("/api/youtube-videos?maxResults=12&type=videos");
+  });
+
+  it("24 miniaturas en la lista, pero NINGÚN reproductor de Short montado", async () => {
+    stubApi({ shorts: () => json(MANY) });
+    renderSection();
+    await counter("1 de 24");
+
+    const list = screen.getByRole("list", { name: "Lista de Shorts" });
+    expect(within(list).getAllByRole("button")).toHaveLength(24);
+    expect(shortFrames()).toHaveLength(0);
+    expect(iframes()).toHaveLength(1);
+  });
+
+  it("las miniaturas se cargan de forma diferida y asíncrona", async () => {
+    stubApi({ shorts: () => json(MANY) });
+    renderSection();
+    await counter("1 de 24");
+
+    const list = screen.getByRole("list", { name: "Lista de Shorts" });
+    const images = [...list.querySelectorAll("img")];
+    expect(images).toHaveLength(24);
+    for (const image of images) {
+      expect(image).toHaveAttribute("loading", "lazy");
+      expect(image).toHaveAttribute("decoding", "async");
+    }
+  });
+
+  it("reproducir y navegar por muchos Shorts mantiene UN solo reproductor de Short", async () => {
+    stubApi({ shorts: () => json(MANY) });
+    renderSection();
+    await counter("1 de 24");
+    play("Short 1");
+
+    for (let i = 0; i < 10; i++) fireEvent.click(next());
+    fireEvent.click(screen.getByRole("button", { name: "Ver Short: Short 20" }));
+    fireEvent.click(prev());
+
+    expect(await counter("19 de 24")).toBeInTheDocument();
+    expect(shortFrames()).toHaveLength(1);
+    expect(iframes()).toHaveLength(2);
+    expect(shortFrameId()).toBe("SHORT000019");
+  });
+
+  it("un enlace ?short= a un Short lejano (n.º 20) lo elige sin tocar el reproductor principal", async () => {
+    stubApi({ shorts: () => json(MANY) });
+    renderSection("/youtube?short=SHORT000020");
+
+    expect(await counter("20 de 24")).toBeInTheDocument();
+    await waitFor(() => expect(url()).toBe("/youtube"));
+    expect(heroId()).toBe("VIDEOaaaaa1");
+    expect(shortFrames()).toHaveLength(0);
+  });
+
+  it("elegir un video largo no mueve el Short elegido de entre 24", async () => {
+    stubApi({ shorts: () => json(MANY) });
+    renderSection();
+    await counter("1 de 24");
+    fireEvent.click(screen.getByRole("button", { name: "Ver Short: Short 17" }));
+    await counter("17 de 24");
+
+    fireEvent.click(screen.getByRole("button", { name: /Video 3/ }));
+
+    expect(heroId()).toBe("VIDEOaaaaa3");
+    expect(screen.getByText("17 de 24")).toBeInTheDocument();
+  });
+});
+
+describe("tira de miniaturas: desplazamiento nativo y barra tematizada", () => {
+  const css = readFileSync(resolve(process.cwd(), "src/styles/globals.css"), "utf8");
+
+  it("sigue siendo un contenedor con desplazamiento horizontal nativo (nunca overflow hidden)", async () => {
+    stubApi({ shorts: () => json(MANY) });
+    renderSection();
+    await counter("1 de 24");
+
+    const list = screen.getByRole("list", { name: "Lista de Shorts" });
+    expect(list.className).toContain("overflow-x-auto");
+    expect(list.className).not.toContain("overflow-x-hidden");
+    expect(list.className).not.toContain("overflow-hidden");
+    expect(list.className).toContain("max-w-full");
+    expect(list.className).toContain("overscroll-x-contain");
+    // En escritorio (md) las miniaturas envuelven en filas y no hay barra.
+    expect(list.className).toContain("md:flex-wrap");
+  });
+
+  it("aplica la utilidad scrollbar-subtle a la tira", async () => {
+    stubApi({ shorts: () => json(MANY) });
+    renderSection();
+    await counter("1 de 24");
+
+    expect(screen.getByRole("list", { name: "Lista de Shorts" }).className).toContain(
+      "scrollbar-subtle",
+    );
+  });
+
+  it("la utilidad define barra delgada tematizada (estándar y WebKit) y la oculta en táctil", () => {
+    const block = css.slice(css.indexOf("@layer utilities"));
+
+    expect(block).toContain(".scrollbar-subtle {");
+    expect(block).toMatch(/scrollbar-width:\s*thin/);
+    expect(block).toMatch(
+      /scrollbar-color:\s*theme\("colors\.border\.strong"\)\s+transparent/,
+    );
+    expect(block).toContain(".scrollbar-subtle::-webkit-scrollbar-thumb");
+    expect(block).toMatch(/height:\s*4px/);
+    const coarse = block.slice(block.indexOf("@media (pointer: coarse)"));
+    expect(coarse).toMatch(/scrollbar-width:\s*none/);
+    expect(coarse).toMatch(/::-webkit-scrollbar\s*\{\s*display:\s*none/);
+  });
+
+  it("el CSS de la utilidad no usa overflow hidden en su eje de desplazamiento", () => {
+    const block = css.slice(css.indexOf(".scrollbar-subtle {"));
+
+    expect(block).not.toMatch(/overflow(-x)?:\s*hidden/);
   });
 });

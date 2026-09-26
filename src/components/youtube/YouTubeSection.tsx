@@ -1,6 +1,11 @@
 import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import type { YouTubeVideo } from "@/types";
-import { useLatestYouTubeVideo, useYouTubeVideos } from "@/hooks/useYouTubeVideos";
+import {
+  YOUTUBE_SHORTS_LIMIT,
+  YOUTUBE_VIDEOS_LIMIT,
+  useLatestYouTubeVideo,
+  useYouTubeVideos,
+} from "@/hooks/useYouTubeVideos";
 import { useSearchParam } from "@/hooks/useSearchParam";
 import { useContentNotice } from "@/hooks/useContentNotice";
 import { isYouTubeVideoId } from "@/lib/deep-links";
@@ -120,8 +125,8 @@ function ShortsGroup({
 
 export default function YouTubeSection() {
   const latestQuery = useLatestYouTubeVideo();
-  const videosQuery = useYouTubeVideos(12, "videos");
-  const shortsQuery = useYouTubeVideos(12, "shorts");
+  const videosQuery = useYouTubeVideos(YOUTUBE_VIDEOS_LIMIT, "videos");
+  const shortsQuery = useYouTubeVideos(YOUTUBE_SHORTS_LIMIT, "shorts");
   const { data: latest } = latestQuery;
   const { data: videos, isLoading: isLoadingVideos } = videosQuery;
   const { isLoading: isLoadingShorts } = shortsQuery;

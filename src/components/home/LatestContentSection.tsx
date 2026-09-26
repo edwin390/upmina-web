@@ -1,5 +1,9 @@
 import { useTwitchClips } from "@/hooks/useTwitchClips";
-import { useYouTubeVideos } from "@/hooks/useYouTubeVideos";
+import {
+  YOUTUBE_SHORTS_LIMIT,
+  YOUTUBE_VIDEOS_LIMIT,
+  useYouTubeVideos,
+} from "@/hooks/useYouTubeVideos";
 import { formatRelativeDate } from "@/lib/format";
 import { twitchClipPath, youTubeShortPath, youTubeVideoPath } from "@/lib/deep-links";
 import PreviewCard, { PreviewCardSkeleton } from "./PreviewCard";
@@ -9,8 +13,14 @@ import SectionHeading from "./SectionHeading";
 // consultas (misma URL y queryKey, luego misma caché) que /youtube y /twitch, así el elemento
 // enlazado con ?video= / ?clip= siempre está en las listas de esas secciones.
 export default function LatestContentSection() {
-  const { data: videos, isLoading: videosLoading } = useYouTubeVideos(12, "videos");
-  const { data: shorts, isLoading: shortsLoading } = useYouTubeVideos(12, "shorts");
+  const { data: videos, isLoading: videosLoading } = useYouTubeVideos(
+    YOUTUBE_VIDEOS_LIMIT,
+    "videos",
+  );
+  const { data: shorts, isLoading: shortsLoading } = useYouTubeVideos(
+    YOUTUBE_SHORTS_LIMIT,
+    "shorts",
+  );
   const { data: clips, isLoading: clipsLoading } = useTwitchClips();
 
   const video = videos?.[0];

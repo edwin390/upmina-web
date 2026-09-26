@@ -154,7 +154,7 @@ export default function ShortsViewer({
           {!single && (
             <ul
               aria-label="Lista de Shorts"
-              className="mt-4 flex max-w-full gap-2 overflow-x-auto overscroll-x-contain pb-2 md:flex-wrap md:overflow-visible"
+              className="scrollbar-subtle mt-4 flex max-w-full gap-2 overflow-x-auto overscroll-x-contain pb-2 md:flex-wrap md:overflow-visible"
             >
               {playable.map((short) => {
                 const isCurrent = short.id === current.id;
@@ -177,6 +177,7 @@ export default function ShortsViewer({
                           src={short.thumbnailUrl}
                           alt=""
                           loading="lazy"
+                          decoding="async"
                           className="aspect-[9/16] w-full object-cover"
                         />
                       ) : (
