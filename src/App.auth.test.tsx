@@ -149,7 +149,13 @@ describe("AuthProvider global (Bloque 6A)", () => {
         String(url) === "/api/admin/access"
           ? {
               role: "admin",
-              capabilities: ["moderation", "technical", "social_admin", "team_admin"],
+              capabilities: [
+                "moderation",
+                "technical",
+                "social_admin",
+                "team_admin",
+                "cosplay_admin",
+              ],
               mfa: { recent: true },
             }
           : { role: "admin" },

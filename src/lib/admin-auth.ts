@@ -35,14 +35,18 @@ export type PrivilegedRole = "admin" | "moderator" | "developer";
 
 /** Capacidades explícitas. Ninguna jerarquía implícita ADMIN > DEVELOPER > MODERATOR: cada
  *  operación privilegiada declara la capacidad que necesita y solo esta matriz decide. */
-export type Capability = "moderation" | "technical" | "social_admin" | "team_admin";
+export type Capability =
+  "moderation" | "technical" | "social_admin" | "team_admin" | "cosplay_admin";
 
 /** ÚNICA fuente de verdad rol → capacidades (server-side). Añadir un rol o una capacidad
- *  exige tocar solo esta tabla; el Record fuerza que ningún rol quede sin definir. */
+ *  exige tocar solo esta tabla; el Record fuerza que ningún rol quede sin definir.
+ *  cosplay_admin (Fase 9I): SOLO admin. Ni moderator ni developer la tienen (un developer no es
+ *  automáticamente ADMIN salvo que la tabla admin_roles se lo conceda de verdad); MFA nunca
+ *  concede esta capacidad, solo el rol actual. */
 const ROLE_CAPABILITIES: Readonly<Record<PrivilegedRole, readonly Capability[]>> = {
   moderator: ["moderation"],
   developer: ["moderation", "technical"],
-  admin: ["moderation", "technical", "social_admin", "team_admin"],
+  admin: ["moderation", "technical", "social_admin", "team_admin", "cosplay_admin"],
 };
 
 export function capabilitiesForRole(role: PrivilegedRole): Capability[] {

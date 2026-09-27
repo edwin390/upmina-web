@@ -1,0 +1,37 @@
+{
+  "list": {
+    "heading": "COSPLAY",
+    "subheading": "Mina's cosplay photography.",
+    "loading": "Loading posts…",
+    "error": "Couldn't load Cosplay posts right now. Please try again later.",
+    "empty": {
+      "title": "No posts yet",
+      "body": "Mina's cosplay photos will show up here soon."
+    },
+    "heroLabel": "Latest post",
+    "photoCount": "{count, plural, one {# photo} other {# photos}}",
+    "loadMore": "Load more"
+  },
+  "detail": {
+    "loading": "Loading…",
+    "error": "Couldn't load this post. Please try again later.",
+    "notFound": {
+      "title": "We couldn't find this post",
+      "body": "The link may be wrong, or the post may no longer be available.",
+      "back": "Back to Cosplay"
+    },
+    "character": "Character",
+    "series": "Series / franchise",
+    "event": "Event",
+    "shotOn": "Date",
+    "photographerCredit": "Photography",
+    "galleryLabel": "Gallery",
+    "backLink": "← Back to Cosplay",
+    "openPhoto": "View photo {position}"
+  },
+  "admin": {
+    "newPost": "New post",
+    "edit": "Edit",
+    "delete": "Delete"
+  }
+}

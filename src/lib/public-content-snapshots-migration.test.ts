@@ -27,12 +27,17 @@ function tableBody(): string {
 }
 
 describe("migración public_content_snapshots — esquema", () => {
-  it("es una migración NUEVA, única y posterior a todas las anteriores", () => {
+  it("es una migración NUEVA y única, posterior a las que existían en la Fase 9H-4", () => {
     const files = readdirSync(MIGRATIONS_DIR)
       .filter((f) => f.endsWith(".sql"))
       .sort();
     expect(files.filter((f) => f === FILE)).toHaveLength(1);
-    expect(files.at(-1)).toBe(FILE);
+    // No tiene por qué ser la ÚLTIMA para siempre (fases posteriores, p. ej. 9I, añaden las
+    // suyas después): solo que sea posterior a 20260928120000_admin_team_member_management.sql,
+    // la última que existía cuando esta se escribió.
+    expect(files.indexOf(FILE)).toBeGreaterThan(
+      files.indexOf("20260928120000_admin_team_member_management.sql"),
+    );
   });
 
   it("crea la tabla SIN if not exists (debe fallar de forma visible si ya existe)", () => {

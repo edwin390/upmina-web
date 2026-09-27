@@ -60,6 +60,7 @@ function loginTree(entry = "/login") {
         <Route path="/admin/activate" element={<p>Activate stub</p>} />
         <Route path="/account" element={<p>Account stub</p>} />
         <Route path="/comunidad" element={<p>Comunidad stub</p>} />
+        <Route path="/cosplay" element={<p>Cosplay stub</p>} />
       </Routes>
     </MemoryRouter>
   );
@@ -277,6 +278,7 @@ describe("/login — returnTo seguro", () => {
     ["/admin/activate", "Activate stub"],
     ["/account", "Account stub"],
     ["/comunidad", "Comunidad stub"],
+    ["/cosplay", "Cosplay stub"],
   ])("login correcto con returnTo=%s → navega ahí", async (path, stub) => {
     renderLogin(`/login?returnTo=${path}`);
 
@@ -298,7 +300,7 @@ describe("/login — returnTo seguro", () => {
     ["malformado (%)", "/admin%zz"],
     ["codificado", "/%2f%2fevil.example"],
     ["ruta desconocida", "/desconocida"],
-    ["ruta cosplay (aún no existe)", "/cosplay"],
+    // /cosplay ya es un destino válido (Fase 9I-1): la cobertura vive en el it.each de arriba.
     ["con parámetros", "/admin?x=1"],
     ["con fragmento", "/admin#x"],
     ["con espacios", " /admin"],

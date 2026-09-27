@@ -67,7 +67,7 @@ vi.mock("@/lib/supabase", () => ({
 import AccountPage from "./AccountPage";
 
 const CAPABILITIES_BY_ROLE: Record<string, string[]> = {
-  admin: ["moderation", "technical", "social_admin", "team_admin"],
+  admin: ["moderation", "technical", "social_admin", "team_admin", "cosplay_admin"],
   moderator: ["moderation"],
   developer: ["moderation", "technical"],
 };

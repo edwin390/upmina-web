@@ -13,6 +13,7 @@ const KNOWN_CAPABILITIES = [
   "technical",
   "social_admin",
   "team_admin",
+  "cosplay_admin",
 ] as const;
 export type AdminCapability = (typeof KNOWN_CAPABILITIES)[number];
 

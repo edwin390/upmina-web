@@ -365,7 +365,13 @@ describe("requireModerator", () => {
     await expect(requireModerator(bearer())).resolves.toEqual({
       userId: USER_ID,
       role: "admin",
-      capabilities: ["moderation", "technical", "social_admin", "team_admin"],
+      capabilities: [
+        "moderation",
+        "technical",
+        "social_admin",
+        "team_admin",
+        "cosplay_admin",
+      ],
     });
   });
 
@@ -598,7 +604,13 @@ describe("requireCapabilityForUser(social_admin) / getPrivilegedRoleForUser (rec
 });
 
 describe("9C — capacidades explícitas (matriz rol → capacidad)", () => {
-  const ALL: Capability[] = ["moderation", "technical", "social_admin", "team_admin"];
+  const ALL: Capability[] = [
+    "moderation",
+    "technical",
+    "social_admin",
+    "team_admin",
+    "cosplay_admin",
+  ];
   // undefined = USER (sin fila en admin_roles)
   const MATRIX: Record<
     Capability,
@@ -608,6 +620,8 @@ describe("9C — capacidades explícitas (matriz rol → capacidad)", () => {
     technical: { admin: true, developer: true, moderator: false, user: false },
     social_admin: { admin: true, developer: false, moderator: false, user: false },
     team_admin: { admin: true, developer: false, moderator: false, user: false },
+    // Fase 9I: SOLO admin. Ni moderator ni developer administran Cosplay.
+    cosplay_admin: { admin: true, developer: false, moderator: false, user: false },
   };
 
   for (const capability of ALL) {
@@ -941,7 +955,13 @@ describe("9G-1 — getAccessSummary (/api/admin/access): informa, no autoriza ni
     roles.row = { role: "admin" };
     await expect(getAccessSummary(bearer())).resolves.toEqual({
       role: "admin",
-      capabilities: ["moderation", "technical", "social_admin", "team_admin"],
+      capabilities: [
+        "moderation",
+        "technical",
+        "social_admin",
+        "team_admin",
+        "cosplay_admin",
+      ],
       mfaRecent: false,
     });
   });

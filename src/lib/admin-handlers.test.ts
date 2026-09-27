@@ -651,7 +651,13 @@ describe("handleAdminMe", () => {
     expect(state.status).toBe(200);
     expect(state.body).toEqual({
       role: "admin",
-      capabilities: ["moderation", "technical", "social_admin", "team_admin"],
+      capabilities: [
+        "moderation",
+        "technical",
+        "social_admin",
+        "team_admin",
+        "cosplay_admin",
+      ],
     });
   });
 
@@ -827,7 +833,13 @@ describe("handleAdminAccess (GET /api/admin/access) — 9G-1", () => {
   it("ADMIN sin MFA reciente → 200 con role admin y recent false (informa, no exige)", async () => {
     accessFakes.summary = {
       role: "admin",
-      capabilities: ["moderation", "technical", "social_admin", "team_admin"],
+      capabilities: [
+        "moderation",
+        "technical",
+        "social_admin",
+        "team_admin",
+        "cosplay_admin",
+      ],
       mfaRecent: false,
     };
     const { res, state } = mockRes();
@@ -837,7 +849,13 @@ describe("handleAdminAccess (GET /api/admin/access) — 9G-1", () => {
     expect(state.status).toBe(200);
     expect(state.body).toEqual({
       role: "admin",
-      capabilities: ["moderation", "technical", "social_admin", "team_admin"],
+      capabilities: [
+        "moderation",
+        "technical",
+        "social_admin",
+        "team_admin",
+        "cosplay_admin",
+      ],
       mfa: { recent: false },
     });
   });

@@ -16,6 +16,10 @@ const YouTubeSection = lazy(() => import("./components/youtube/YouTubeSection"))
 const InstagramSection = lazy(() => import("./components/instagram/InstagramSection"));
 const TikTokSection = lazy(() => import("./components/tiktok/TikTokSection"));
 const CommunitySection = lazy(() => import("./components/community/CommunitySection"));
+// Fase 9I-1: su propio chunk, con use-intl y los mensajes ES/EN/DE dentro (CosplayLocaleProvider)
+// — nunca entran en el bundle de las demás secciones.
+const CosplayPage = lazy(() => import("./pages/CosplayPage"));
+const CosplayDetailPage = lazy(() => import("./pages/CosplayDetailPage"));
 // Su propio chunk: las páginas /admin/* solo se descargan al entrar a /admin/*.
 const LoginPage = lazy(() => import("./pages/LoginPage"));
 const SignupPage = lazy(() => import("./pages/SignupPage"));
@@ -111,6 +115,8 @@ function AppShell() {
             <Route path="/instagram" element={<InstagramSection />} />
             <Route path="/tiktok" element={<TikTokSection />} />
             <Route path="/comunidad" element={<CommunitySection />} />
+            <Route path="/cosplay" element={<CosplayPage />} />
+            <Route path="/cosplay/:slug" element={<CosplayDetailPage />} />
             <Route path="/terms" element={<TermsPage />} />
             <Route path="/privacy" element={<PrivacyPage />} />
             <Route path="/login" element={<LoginPage />} />

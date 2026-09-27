@@ -10,6 +10,7 @@ const NAV_LINKS = [
   { to: "/instagram", label: "Instagram" },
   { to: "/tiktok", label: "TikTok" },
   { to: "/comunidad", label: "Comunidad" },
+  { to: "/cosplay", label: "Cosplay" },
 ];
 
 // Estado de sesión en la navegación (Bloques 6B/6C/6E): visitante -> "Iniciar sesión"

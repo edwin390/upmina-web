@@ -162,3 +162,102 @@ export interface Report {
   resolved: boolean;
   createdAt: string;
 }
+
+// ---------- Cosplay (Fase 9I) ----------
+// Contrato público normalizado (lo que devuelve /api/content, camelCase) y las filas crudas de
+// Supabase (snake_case) que lo alimentan, mismo patrón que Edit/EditRow arriba. Las traducciones
+// van en columnas *_es/_en/_de (modelo congelado, ver la migración 20260930120000): la API
+// pública devuelve las TRES cuando existen y el fallback ES/EN/DE se resuelve en el cliente
+// (src/lib/cosplay-domain.ts), no en el servidor, para que cambiar de idioma no repita la
+// petición ni divida la caché de TanStack Query por idioma.
+
+/** Imagen de galería, ya en su URL pública final (la construye el servidor; en 9I-1 sin R2 real
+ *  puede ser una URL de fixture local). */
+export interface CosplayImage {
+  id: string;
+  url: string;
+  width: number;
+  height: number;
+  position: number;
+  isCover: boolean;
+  decorative: boolean;
+  altEs: string | null;
+  altEn: string | null;
+  altDe: string | null;
+  captionEs: string | null;
+  captionEn: string | null;
+  captionDe: string | null;
+}
+
+/** Tarjeta de listado: sin galería completa ni descripción (evita sobrecargar /cosplay). */
+export interface CosplayPostSummary {
+  id: string;
+  slug: string;
+  titleEs: string;
+  titleEn: string | null;
+  titleDe: string | null;
+  characterName: string | null;
+  series: string | null;
+  event: string | null;
+  /** Fecha civil "YYYY-MM-DD" (sin hora): se formatea siempre en UTC. */
+  shotOn: string | null;
+  /** ISO 8601. Siempre presente: solo se listan publicaciones publicadas. */
+  publishedAt: string;
+  cover: CosplayImage | null;
+  photoCount: number;
+}
+
+export interface CosplayPostDetail extends CosplayPostSummary {
+  descriptionEs: string | null;
+  descriptionEn: string | null;
+  descriptionDe: string | null;
+  photographerCredit: string | null;
+  gallery: CosplayImage[];
+}
+
+/** Página de listado con paginación por cursor (Fase 9I-1: sin scroll infinito ni búsqueda). */
+export interface CosplayPostListPage {
+  items: CosplayPostSummary[];
+  nextCursor: string | null;
+}
+
+// Filas crudas de Supabase (server-side, servicio role). `cosplay_posts` unido a
+// `cosplay_post_images` + `media_assets` para construir el contrato de arriba.
+export interface CosplayPostRow {
+  id: string;
+  slug: string;
+  status: "draft" | "published";
+  title_es: string;
+  title_en: string | null;
+  title_de: string | null;
+  description_es: string | null;
+  description_en: string | null;
+  description_de: string | null;
+  character_name: string | null;
+  series: string | null;
+  event: string | null;
+  shot_on: string | null;
+  photographer_credit: string | null;
+  published_at: string | null;
+  version: number;
+}
+
+export interface CosplayPostImageRow {
+  id: string;
+  position: number;
+  is_cover: boolean;
+  decorative: boolean;
+  alt_es: string | null;
+  alt_en: string | null;
+  alt_de: string | null;
+  caption_es: string | null;
+  caption_en: string | null;
+  caption_de: string | null;
+  media_assets: {
+    id: string;
+    status: "reserved" | "ready" | "deleting";
+    width: number;
+    height: number;
+    storage_key: string;
+  } | null;
+}

@@ -6,29 +6,31 @@ import {
   type ReturnRoutes,
 } from "./safe-return-to";
 
-// Rutas SOLO de prueba para ejercitar `intent` sin crear rutas reales (no existe /cosplay).
+// Rutas SOLO de prueba para ejercitar `intent` genérico sin depender de una ruta real concreta.
 const FIXTURE_ROUTES: ReturnRoutes = {
   "/fixture/item": { allowsIntent: true },
   "/fixture/plain": { allowsIntent: false },
 };
 
 describe("allowlist inicial", () => {
-  it("contiene exactamente /admin, /admin/activate, /account y /comunidad, sin parámetros", () => {
+  it("contiene exactamente /admin, /admin/activate, /account, /comunidad y /cosplay", () => {
     expect(Object.keys(RETURN_ROUTES).sort()).toEqual([
       "/account",
       "/admin",
       "/admin/activate",
       "/comunidad",
+      "/cosplay",
     ]);
-    for (const route of Object.values(RETURN_ROUTES)) {
-      expect(route.allowsIntent).toBe(false);
+  });
+
+  it("solo /cosplay admite intent (Fase 9I-1: la UI privilegiada vive en /cosplay, sin panel aparte)", () => {
+    for (const [pathname, route] of Object.entries(RETURN_ROUTES)) {
+      expect(route.allowsIntent).toBe(pathname === "/cosplay");
     }
   });
 
-  it("no incluye /cosplay todavía", () => {
-    expect(parseSafeReturnTo("/cosplay")).toBeNull();
+  it("/cosplay/42 (subruta de detalle) no es un destino de returnTo válido", () => {
     expect(parseSafeReturnTo("/cosplay/42")).toBeNull();
-    expect(parseSafeReturnTo("/cosplay?intent=create")).toBeNull();
   });
 });
 
@@ -38,12 +40,22 @@ describe("la allowlist de producción no puede ser alterada ni sustituida", () =
     for (const route of Object.values(RETURN_ROUTES))
       expect(Object.isFrozen(route)).toBe(true);
     expect(() => {
-      (RETURN_ROUTES as Record<string, unknown>)["/cosplay"] = { allowsIntent: true };
+      (RETURN_ROUTES as Record<string, unknown>)["/cosplay/nuevo"] = {
+        allowsIntent: true,
+      };
     }).toThrow(TypeError);
     expect(() => {
       (RETURN_ROUTES["/admin"] as { allowsIntent: boolean }).allowsIntent = true;
     }).toThrow(TypeError);
-    expect(parseSafeReturnTo("/cosplay")).toBeNull();
+    expect(() => {
+      (RETURN_ROUTES["/cosplay"] as { allowsIntent: boolean }).allowsIntent = false;
+    }).toThrow(TypeError);
+    // Los intentos de mutación (todos fallidos, en modo estricto) no corrompen el estado real.
+    expect(parseSafeReturnTo("/cosplay")).toEqual({
+      pathname: "/cosplay",
+      intent: null,
+      path: "/cosplay",
+    });
     expect(parseSafeReturnTo("/admin?intent=create")).toBeNull();
   });
 
@@ -69,9 +81,12 @@ describe("la allowlist de producción no puede ser alterada ni sustituida", () =
 });
 
 describe("destinos válidos", () => {
-  it.each(["/admin", "/admin/activate", "/account", "/comunidad"])("%s", (path) => {
-    expect(parseSafeReturnTo(path)).toEqual({ pathname: path, intent: null, path });
-  });
+  it.each(["/admin", "/admin/activate", "/account", "/comunidad", "/cosplay"])(
+    "%s",
+    (path) => {
+      expect(parseSafeReturnTo(path)).toEqual({ pathname: path, intent: null, path });
+    },
+  );
 
   it("devuelve un destino reconstruido, nunca el objeto/texto original", () => {
     const raw = "/admin";
@@ -290,6 +305,26 @@ describe("query con intent (solo en rutas que lo declaran; fixture)", () => {
     ["ruta con intent en otra ruta no listada", "/otra?intent=create"],
   ])("%s → null", (_name, value) => {
     expect(parseSafeReturnToWithRoutes(value, FIXTURE_ROUTES)).toBeNull();
+  });
+});
+
+describe("query con intent en /cosplay (ruta real de producción, no fixture)", () => {
+  it.each(["create", "edit", "delete"] as const)("intent=%s válido", (intent) => {
+    expect(parseSafeReturnTo(`/cosplay?intent=${intent}`)).toEqual({
+      pathname: "/cosplay",
+      intent,
+      path: `/cosplay?intent=${intent}`,
+    });
+  });
+
+  it.each([
+    ["intent desconocido", "/cosplay?intent=drop"],
+    ["intent duplicado distinto", "/cosplay?intent=create&intent=delete"],
+    ["parámetro extra", "/cosplay?intent=create&x=1"],
+    ["parámetro desconocido a secas", "/cosplay?post=123"],
+    ["? vacía", "/cosplay?"],
+  ])("%s → null", (_name, value) => {
+    expect(parseSafeReturnTo(value)).toBeNull();
   });
 });
 

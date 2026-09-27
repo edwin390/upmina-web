@@ -13,7 +13,7 @@ vi.mock("@/lib/supabase", () => ({
 
 import { AdminAccessError, fetchAdminAccess, parseAdminAccess } from "./admin-access";
 
-const ALL = ["moderation", "technical", "social_admin", "team_admin"];
+const ALL = ["moderation", "technical", "social_admin", "team_admin", "cosplay_admin"];
 
 describe("parseAdminAccess", () => {
   it("ADMIN con todas las capacidades y MFA reciente", () => {
@@ -52,10 +52,20 @@ describe("parseAdminAccess", () => {
     expect(
       parseAdminAccess({
         role: "admin",
-        capabilities: ["team_admin", "cosplay_admin", "root"],
+        capabilities: ["team_admin", "community_admin", "root"],
         mfa: { recent: true },
       })?.capabilities,
     ).toEqual(["team_admin"]);
+  });
+
+  it("reconoce cosplay_admin (Fase 9I) como capacidad conocida", () => {
+    expect(
+      parseAdminAccess({
+        role: "admin",
+        capabilities: ["cosplay_admin"],
+        mfa: { recent: true },
+      })?.capabilities,
+    ).toEqual(["cosplay_admin"]);
   });
 
   it.each([

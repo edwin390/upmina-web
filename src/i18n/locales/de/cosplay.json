@@ -1,0 +1,37 @@
+{
+  "list": {
+    "heading": "COSPLAY",
+    "subheading": "Minas Cosplay-Fotografie.",
+    "loading": "Beiträge werden geladen…",
+    "error": "Cosplay-Beiträge konnten gerade nicht geladen werden. Bitte versuch es später erneut.",
+    "empty": {
+      "title": "Noch keine Beiträge",
+      "body": "Minas Cosplay-Fotos erscheinen hier bald."
+    },
+    "heroLabel": "Neuester Beitrag",
+    "photoCount": "{count, plural, one {# Foto} other {# Fotos}}",
+    "loadMore": "Mehr laden"
+  },
+  "detail": {
+    "loading": "Wird geladen…",
+    "error": "Dieser Beitrag konnte nicht geladen werden. Bitte versuch es später erneut.",
+    "notFound": {
+      "title": "Diesen Beitrag konnten wir nicht finden",
+      "body": "Der Link ist möglicherweise falsch, oder der Beitrag ist nicht mehr verfügbar.",
+      "back": "Zurück zu Cosplay"
+    },
+    "character": "Charakter",
+    "series": "Serie / Franchise",
+    "event": "Event",
+    "shotOn": "Datum",
+    "photographerCredit": "Fotografie",
+    "galleryLabel": "Galerie",
+    "backLink": "← Zurück zu Cosplay",
+    "openPhoto": "Foto {position} ansehen"
+  },
+  "admin": {
+    "newPost": "Neuer Beitrag",
+    "edit": "Bearbeiten",
+    "delete": "Löschen"
+  }
+}

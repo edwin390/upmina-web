@@ -1,0 +1,37 @@
+{
+  "list": {
+    "heading": "COSPLAY",
+    "subheading": "Fotografías de cosplay de Mina.",
+    "loading": "Cargando publicaciones…",
+    "error": "No se pudieron cargar las publicaciones de Cosplay ahora mismo. Inténtalo de nuevo más tarde.",
+    "empty": {
+      "title": "Todavía no hay publicaciones",
+      "body": "Pronto encontrarás aquí las fotos de cosplay de Mina."
+    },
+    "heroLabel": "Última publicación",
+    "photoCount": "{count, plural, one {# foto} other {# fotos}}",
+    "loadMore": "Cargar más"
+  },
+  "detail": {
+    "loading": "Cargando…",
+    "error": "No se pudo cargar esta publicación. Inténtalo de nuevo más tarde.",
+    "notFound": {
+      "title": "No encontramos esta publicación",
+      "body": "Puede que el enlace sea incorrecto o que la publicación ya no esté disponible.",
+      "back": "Volver a Cosplay"
+    },
+    "character": "Personaje",
+    "series": "Serie / franquicia",
+    "event": "Evento",
+    "shotOn": "Fecha",
+    "photographerCredit": "Fotografía",
+    "galleryLabel": "Galería",
+    "backLink": "← Volver a Cosplay",
+    "openPhoto": "Ver foto {position}"
+  },
+  "admin": {
+    "newPost": "Nueva publicación",
+    "edit": "Editar",
+    "delete": "Eliminar"
+  }
+}

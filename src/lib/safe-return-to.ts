@@ -39,6 +39,10 @@ export const RETURN_ROUTES: ReturnRoutes = Object.freeze({
   "/admin/activate": Object.freeze({ allowsIntent: false }),
   "/account": Object.freeze({ allowsIntent: false }),
   "/comunidad": Object.freeze({ allowsIntent: false }),
+  // Fase 9I-1: la UI privilegiada de Cosplay vive en /cosplay (sin panel aparte). allowsIntent
+  // solo transporta QUÉ intención reabrir (crear/editar/eliminar) tras el step-up de MFA; nunca
+  // identifica una publicación concreta (eso lo decide de nuevo la persona al volver, no la URL).
+  "/cosplay": Object.freeze({ allowsIntent: true }),
 });
 
 export interface SafeReturnTo {

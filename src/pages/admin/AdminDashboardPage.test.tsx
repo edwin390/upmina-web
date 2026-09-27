@@ -41,7 +41,13 @@ vi.mock("@/lib/supabase", () => ({
   },
 }));
 
-const ALL_CAPS = ["moderation", "technical", "social_admin", "team_admin"];
+const ALL_CAPS = [
+  "moderation",
+  "technical",
+  "social_admin",
+  "team_admin",
+  "cosplay_admin",
+];
 const CAPS: Record<string, string[]> = {
   admin: ALL_CAPS,
   moderator: ["moderation"],

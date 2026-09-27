@@ -436,7 +436,7 @@ describe("AdminMfaPage — returnTo seguro", () => {
     ["malformado (%)", "/admin%zz"],
     ["codificado", "/%2f%2fevil.example"],
     ["ruta fuera de la allowlist", "/desconocida"],
-    ["ruta que no existe aún", "/cosplay"],
+    // /cosplay ya es un destino válido (Fase 9I-1): la cobertura vive en el test dedicado de abajo.
     ["con parámetros", "/admin?x=1"],
     ["con fragmento", "/admin#x"],
     ["vacío", ""],
@@ -466,6 +466,44 @@ describe("AdminMfaPage — returnTo seguro", () => {
     );
 
     expect(await screen.findByTestId("comunidad")).toHaveTextContent("/comunidad");
+  });
+
+  it("returnTo=/cosplay (permitido, Fase 9I-1) navega ahí", async () => {
+    authenticated();
+    accessFakes.recent = true;
+    render(
+      <QueryClientProvider client={testQueryClient}>
+        <MemoryRouter initialEntries={["/admin/mfa?returnTo=/cosplay"]}>
+          <Routes>
+            <Route path="/admin/mfa" element={<AdminMfaPage />} />
+            <Route path="/cosplay" element={<LocationProbe id="cosplay" />} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    expect(await screen.findByTestId("cosplay")).toHaveTextContent("/cosplay");
+  });
+
+  it("returnTo=/cosplay?intent=create (permitido, Fase 9I-1) conserva la intención", async () => {
+    authenticated();
+    accessFakes.recent = true;
+    render(
+      <QueryClientProvider client={testQueryClient}>
+        <MemoryRouter
+          initialEntries={["/admin/mfa?returnTo=%2Fcosplay%3Fintent%3Dcreate"]}
+        >
+          <Routes>
+            <Route path="/admin/mfa" element={<AdminMfaPage />} />
+            <Route path="/cosplay" element={<LocationProbe id="cosplay" />} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    expect(await screen.findByTestId("cosplay")).toHaveTextContent(
+      "/cosplay?intent=create",
+    );
   });
 
   it("sin sesión: el enlace de login conserva SOLO un returnTo válido", async () => {

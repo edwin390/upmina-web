@@ -29,7 +29,7 @@ vi.mock("@/lib/supabase", () => ({
 import PrivilegedOnly from "./PrivilegedOnly";
 
 const CAPS: Record<string, string[]> = {
-  admin: ["moderation", "technical", "social_admin", "team_admin"],
+  admin: ["moderation", "technical", "social_admin", "team_admin", "cosplay_admin"],
   moderator: ["moderation"],
   developer: ["moderation", "technical"],
 };

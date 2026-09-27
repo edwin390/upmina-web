@@ -1,0 +1,9 @@
+{
+  "lightbox": {
+    "dialogLabel": "Image viewer",
+    "close": "Close",
+    "previous": "Previous photo",
+    "next": "Next photo",
+    "counter": "{current} of {total}"
+  }
+}
