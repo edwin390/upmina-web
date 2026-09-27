@@ -1,0 +1,35 @@
+{
+  "status": {
+    "queued": "Queued",
+    "preparing": "Preparing…",
+    "uploading": "Uploading…",
+    "uploaded": "Uploaded",
+    "processing": "Processing…",
+    "ready": "Ready",
+    "failed": "Failed"
+  },
+  "actions": {
+    "selectFiles": "Select photos",
+    "retry": "Retry",
+    "remove": "Remove"
+  },
+  "transport": {
+    "original": "Original",
+    "preShrink": "Shrunk for transport",
+    "percentSaved": "{percent}% less data"
+  },
+  "errors": {
+    "invalid_mime": "Unsupported format.",
+    "invalid_bytes": "Invalid file size.",
+    "too_large": "The file is too large (60 MB maximum).",
+    "too_many_pixels": "The image has too many pixels (100 megapixels maximum).",
+    "invalid_dimensions": "Could not read the image dimensions.",
+    "heic_unsupported_profile": "This HEIC uses a profile we can't process yet.",
+    "upload_incomplete": "The upload did not finish correctly.",
+    "verification_failed": "The uploaded file could not be verified.",
+    "processing_failed": "Image processing failed.",
+    "step_up_required": "You need to verify your identity again to continue.",
+    "network": "Network failure. Please try again.",
+    "generic": "Something went wrong."
+  }
+}

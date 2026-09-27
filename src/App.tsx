@@ -20,6 +20,12 @@ const CommunitySection = lazy(() => import("./components/community/CommunitySect
 // — nunca entran en el bundle de las demás secciones.
 const CosplayPage = lazy(() => import("./pages/CosplayPage"));
 const CosplayDetailPage = lazy(() => import("./pages/CosplayDetailPage"));
+// Arnés de desarrollo del pipeline de medios (Fase 9I-2B): import.meta.env.DEV se resuelve en
+// tiempo de build, así que Vite elimina por completo este import y la ruta que lo monta de
+// cualquier build de producción — no es "oculto", literalmente no existe en ese bundle.
+const MediaHarnessPage = import.meta.env.DEV
+  ? lazy(() => import("./pages/dev/MediaHarnessPage"))
+  : null;
 // Su propio chunk: las páginas /admin/* solo se descargan al entrar a /admin/*.
 const LoginPage = lazy(() => import("./pages/LoginPage"));
 const SignupPage = lazy(() => import("./pages/SignupPage"));
@@ -117,6 +123,9 @@ function AppShell() {
             <Route path="/comunidad" element={<CommunitySection />} />
             <Route path="/cosplay" element={<CosplayPage />} />
             <Route path="/cosplay/:slug" element={<CosplayDetailPage />} />
+            {MediaHarnessPage && (
+              <Route path="/dev/media-harness" element={<MediaHarnessPage />} />
+            )}
             <Route path="/terms" element={<TermsPage />} />
             <Route path="/privacy" element={<PrivacyPage />} />
             <Route path="/login" element={<LoginPage />} />

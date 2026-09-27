@@ -451,6 +451,37 @@ describe("AdminMfaPage — returnTo seguro", () => {
     expect(window.location.href).toBe(before); // nunca window.location
   });
 
+  // Regresión (Fase 9I-2C): /dev/media-harness es la ÚNICA extensión fuera de RETURN_ROUTES (la
+  // allowlist de Producción, congelada — ver safe-return-to.ts) que esta página acepta, y SOLO en
+  // build de desarrollo (import.meta.env.DEV, vigente en el runner de tests). No debe abrir la
+  // puerta a ninguna otra ruta arbitraria: sigue exigiendo coincidencia EXACTA de la allowlist.
+  it("returnTo=/dev/media-harness (solo DEV, Fase 9I-2C) navega ahí", async () => {
+    authenticated();
+    accessFakes.recent = true;
+    render(
+      <QueryClientProvider client={testQueryClient}>
+        <MemoryRouter initialEntries={["/admin/mfa?returnTo=/dev/media-harness"]}>
+          <Routes>
+            <Route path="/admin/mfa" element={<AdminMfaPage />} />
+            <Route path="/dev/media-harness" element={<LocationProbe id="harness" />} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    expect(await screen.findByTestId("harness")).toHaveTextContent(
+      "/dev/media-harness [fromMfa]",
+    );
+  });
+
+  it("returnTo=/dev/media-harness-evil (variación fuera de la allowlist) sigue cayendo en /account", async () => {
+    authenticated();
+    accessFakes.recent = true;
+    renderMfaPage("/admin/mfa?returnTo=/dev/media-harness-evil");
+
+    expect(await screen.findByTestId("account")).toHaveTextContent("/account [fromMfa]");
+  });
+
   it("returnTo=/comunidad (permitido) navega ahí", async () => {
     authenticated();
     accessFakes.recent = true;

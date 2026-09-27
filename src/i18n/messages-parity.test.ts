@@ -5,6 +5,9 @@ import commonDe from "./locales/de/common.json";
 import cosplayEs from "./locales/es/cosplay.json";
 import cosplayEn from "./locales/en/cosplay.json";
 import cosplayDe from "./locales/de/cosplay.json";
+import mediaEs from "./locales/es/media.json";
+import mediaEn from "./locales/en/media.json";
+import mediaDe from "./locales/de/media.json";
 
 // Paridad ES/EN/DE (Fase 9I-1): las tres traducciones deben cubrir EXACTAMENTE el mismo árbol de
 // claves y los mismos argumentos de interpolación ICU. Una clave que falte en EN/DE se
@@ -50,6 +53,7 @@ function icuArgNames(message: string): string[] {
 const NAMESPACES: [string, Json, Json, Json][] = [
   ["common", commonEs, commonEn, commonDe],
   ["cosplay", cosplayEs, cosplayEn, cosplayDe],
+  ["media", mediaEs, mediaEn, mediaDe],
 ];
 
 describe.each(NAMESPACES)("paridad de mensajes — %s", (ns, es, en, de) => {

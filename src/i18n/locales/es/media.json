@@ -1,0 +1,35 @@
+{
+  "status": {
+    "queued": "En cola",
+    "preparing": "Preparando…",
+    "uploading": "Subiendo…",
+    "uploaded": "Subido",
+    "processing": "Procesando…",
+    "ready": "Listo",
+    "failed": "Error"
+  },
+  "actions": {
+    "selectFiles": "Seleccionar fotos",
+    "retry": "Reintentar",
+    "remove": "Quitar"
+  },
+  "transport": {
+    "original": "Original",
+    "preShrink": "Reducido para transporte",
+    "percentSaved": "{percent}% menos de datos"
+  },
+  "errors": {
+    "invalid_mime": "Formato no admitido.",
+    "invalid_bytes": "Tamaño de archivo inválido.",
+    "too_large": "El archivo pesa demasiado (máximo 60 MB).",
+    "too_many_pixels": "La imagen tiene demasiados píxeles (máximo 100 megapíxeles).",
+    "invalid_dimensions": "No se pudieron leer las dimensiones de la imagen.",
+    "heic_unsupported_profile": "Este HEIC usa un perfil que todavía no podemos procesar.",
+    "upload_incomplete": "La subida no se completó correctamente.",
+    "verification_failed": "No se pudo verificar el archivo subido.",
+    "processing_failed": "El procesado de la imagen falló.",
+    "step_up_required": "Necesitas verificar tu identidad de nuevo para continuar.",
+    "network": "Fallo de red. Inténtalo de nuevo.",
+    "generic": "Algo salió mal."
+  }
+}

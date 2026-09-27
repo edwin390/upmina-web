@@ -3,7 +3,11 @@ import { Link, Navigate, useSearchParams } from "react-router-dom";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/lib/auth-context";
 import { useAdminAccess } from "@/hooks/useAdminAccess";
-import { parseSafeReturnTo } from "@/lib/safe-return-to";
+import {
+  parseSafeReturnTo,
+  parseSafeReturnToWithRoutes,
+  type ReturnRoutes,
+} from "@/lib/safe-return-to";
 import AdminAuthCard from "@/components/admin/AdminAuthCard";
 import AdminAuthField from "@/components/admin/AdminAuthField";
 import { buildTotpQrImageSrc } from "@/lib/mfa-qr";
@@ -33,6 +37,27 @@ import { buildTotpQrImageSrc } from "@/lib/mfa-qr";
 // Esta página no exige un rol: cualquier sesión puede enrolar/verificar su propio TOTP (también
 // quien aún no tiene rol y va a activar una invitación, 9G-4). El acceso a /admin, en cambio, se
 // decide ANTES de llegar aquí y a un usuario sin rol nunca se le envía.
+
+// Fase 9I-2C: /dev/media-harness (arnés de desarrollo del pipeline de medios) también necesita
+// volver aquí tras un step-up de MFA, como cualquier otra sección privilegiada — pero NUNCA existe
+// como ruta real en Production (ver App.tsx: el import es condicional a import.meta.env.DEV), así
+// que no pertenece a RETURN_ROUTES (la allowlist DE PRODUCCIÓN, congelada, ver safe-return-to.ts).
+// import.meta.env.DEV se sustituye estáticamente en build time: en Production esta constante es
+// `null` y todo el bloque (incluido el string "/dev/media-harness") se elimina por tree-shaking,
+// igual que la propia página del arnés — verificado tras el build, nunca solo asumido.
+const DEV_RETURN_ROUTES: ReturnRoutes | null = import.meta.env.DEV
+  ? Object.freeze({ "/dev/media-harness": Object.freeze({ allowsIntent: false }) })
+  : null;
+
+/** Igual que parseSafeReturnTo, pero en build de desarrollo también acepta el arnés de medios.
+ *  Nunca se usa DEV_RETURN_ROUTES como sustituto de la allowlist de Producción: solo se consulta
+ *  si esta primero no reconoce el destino. */
+function resolveReturnTo(raw: string) {
+  return (
+    parseSafeReturnTo(raw) ??
+    (DEV_RETURN_ROUTES && parseSafeReturnToWithRoutes(raw, DEV_RETURN_ROUTES))
+  );
+}
 
 const INVALID_OR_EXPIRED_CODES = new Set([
   "mfa_verification_failed",
@@ -78,7 +103,7 @@ export default function AdminMfaPage() {
   // (externo, protocol-relative, malformado, fuera de la allowlist…) cae en /account.
   const rawReturnTo = searchParams.get("returnTo");
   const safeReturnTo =
-    rawReturnTo === null ? null : (parseSafeReturnTo(rawReturnTo)?.path ?? null);
+    rawReturnTo === null ? null : (resolveReturnTo(rawReturnTo)?.path ?? null);
   const destination = rawReturnTo === null ? null : (safeReturnTo ?? "/account");
 
   const [step, setStep] = useState<MfaStep>({ kind: "checking" });

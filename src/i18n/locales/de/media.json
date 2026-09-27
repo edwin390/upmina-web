@@ -1,0 +1,35 @@
+{
+  "status": {
+    "queued": "In der Warteschlange",
+    "preparing": "Wird vorbereitet…",
+    "uploading": "Wird hochgeladen…",
+    "uploaded": "Hochgeladen",
+    "processing": "Wird verarbeitet…",
+    "ready": "Fertig",
+    "failed": "Fehler"
+  },
+  "actions": {
+    "selectFiles": "Fotos auswählen",
+    "retry": "Erneut versuchen",
+    "remove": "Entfernen"
+  },
+  "transport": {
+    "original": "Original",
+    "preShrink": "Für die Übertragung verkleinert",
+    "percentSaved": "{percent}% weniger Daten"
+  },
+  "errors": {
+    "invalid_mime": "Nicht unterstütztes Format.",
+    "invalid_bytes": "Ungültige Dateigröße.",
+    "too_large": "Die Datei ist zu groß (maximal 60 MB).",
+    "too_many_pixels": "Das Bild hat zu viele Pixel (maximal 100 Megapixel).",
+    "invalid_dimensions": "Die Bildabmessungen konnten nicht gelesen werden.",
+    "heic_unsupported_profile": "Dieses HEIC verwendet ein Profil, das wir noch nicht verarbeiten können.",
+    "upload_incomplete": "Der Upload wurde nicht korrekt abgeschlossen.",
+    "verification_failed": "Die hochgeladene Datei konnte nicht überprüft werden.",
+    "processing_failed": "Die Bildverarbeitung ist fehlgeschlagen.",
+    "step_up_required": "Du musst deine Identität erneut bestätigen, um fortzufahren.",
+    "network": "Netzwerkfehler. Bitte versuche es erneut.",
+    "generic": "Etwas ist schiefgelaufen."
+  }
+}

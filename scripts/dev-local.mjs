@@ -19,6 +19,12 @@ function loadEnvFile(path) {
 loadEnvFile(".env.local");
 loadEnvFile(".env");
 
+// "vercel" resuelve al paquete fijado en package.json (devDependency), no a la última versión de
+// npm: vercel@60.0.0+ crashea de forma reproducible en este entorno (Node 24.x + Windows) con
+// "Assertion failed: !(handle->flags & UV_HANDLE_CLOSING), file src\win\async.c, line 94" al
+// primer request real a cualquier función — no es un problema de ninguna función concreta del
+// proyecto (se reprodujo incluso sin api/media/). vercel@59.19.1 no lo reproduce, verificado con
+// requests reales contra varias funciones. Antes de subir la versión fijada, repetir esa prueba.
 const command = process.platform === "win32" ? "npx.cmd" : "npx";
 const children = [
   spawn(command, ["vercel", "dev", "--listen", "3001"], {
@@ -26,7 +32,12 @@ const children = [
     stdio: "inherit",
     shell: process.platform === "win32",
   }),
-  spawn(command, ["vite", "--port", "3000"], {
+  // --host 0.0.0.0 (Fase 9I-2C, prueba real desde el móvil por LAN): SOLO el frontend de Vite
+  // necesita ser alcanzable desde otro dispositivo — el proxy de /api (vite.config.ts) sigue
+  // hablando con Vercel dev en 127.0.0.1:3001 desde el propio proceso de Vite (loopback de esta
+  // misma máquina, nunca expuesto directamente a la LAN). Nunca se exponen credenciales
+  // server-side: el navegador del móvil solo recibe lo mismo que ya recibiría en localhost.
+  spawn(command, ["vite", "--port", "3000", "--host", "0.0.0.0"], {
     env: process.env,
     stdio: "inherit",
     shell: process.platform === "win32",
