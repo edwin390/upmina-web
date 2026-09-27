@@ -234,6 +234,35 @@ describe("Twitch principal: interacción explícita → play + sonido", () => {
     expect(p.calls).toEqual([]);
   });
 
+  it("recorrer la página con Tab hasta el iframe NO es una interacción: sin play ni sonido", async () => {
+    stubApi();
+    renderSection();
+    const p = await primary();
+    p.emit(FakeTwitchPlayer.READY);
+
+    key("Tab");
+    clickInto(p.frame); // el foco llega justo tras la tecla
+
+    expect(p.calls).toEqual([]);
+  });
+
+  it("tras pasar por teclado, un clic posterior sí solicita play y sonido (una vez)", async () => {
+    stubApi();
+    renderSection();
+    const p = await primary();
+    p.emit(FakeTwitchPlayer.READY);
+    key("Tab");
+    clickInto(p.frame);
+    expect(p.calls).toEqual([]);
+
+    const now = performance.now();
+    vi.spyOn(performance, "now").mockReturnValue(now + 5_000);
+    (document.activeElement as HTMLElement | null)?.blur();
+    clickInto(p.frame);
+
+    expect(p.calls).toEqual(["play", "setMuted:false"]);
+  });
+
   it("si el navegador rechaza el sonido no hay bucle ni remontaje (PLAYBACK_BLOCKED)", async () => {
     stubApi();
     renderSection();

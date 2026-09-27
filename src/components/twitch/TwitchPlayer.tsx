@@ -17,6 +17,9 @@ interface TwitchPlayerProps {
 /** Volumen razonable si el reproductor estaba a 0 al pedir sonido. */
 const DEFAULT_VOLUME = 0.5;
 
+/** Un foco que llega justo después de una tecla se considera navegación por teclado. */
+const KEYBOARD_FOCUS_WINDOW_MS = 500;
+
 interface PlayerState {
   alive: boolean;
   ready: boolean;
@@ -108,8 +111,17 @@ export default function TwitchPlayer({
       else s.activationPending = true;
     };
 
+    // Recorrer la página con el teclado (Tab) también mete el foco en el iframe: eso no es una
+    // interacción con el vídeo y no debe activar el sonido. Un clic o toque no genera ninguna
+    // tecla en esta página, así que un keydown reciente delata el foco por teclado.
+    let lastKeyAt = Number.NEGATIVE_INFINITY;
+    const onKeyDown = () => {
+      lastKeyAt = performance.now();
+    };
+
     // Clic en el iframe de otro origen → el foco entra en él y la ventana pierde el foco.
     const onWindowBlur = () => {
+      if (performance.now() - lastKeyAt < KEYBOARD_FOCUS_WINDOW_MS) return;
       const active = document.activeElement;
       if (active instanceof HTMLIFrameElement && container.contains(active)) activate();
     };
@@ -148,6 +160,7 @@ export default function TwitchPlayer({
         }
       });
       window.addEventListener("blur", onWindowBlur);
+      document.addEventListener("keydown", onKeyDown, true);
     };
 
     // Como el iframe con loading="lazy" de antes: no se crea hasta estar cerca de la vista.
@@ -171,6 +184,7 @@ export default function TwitchPlayer({
       if (stateRef.current === s) stateRef.current = null;
       observer?.disconnect();
       window.removeEventListener("blur", onWindowBlur);
+      document.removeEventListener("keydown", onKeyDown, true);
       container.replaceChildren();
     };
     // title solo se usa al crear: cambiarlo no debe remontar el reproductor.
