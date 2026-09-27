@@ -6,6 +6,8 @@ import {
   safeCode,
   type TikTokTokenSet,
 } from "./tiktok-shared.js";
+import type { OpenSnapshotOptions } from "./public-snapshot-fallback.js";
+import { socialSourceId, type SnapshotSourceId } from "./public-snapshot-resources.js";
 
 // Persistencia de la conexión OAuth de TikTok en Supabase (tabla social_connections,
 // ver supabase/migrations). SOLO servidor: usa la service_role key, que omite RLS.
@@ -106,6 +108,8 @@ export async function saveTikTokConnection(
 
 /** Conexión guardada. Contiene tokens: solo para código servidor, jamás serializar. */
 export interface TikTokConnection {
+  /** id (uuid) de la fila de social_connections: cambia si se desconecta y se vuelve a conectar. */
+  connectionId?: string;
   openId: string;
   accessToken: string;
   refreshToken: string;
@@ -115,6 +119,7 @@ export interface TikTokConnection {
 }
 
 interface ConnectionRow {
+  id?: unknown;
   provider_user_id?: unknown;
   access_token?: unknown;
   refresh_token?: unknown;
@@ -133,7 +138,7 @@ export async function getTikTokConnection(): Promise<TikTokConnection | null> {
     ({ data, error } = await client
       .from(TABLE)
       .select(
-        "provider_user_id, access_token, refresh_token, access_token_expires_at, refresh_token_expires_at, scope",
+        "id, provider_user_id, access_token, refresh_token, access_token_expires_at, refresh_token_expires_at, scope",
       )
       .eq("provider", PROVIDER)
       .maybeSingle<ConnectionRow>());
@@ -156,6 +161,7 @@ export async function getTikTokConnection(): Promise<TikTokConnection | null> {
   }
 
   return {
+    connectionId: typeof data.id === "string" && data.id ? data.id : undefined,
     openId: provider_user_id,
     accessToken: access_token,
     refreshToken: refresh_token,
@@ -163,6 +169,35 @@ export async function getTikTokConnection(): Promise<TikTokConnection | null> {
     refreshTokenExpiresAt: refresh_token_expires_at,
     scope: typeof data.scope === "string" ? data.scope : "",
   };
+}
+
+/**
+ * Identidad de la FUENTE de los snapshots de esta conexión: fila (id) + cuenta (open_id).
+ * Desconectar y volver a conectar crea otra fila (otro id) y cambiar de cuenta cambia el open_id:
+ * en ambos casos el snapshot anterior deja de servir. `undefined` si la fila no trae un id válido
+ * (entonces simplemente no hay snapshots). Nunca sale por la API.
+ */
+export function tiktokSnapshotSource(
+  connection: Pick<TikTokConnection, "connectionId" | "openId">,
+): SnapshotSourceId<"tiktok"> | undefined {
+  return socialSourceId("tiktok", connection.connectionId, connection.openId);
+}
+
+/**
+ * ¿La fuente sigue siendo la conexión ACTUAL y su autorización sigue siendo recuperable? Vuelve a
+ * leer la fila: existe, es la misma (id y cuenta) y su refresh token no ha caducado ni fue
+ * rechazado. (Un access token vencido con refresh vigente es RECUPERABLE.) Lanza si no se puede leer.
+ */
+export async function isTikTokSourceCurrent(
+  source: SnapshotSourceId<"tiktok">,
+  now: number = Date.now(),
+): Promise<boolean> {
+  const connection = await getTikTokConnection();
+  return (
+    connection !== null &&
+    tiktokSnapshotSource(connection) === source &&
+    !isTikTokRefreshTokenExpired(connection.refreshTokenExpiresAt, now)
+  );
 }
 
 // ---------- refresh ----------
@@ -272,6 +307,37 @@ export async function markTikTokAuthorizationInvalid(
   } catch (err) {
     const safe =
       err instanceof TikTokStorageError ? err : storageError("invalidate", err);
+    if (safe.status !== 503) logTikTokStorageError("tiktok-connection", safe);
+  }
+}
+
+/**
+ * TikTok rechazó el ACCESS token con `access_token_invalid` (401: "refresca el token y reintenta").
+ * Se marca ese access token como caducado (mismo patrón que Instagram con el 190, pero solo la
+ * columna del access token): la siguiente petición pasa por el refresh normal y, si el refresh token
+ * sigue siendo válido, la conexión se recupera sola; si el usuario revocó la autorización, el
+ * refresh devolverá invalid_grant y ahí se persiste la reautorización (markTikTokAuthorizationInvalid).
+ * NO toca el refresh token: un access token inválido no prueba que no se pueda renovar.
+ * Condicionado al access token rechazado: no toca una reautorización posterior ni resucita una fila
+ * desconectada (0 filas afectadas). Best effort: un fallo de almacenamiento solo se registra.
+ */
+export async function markTikTokAccessTokenRejected(
+  rejectedAccessToken: string,
+  now: number = Date.now(),
+): Promise<void> {
+  try {
+    const { error } = await getSupabaseAdmin()
+      .from(TABLE)
+      .update({
+        access_token_expires_at: new Date(now).toISOString(),
+        updated_at: new Date(now).toISOString(),
+      })
+      .eq("provider", PROVIDER)
+      .eq("access_token", rejectedAccessToken);
+    if (error) throw storageError("invalidate-access", error);
+  } catch (err) {
+    const safe =
+      err instanceof TikTokStorageError ? err : storageError("invalidate-access", err);
     if (safe.status !== 503) logTikTokStorageError("tiktok-connection", safe);
   }
 }
@@ -421,7 +487,17 @@ export function isTikTokRefreshTokenExpired(
  */
 export async function getUsableTikTokAccessToken(
   nowArg?: number,
-  options: { sleep?: (ms: number) => Promise<void> } = {},
+  options: {
+    sleep?: (ms: number) => Promise<void>;
+    /**
+     * Se invoca cuando la lectura de la conexión ya demostró que EXISTE y que su refresh token no
+     * ha caducado (autorización recuperable), con la identidad de la fuente de los snapshots
+     * (`undefined` si la fila no trae id válido). Sirve para que el endpoint abra el snapshot en
+     * cuanto la fuente está establecida, y para conocerla aunque después falle el refresh contra
+     * TikTok (no se llama para conexiones ausentes ni con la reautorización pendiente).
+     */
+    onConnection?: (source: SnapshotSourceId<"tiktok"> | undefined) => void;
+  } = {},
 ): Promise<string> {
   const sleep = options.sleep ?? defaultSleep;
 
@@ -429,7 +505,14 @@ export async function getUsableTikTokAccessToken(
     const now = nowArg ?? Date.now();
     const connection = await getTikTokConnection();
     if (!connection) throw new TikTokConnectionError("missing");
-    if (isAccessTokenUsable(connection, now)) return connection.accessToken;
+    if (isAccessTokenUsable(connection, now)) {
+      // El access token vigente no se comprueba contra el refresh token, pero un refresh token
+      // ya caducado o rechazado (reautorización pendiente) tampoco debe servir snapshots.
+      if (!isTikTokRefreshTokenExpired(connection.refreshTokenExpiresAt, now)) {
+        options.onConnection?.(tiktokSnapshotSource(connection));
+      }
+      return connection.accessToken;
+    }
 
     const refreshExpiresAt = Date.parse(connection.refreshTokenExpiresAt);
     if (Number.isNaN(refreshExpiresAt)) {
@@ -438,6 +521,7 @@ export async function getUsableTikTokAccessToken(
     if (isTikTokRefreshTokenExpired(connection.refreshTokenExpiresAt, now)) {
       throw new TikTokConnectionError("refresh_token_expired");
     }
+    options.onConnection?.(tiktokSnapshotSource(connection));
 
     const accessToken = await refreshUnderLease(connection, now);
     if (accessToken) return accessToken;
@@ -455,4 +539,60 @@ export function logTikTokStorageError(handler: string, err: unknown): void {
     return;
   }
   console.error(`[${handler}] ${err.message}${err.code ? ` (code=${err.code})` : ""}`);
+}
+
+// ---------- Snapshots (last-known-good) ----------
+
+/**
+ * Códigos de TikTok que la documentación describe como límite de frecuencia o indisponibilidad
+ * TEMPORAL: `rate_limit_exceeded` (HTTP 429), `internal_error` (HTTP 500), y en los endpoints de
+ * OAuth `server_error` y `temporarily_unavailable`.
+ */
+export const TIKTOK_TRANSIENT_CODES: ReadonlySet<string> = new Set([
+  "rate_limit_exceeded",
+  "internal_error",
+  "server_error",
+  "temporarily_unavailable",
+]);
+
+/** Rechazos de la autorización: NUNCA sirven snapshot, con cualquier status que los acompañe. */
+const TIKTOK_AUTH_CODES: ReadonlySet<string> = new Set([
+  "invalid_grant",
+  "access_token_invalid",
+  "scope_not_authorized",
+  "scope_permission_missed",
+  "invalid_client",
+  "unauthorized_client",
+  "access_denied",
+]);
+
+/**
+ * ¿Pueden los videos responder con su último snapshot tras este fallo? Lista CERRADA de
+ * disponibilidad del proveedor: red o timeout, HTTP 5xx, HTTP 429 (rate_limit_exceeded) o un código
+ * transitorio de arriba; y `refresh_in_progress` (otra petición está renovando el token: la fila
+ * existe y su refresh token es vigente, ver getUsableTikTokAccessToken). Rechazos de autorización
+ * (invalid_grant, access_token_invalid…), conexión ausente o caducada, credenciales de la app
+ * ausentes, respuesta ilegible o de esquema inesperado, almacenamiento y errores internos: NO.
+ */
+export function isTikTokFallbackEligible(err: unknown): boolean {
+  if (err instanceof TikTokConnectionError) return err.reason === "refresh_in_progress";
+  if (!(err instanceof TikTokOAuthError)) return false;
+  if (err.providerCode !== undefined && TIKTOK_AUTH_CODES.has(err.providerCode)) {
+    return false;
+  }
+  if (err.unreachable) return true;
+  if (err.httpStatus !== undefined && (err.httpStatus >= 500 || err.httpStatus === 429)) {
+    return true;
+  }
+  return err.providerCode !== undefined && TIKTOK_TRANSIENT_CODES.has(err.providerCode);
+}
+
+/** Opciones de openSnapshot para TikTok: su elegibilidad y la confirmación de la fuente. */
+export function tiktokSnapshotOptions(
+  source: SnapshotSourceId<"tiktok"> | undefined,
+): OpenSnapshotOptions {
+  return {
+    eligible: isTikTokFallbackEligible,
+    confirm: async () => source !== undefined && (await isTikTokSourceCurrent(source)),
+  };
 }

@@ -7,6 +7,7 @@ import {
   refreshInstagramAccessToken,
   type InstagramRefreshedToken,
 } from "./instagram-oauth-shared.js";
+import { socialSourceId, type SnapshotSourceId } from "./public-snapshot-resources.js";
 
 // Persistencia de la conexión de Instagram en Supabase (tabla social_connections, fila
 // provider = 'instagram'; ver supabase/migrations) y consumo de un solo uso del
@@ -109,6 +110,8 @@ function storageError(operation: string, err: unknown): InstagramStorageError {
 
 /** Conexión guardada. Contiene el token: solo para código servidor, jamás serializar. */
 export interface InstagramConnection {
+  /** id (uuid) de la fila de social_connections: cambia si se desconecta y se vuelve a conectar. */
+  connectionId?: string;
   providerUserId: string;
   accessToken: string;
   /** ISO 8601, absoluto. */
@@ -117,6 +120,7 @@ export interface InstagramConnection {
 }
 
 interface ConnectionRow {
+  id?: unknown;
   provider?: unknown;
   provider_user_id?: unknown;
   access_token?: unknown;
@@ -137,7 +141,9 @@ export async function getInstagramConnection(): Promise<InstagramConnection | nu
   try {
     ({ data, error } = await client
       .from(TABLE)
-      .select("provider, provider_user_id, access_token, access_token_expires_at, scope")
+      .select(
+        "id, provider, provider_user_id, access_token, access_token_expires_at, scope",
+      )
       .eq("provider", PROVIDER)
       .maybeSingle<ConnectionRow>());
   } catch (err) {
@@ -160,11 +166,41 @@ export async function getInstagramConnection(): Promise<InstagramConnection | nu
   }
 
   return {
+    connectionId: typeof data.id === "string" && data.id ? data.id : undefined,
     providerUserId: provider_user_id,
     accessToken: access_token,
     accessTokenExpiresAt: access_token_expires_at,
     scope: typeof data.scope === "string" ? data.scope : "",
   };
+}
+
+/**
+ * Identidad de la FUENTE de los snapshots de esta conexión: fila (id) + cuenta (provider_user_id).
+ * Desconectar y volver a conectar crea otra fila (otro id) y cambiar de cuenta cambia el
+ * provider_user_id: en ambos casos el snapshot anterior deja de servir. `undefined` si la fila no
+ * trae un id válido (entonces simplemente no hay snapshots). Nunca sale por la API.
+ */
+export function instagramSnapshotSource(
+  connection: Pick<InstagramConnection, "connectionId" | "providerUserId">,
+): SnapshotSourceId<"instagram"> | undefined {
+  return socialSourceId("instagram", connection.connectionId, connection.providerUserId);
+}
+
+/**
+ * ¿La fuente sigue siendo la conexión ACTUAL y sigue utilizable? Vuelve a leer la fila: existe, es
+ * la misma (id y cuenta) y su token no está caducado ni rechazado. Lanza si no se puede leer
+ * (quien la usa trata cualquier fallo como "no").
+ */
+export async function isInstagramSourceCurrent(
+  source: SnapshotSourceId<"instagram">,
+  now: number = Date.now(),
+): Promise<boolean> {
+  const connection = await getInstagramConnection();
+  return (
+    connection !== null &&
+    instagramSnapshotSource(connection) === source &&
+    !isInstagramAccessTokenExpired(connection.accessTokenExpiresAt, now)
+  );
 }
 
 /** Falla con 503 si Supabase no está configurado; permite comprobarlo sin tocar la red ni
@@ -603,6 +639,25 @@ export async function getUsableInstagramAccessToken(
   now: number = Date.now(),
   options: { sleep?: (ms: number) => Promise<void> } = {},
 ): Promise<string> {
+  return (await getInstagramAccess(now, options)).accessToken;
+}
+
+/** Token utilizable y la fuente (conexión) de la que salió. Contiene el token: solo servidor. */
+export interface InstagramAccess {
+  accessToken: string;
+  /**
+   * Identidad de la conexión vigente, solo si el token salió de una fila guardada con id válido.
+   * Es la condición para poder servir un snapshot: haber establecido en ESTA petición que hay una
+   * conexión existente y utilizable. Con el token del entorno (desarrollo local) no hay fuente.
+   */
+  source?: SnapshotSourceId<"instagram">;
+}
+
+/** Como getUsableInstagramAccessToken (mismas reglas y errores), pero devuelve también la fuente. */
+export async function getInstagramAccess(
+  now: number = Date.now(),
+  options: { sleep?: (ms: number) => Promise<void> } = {},
+): Promise<InstagramAccess> {
   let connection: InstagramConnection | null;
   try {
     connection = await getInstagramConnection();
@@ -617,7 +672,7 @@ export async function getUsableInstagramAccessToken(
     // Un fallo de lectura con Supabase configurado NO usa el fallback: se registra y se propaga.
     if (err.status === 503) {
       const fallback = getEnvFallbackToken();
-      if (fallback) return fallback;
+      if (fallback) return { accessToken: fallback };
       throw new InstagramConnectionError("missing_token");
     }
     logInstagramStorageError("instagram-connection", err);
@@ -631,7 +686,12 @@ export async function getUsableInstagramAccessToken(
     throw new InstagramConnectionError("expired");
   }
 
-  return resolveInstagramAccessToken(connection, now, options.sleep ?? defaultSleep);
+  const accessToken = await resolveInstagramAccessToken(
+    connection,
+    now,
+    options.sleep ?? defaultSleep,
+  );
+  return { accessToken, source: instagramSnapshotSource(connection) };
 }
 
 /** Registra solo mensaje genérico y código saneado. */

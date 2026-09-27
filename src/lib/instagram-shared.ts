@@ -27,9 +27,12 @@ import {
   InstagramConnectionError,
   InstagramStorageError,
   getUsableInstagramAccessToken,
+  isInstagramSourceCurrent,
   markInstagramAuthorizationInvalid,
 } from "./instagram-connection.js";
 import { META_INVALID_TOKEN_CODE } from "./instagram-oauth-shared.js";
+import type { OpenSnapshotOptions } from "./public-snapshot-fallback.js";
+import type { SnapshotSourceId } from "./public-snapshot-resources.js";
 import type {
   InstagramChild,
   InstagramComment,
@@ -71,6 +74,8 @@ export class InstagramApiError extends Error {
     readonly httpStatus?: number,
     readonly metaCode?: number,
     readonly metaSubcode?: number,
+    /** Fallo de disponibilidad SIN respuesta de Meta: no se pudo conectar o venció el plazo. */
+    readonly failure?: "network" | "timeout",
   ) {
     super(message);
     this.name = "InstagramApiError";
@@ -118,9 +123,11 @@ async function fetchInstagram<T>(
   operation: string,
   path: string,
   params: Record<string, string>,
+  /** Token ya resuelto por quien llama (feed y perfil, que necesitan la fuente antes de pedir). */
+  resolvedToken?: string,
 ): Promise<T> {
   // Conexión guardada en Supabase; INSTAGRAM_ACCESS_TOKEN solo como fallback temporal.
-  const accessToken = await getUsableInstagramAccessToken();
+  const accessToken = resolvedToken ?? (await getUsableInstagramAccessToken());
 
   const url = new URL(`${INSTAGRAM_GRAPH_BASE}/${path}`);
   for (const [name, value] of Object.entries(params)) {
@@ -138,7 +145,14 @@ async function fetchInstagram<T>(
   } catch (err) {
     // El error original de fetch puede arrastrar la URL (con el token): no se propaga.
     if (isTimeout(err)) throw timeoutError(operation);
-    throw new InstagramApiError(`Instagram ${operation}: error de red`, 502);
+    throw new InstagramApiError(
+      `Instagram ${operation}: error de red`,
+      502,
+      undefined,
+      undefined,
+      undefined,
+      "network",
+    );
   }
 
   if (!response.ok) {
@@ -179,6 +193,10 @@ const timeoutError = (operation: string) =>
   new InstagramApiError(
     `Instagram ${operation}: tiempo de espera agotado (${INSTAGRAM_REQUEST_TIMEOUT_MS / 1000} s)`,
     502,
+    undefined,
+    undefined,
+    undefined,
+    "timeout",
   );
 
 // ---------- Normalización ----------
@@ -289,16 +307,46 @@ export function normalizeInstagramComment(
 
 // ---------- Operaciones ----------
 
+const unexpectedSchema = (operation: string) =>
+  new InstagramApiError(`Instagram ${operation}: respuesta con formato inesperado`, 502);
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
+
+/**
+ * `data` de la lista de media. `data: []` es un VACÍO AUTORITATIVO (la cuenta no tiene
+ * publicaciones); un `data` ausente o de otro tipo, o una lista con elementos de los que NINGUNO
+ * tiene la forma de un media (id y media_type de texto), es un esquema inesperado y NUNCA se
+ * interpreta como "sin publicaciones" (`[]`): ese vacío sustituiría al último snapshot bueno.
+ * Se siguen descartando los elementos sueltos que no se pueden pintar (normalizeInstagramMedia).
+ */
+function mediaItems(body: unknown): InstagramApiItem[] {
+  const data = isRecord(body) ? body.data : undefined;
+  if (!Array.isArray(data)) throw unexpectedSchema("media");
+  const recognizable = data.some(
+    (item) =>
+      isRecord(item) &&
+      typeof item.id === "string" &&
+      typeof item.media_type === "string",
+  );
+  if (data.length > 0 && !recognizable) throw unexpectedSchema("media");
+  return data as InstagramApiItem[];
+}
+
 /** Media de la cuenta autorizada por el token, normalizado y sin descartados. */
-export async function getInstagramMedia(): Promise<InstagramMediaItem[]> {
+export async function getInstagramMedia(
+  resolvedToken?: string,
+): Promise<InstagramMediaItem[]> {
   const params = { limit: String(MEDIA_LIMIT) };
 
   let body: InstagramMediaResponse;
   try {
-    body = await fetchInstagram<InstagramMediaResponse>("media", "me/media", {
-      ...params,
-      fields: EXTENDED_FIELDS,
-    });
+    body = await fetchInstagram<InstagramMediaResponse>(
+      "media",
+      "me/media",
+      { ...params, fields: EXTENDED_FIELDS },
+      resolvedToken,
+    );
   } catch (err) {
     // 400 que no es de token (190): Meta rechazó algún campo extra con este
     // token. Se reintenta sin ellos para que el feed siga funcionando.
@@ -307,14 +355,15 @@ export async function getInstagramMedia(): Promise<InstagramMediaItem[]> {
     if (!fieldRejected) throw err;
 
     logInstagramError("instagram-feed", err);
-    body = await fetchInstagram<InstagramMediaResponse>("media", "me/media", {
-      ...params,
-      fields: BASE_FIELDS,
-    });
+    body = await fetchInstagram<InstagramMediaResponse>(
+      "media",
+      "me/media",
+      { ...params, fields: BASE_FIELDS },
+      resolvedToken,
+    );
   }
 
-  if (!Array.isArray(body.data)) return [];
-  return body.data.flatMap((item) => normalizeInstagramMedia(item) ?? []);
+  return mediaItems(body).flatMap((item) => normalizeInstagramMedia(item) ?? []);
 }
 
 // Los ids de media de Instagram son numéricos; se valida antes de meterlos en la ruta.
@@ -401,13 +450,34 @@ export function normalizeInstagramProfile(
   };
 }
 
+/**
+ * Perfil de la respuesta de Meta: un OBJETO con alguno de los campos de un nodo (username,
+ * profile_picture_url o id). `{}` como perfil NORMALIZADO es válido (Meta puede no devolver los
+ * campos opcionales), pero se fabrica solo a partir de un objeto reconocible: un cuerpo que no es
+ * un objeto, o que no trae ninguno de esos campos, es un esquema inesperado.
+ */
+function profileBody(body: unknown): InstagramProfileApiItem {
+  if (
+    !isRecord(body) ||
+    !("username" in body || "profile_picture_url" in body || "id" in body)
+  ) {
+    throw unexpectedSchema("profile");
+  }
+  return body as InstagramProfileApiItem;
+}
+
 /** Perfil de la cuenta autorizada por el token (una sola petición; el handler lo cachea). */
-export async function getInstagramProfile(): Promise<InstagramProfile> {
+export async function getInstagramProfile(
+  resolvedToken?: string,
+): Promise<InstagramProfile> {
   let body: InstagramProfileApiItem;
   try {
-    body = await fetchInstagram<InstagramProfileApiItem>("profile", "me", {
-      fields: PROFILE_FIELDS,
-    });
+    body = await fetchInstagram<InstagramProfileApiItem>(
+      "profile",
+      "me",
+      { fields: PROFILE_FIELDS },
+      resolvedToken,
+    );
   } catch (err) {
     // 400 que no es de token (190): Meta rechazó la foto con este token. Se reintenta
     // solo con el username para que el perfil siga funcionando sin foto.
@@ -416,11 +486,14 @@ export async function getInstagramProfile(): Promise<InstagramProfile> {
     if (!fieldRejected) throw err;
 
     logInstagramError("instagram-profile", err);
-    body = await fetchInstagram<InstagramProfileApiItem>("profile", "me", {
-      fields: "username",
-    });
+    body = await fetchInstagram<InstagramProfileApiItem>(
+      "profile",
+      "me",
+      { fields: "username" },
+      resolvedToken,
+    );
   }
-  return normalizeInstagramProfile(body);
+  return normalizeInstagramProfile(profileBody(body));
 }
 
 // Errores con mensaje y status propios, ya saneados (sin URL, token ni datos de Meta/Supabase).
@@ -442,4 +515,47 @@ export function logInstagramError(handler: string, err: unknown): void {
 
 export function instagramErrorStatus(err: unknown): number {
   return isSafeError(err) ? err.status : 502;
+}
+
+// ---------- Snapshots (last-known-good) ----------
+
+/**
+ * Códigos de Meta que la documentación describe como límite de frecuencia o indisponibilidad
+ * TEMPORAL (Graph API, "Error Handling" y "Rate Limits"): 2 (servicio temporalmente no
+ * disponible), 4 (límite de la app), 17 (límite del usuario), 32 (límite de la API de páginas),
+ * 341 (límite de la aplicación alcanzado), 613 (límite personalizado) y 80002 (límite por caso de
+ * uso de Instagram). Se excluyen a propósito el 1 ("error desconocido": ambiguo), el 368 (bloqueo
+ * por políticas: no es disponibilidad del proveedor) y todo lo de token/permisos (10, 190, 200-299).
+ */
+export const META_TRANSIENT_CODES: ReadonlySet<number> = new Set([
+  2, 4, 17, 32, 341, 613, 80002,
+]);
+
+/**
+ * ¿Puede el feed/perfil responder con su último snapshot tras este fallo? SOLO disponibilidad del
+ * proveedor, con lista cerrada: red, timeout, HTTP 5xx, HTTP 429 o un código de Meta de arriba.
+ * Cualquier otra cosa (respuesta ilegible o de esquema inesperado, 4xx, permisos, conexión,
+ * almacenamiento, error interno) NO. Un rechazo de token (190) nunca llega aquí como
+ * InstagramApiError (se convierte en InstagramConnectionError, que no es elegible).
+ */
+export function isInstagramFallbackEligible(err: unknown): boolean {
+  if (!(err instanceof InstagramApiError) || err instanceof InstagramPermissionError) {
+    return false;
+  }
+  if (err.metaCode === META_INVALID_TOKEN_CODE) return false;
+  if (err.failure === "network" || err.failure === "timeout") return true;
+  if (err.httpStatus !== undefined && (err.httpStatus >= 500 || err.httpStatus === 429)) {
+    return true;
+  }
+  return err.metaCode !== undefined && META_TRANSIENT_CODES.has(err.metaCode);
+}
+
+/** Opciones de openSnapshot para Instagram: su elegibilidad y la confirmación de la fuente. */
+export function instagramSnapshotOptions(
+  source: SnapshotSourceId<"instagram"> | undefined,
+): OpenSnapshotOptions {
+  return {
+    eligible: isInstagramFallbackEligible,
+    confirm: async () => source !== undefined && (await isInstagramSourceCurrent(source)),
+  };
 }

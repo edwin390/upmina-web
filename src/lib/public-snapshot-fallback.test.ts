@@ -16,7 +16,11 @@ import {
 } from "./provider-http";
 import { TwitchApiError } from "./twitch-shared";
 import { YouTubeApiError, youtubeListSnapshotResource } from "./youtube-shared";
-import { twitchSourceId, youtubeSourceId } from "./public-snapshot-resources";
+import {
+  socialSourceId,
+  twitchSourceId,
+  youtubeSourceId,
+} from "./public-snapshot-resources";
 import { validPayload } from "./public-snapshot-fixtures";
 import { resetSnapshotDb, snapshotDb } from "./public-snapshots-supabase-fake";
 import { mockRes, seedSnapshot, silenceErrors } from "./snapshot-handler-testkit";
@@ -207,6 +211,77 @@ describe("openSnapshot", () => {
     } finally {
       process.off("unhandledRejection", unhandled);
     }
+  });
+});
+
+describe("openSnapshot — opciones para redes sociales (9H-4, checkpoint 4)", () => {
+  beforeEach(() => {
+    resetSnapshotDb();
+    vi.stubEnv("VERCEL_ENV", "production");
+    vi.stubEnv("VITE_SUPABASE_URL", "https://proyecto-ficticio.supabase.co");
+    vi.stubEnv("SUPABASE_SERVICE_ROLE_KEY", "srk-service-role-ficticia");
+    silenceErrors();
+  });
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.restoreAllMocks();
+  });
+
+  const IG = socialSourceId("instagram", "0b8e5f5e-1c2d-4e5f-8a9b-0c1d2e3f4a5b", "1789")!;
+  const anyError = new Error("cualquiera");
+  const seedIg = () => seedSnapshot("instagram-feed", IG, validPayload("instagram-feed"));
+
+  it("la elegibilidad inyectada REEMPLAZA a la de Twitch/YouTube", async () => {
+    seedIg();
+    const yes = openSnapshot("instagram-feed", IG, { eligible: () => true });
+    const no = openSnapshot("instagram-feed", IG, { eligible: () => false });
+
+    expect(await yes.fallback(anyError)).toBeDefined();
+    expect(await no.fallback(new ProviderRequestError("TIMEOUT", "t"))).toBeUndefined();
+  });
+
+  it("sin elegibilidad inyectada un error de red social NO es elegible (por defecto es la de proveedores)", async () => {
+    seedIg();
+    expect(await openSnapshot("instagram-feed", IG).fallback(anyError)).toBeUndefined();
+  });
+
+  it("confirm se invoca solo si hay un snapshot que servir y decide si se sirve", async () => {
+    const confirm = vi.fn(async () => true);
+    const session = () =>
+      openSnapshot("instagram-feed", IG, { eligible: () => true, confirm });
+
+    expect(await session().fallback(anyError)).toBeUndefined();
+    expect(confirm).not.toHaveBeenCalled();
+
+    seedIg();
+    expect(await session().fallback(anyError)).toBeDefined();
+    expect(confirm).toHaveBeenCalledTimes(1);
+
+    confirm.mockResolvedValueOnce(false);
+    expect(await session().fallback(anyError)).toBeUndefined();
+  });
+
+  it("confirm que lanza o rechaza = fail-closed: no se sirve", async () => {
+    seedIg();
+    const throwing = openSnapshot("instagram-feed", IG, {
+      eligible: () => true,
+      confirm: async () => {
+        throw new Error("boom");
+      },
+    });
+    expect(await throwing.fallback(anyError)).toBeUndefined();
+  });
+
+  it("confirm no se invoca si el fallo no es elegible", async () => {
+    seedIg();
+    const confirm = vi.fn(async () => true);
+    const session = openSnapshot("instagram-feed", IG, {
+      eligible: () => false,
+      confirm,
+    });
+
+    expect(await session.fallback(anyError)).toBeUndefined();
+    expect(confirm).not.toHaveBeenCalled();
   });
 });
 

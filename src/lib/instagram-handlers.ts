@@ -1,4 +1,5 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
+import { getInstagramAccess } from "./instagram-connection.js";
 import {
   InstagramPermissionError,
   getInstagramChildren,
@@ -6,9 +7,15 @@ import {
   getInstagramMedia,
   getInstagramProfile,
   instagramErrorStatus,
+  instagramSnapshotOptions,
   isValidInstagramMediaId,
   logInstagramError,
 } from "./instagram-shared.js";
+import {
+  openSnapshot,
+  sendSnapshotHeaders,
+  type ResourceSnapshot,
+} from "./public-snapshot-fallback.js";
 
 // Handlers HTTP de los 4 endpoints de solo lectura de Instagram. Viven aquí (no en api/)
 // porque una única Serverless Function los atiende ahora: api/instagram/[resource].ts.
@@ -16,6 +23,13 @@ import {
 // deployment; antes de esta consolidación el proyecto generaba 14 (ver vercel.json para
 // las reescrituras que mantienen intactas las URLs públicas /api/instagram-feed,
 // /api/instagram-profile, /api/instagram-media y /api/instagram-comments).
+//
+// SNAPSHOTS (Fase 9H-4, checkpoint 4). Solo el feed y el perfil tienen "last-known-good"; el media
+// por id y los comentarios NO. Un snapshot NO basta por sí solo: primero se establece en ESTA petición
+// que existe una conexión vigente y utilizable (getInstagramAccess: fila existente, token no
+// caducado, sin rechazo) y de ella sale la fuente del snapshot. Sin conexión, con reautorización
+// pendiente, con el token rechazado, con la lectura de la conexión rota o sin fuente, no hay
+// snapshot: es resiliencia ante la disponibilidad de Meta, nunca ante la autorización.
 //
 // Cada función de aquí es EXACTAMENTE la misma lógica que tenía su api/instagram-*.ts
 // original (antes de esta consolidación): mismo método permitido, misma Cache-Control,
@@ -28,13 +42,35 @@ export async function handleInstagramFeed(req: VercelRequest, res: VercelRespons
     return res.status(405).json({ error: "Método no permitido" });
   }
 
+  // Inerte hasta que la conexión quede establecida: nada de snapshot sin fuente.
+  let snapshot: ResourceSnapshot<"instagram-feed"> = openSnapshot<"instagram-feed">(
+    undefined,
+    undefined,
+  );
+
   try {
-    const items = await getInstagramMedia();
+    const access = await getInstagramAccess();
+    // La lectura del snapshot empieza ya (en paralelo con Meta), pero solo se servirá si Meta
+    // falla de forma transitoria y la fuente sigue vigente.
+    snapshot = openSnapshot(
+      "instagram-feed",
+      access.source,
+      instagramSnapshotOptions(access.source),
+    );
+    const items = await getInstagramMedia(access.accessToken);
+
+    // `[]` (la cuenta no tiene publicaciones) es un vacío autoritativo y también se guarda.
+    await snapshot.save(items);
 
     res.setHeader("Cache-Control", "s-maxage=900, stale-while-revalidate=1800");
     return res.status(200).json(items);
   } catch (err) {
     logInstagramError("instagram-feed", err);
+    const stale = await snapshot.fallback(err);
+    if (stale) {
+      sendSnapshotHeaders(res);
+      return res.status(200).json(stale.value);
+    }
     return res
       .status(instagramErrorStatus(err))
       .json({ error: "No se pudo obtener el feed de Instagram" });
@@ -49,13 +85,31 @@ export async function handleInstagramProfile(req: VercelRequest, res: VercelResp
     return res.status(405).json({ error: "Método no permitido" });
   }
 
+  let snapshot: ResourceSnapshot<"instagram-profile"> = openSnapshot<"instagram-profile">(
+    undefined,
+    undefined,
+  );
+
   try {
-    const profile = await getInstagramProfile();
+    const access = await getInstagramAccess();
+    snapshot = openSnapshot(
+      "instagram-profile",
+      access.source,
+      instagramSnapshotOptions(access.source),
+    );
+    const profile = await getInstagramProfile(access.accessToken);
+
+    await snapshot.save(profile);
 
     res.setHeader("Cache-Control", "s-maxage=3600, stale-while-revalidate=7200");
     return res.status(200).json(profile);
   } catch (err) {
     logInstagramError("instagram-profile", err);
+    const stale = await snapshot.fallback(err);
+    if (stale) {
+      sendSnapshotHeaders(res);
+      return res.status(200).json(stale.value);
+    }
     return res
       .status(instagramErrorStatus(err))
       .json({ error: "No se pudo obtener el perfil de Instagram" });

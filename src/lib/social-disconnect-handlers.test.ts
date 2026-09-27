@@ -51,6 +51,13 @@ const db = vi.hoisted(() => ({
   deleteThrow: undefined as unknown,
   rolesError: undefined as unknown,
   claimsCalls: 0,
+  // public.public_content_snapshots (9H-4): filas por resource, borrados pedidos (lista de
+  // recursos) y cronología respecto del borrado de la conexión.
+  snapshotRows: new Map<string, Record<string, unknown>>(),
+  snapshotDeletes: [] as string[][],
+  snapshotDeleteError: undefined as unknown,
+  snapshotDeleteThrow: undefined as unknown,
+  events: [] as string[],
 }));
 
 vi.mock("@supabase/supabase-js", () => ({
@@ -108,6 +115,7 @@ vi.mock("@supabase/supabase-js", () => ({
                       await Promise.resolve();
                       if (db.deleteThrow) throw db.deleteThrow;
                       db.deletes.push(provider);
+                      db.events.push("connection-delete");
                       if (db.deleteError) return { data: null, error: db.deleteError };
                       const row = db.rows.get(provider);
                       if (!row) return { data: [], error: null };
@@ -124,6 +132,36 @@ vi.mock("@supabase/supabase-js", () => ({
             };
             return builder;
           },
+        };
+      }
+      if (table === "public_content_snapshots") {
+        return {
+          delete: () => ({
+            in(_column: string, values: string[]) {
+              return {
+                abortSignal: () => ({
+                  then(
+                    resolve: (v: unknown) => unknown,
+                    reject: (e: unknown) => unknown,
+                  ) {
+                    return (async () => {
+                      await Promise.resolve();
+                      db.events.push("snapshots-delete");
+                      if (db.snapshotDeleteThrow) throw db.snapshotDeleteThrow;
+                      db.snapshotDeletes.push([...values]);
+                      if (db.snapshotDeleteError) {
+                        return { error: db.snapshotDeleteError };
+                      }
+                      for (const key of [...db.snapshotRows.keys()]) {
+                        if (values.includes(key)) db.snapshotRows.delete(key);
+                      }
+                      return { error: null };
+                    })().then(resolve, reject);
+                  },
+                }),
+              };
+            },
+          }),
         };
       }
       throw new Error(`tabla inesperada: ${table}`);
@@ -206,6 +244,11 @@ beforeEach(() => {
   db.deleteThrow = undefined;
   db.rolesError = undefined;
   db.claimsCalls = 0;
+  db.snapshotRows = new Map();
+  db.snapshotDeletes = [];
+  db.snapshotDeleteError = undefined;
+  db.snapshotDeleteThrow = undefined;
+  db.events = [];
   vi.useFakeTimers({ toFake: ["Date"] });
   vi.setSystemTime(NOW);
   vi.stubEnv("VITE_SUPABASE_URL", "https://proyecto-ficticio.supabase.co");
@@ -230,6 +273,24 @@ const untouched = () => {
   expect(db.deletes).toHaveLength(0);
   expect(db.rows.has("instagram")).toBe(true);
   expect(db.rows.has("tiktok")).toBe(true);
+  // 9H-4: tampoco se limpian snapshots si no se llegó a desconectar.
+  expect(db.snapshotDeletes).toHaveLength(0);
+};
+
+const ALL_SNAPSHOT_RESOURCES = [
+  "twitch-clips",
+  "twitch-latest-video",
+  "youtube-latest",
+  "youtube-videos",
+  "youtube-shorts",
+  "instagram-feed",
+  "instagram-profile",
+  "tiktok-videos",
+];
+const seedAllSnapshots = () => {
+  for (const resource of ALL_SNAPSHOT_RESOURCES) {
+    db.snapshotRows.set(resource, { resource, source_id: `origen-${resource}` });
+  }
 };
 
 describe("autorización: orden y rechazos (nunca borra)", () => {
@@ -539,6 +600,174 @@ describe("fallos de almacenamiento: nunca se afirma 'desconectado'", () => {
     expect(state.status).toBe(500);
     expect(state.body).toEqual({ error: "Error interno" });
     expect(db.deletes).toHaveLength(0);
+  });
+});
+
+describe("limpieza de snapshots (9H-4): secundaria, acotada y nunca deshace la desconexión", () => {
+  const instagram = () => req({ body: { provider: "instagram" } });
+  const tiktok = () => req({ body: { provider: "tiktok" } });
+
+  it("Instagram: borra SOLO instagram-feed e instagram-profile", async () => {
+    seedAllSnapshots();
+    const state = await call(instagram());
+
+    expect(state.status).toBe(200);
+    expect(db.snapshotDeletes).toEqual([["instagram-feed", "instagram-profile"]]);
+    expect([...db.snapshotRows.keys()].sort()).toEqual(
+      ALL_SNAPSHOT_RESOURCES.filter((r) => !r.startsWith("instagram")).sort(),
+    );
+  });
+
+  it("TikTok: borra SOLO tiktok-videos", async () => {
+    seedAllSnapshots();
+    const state = await call(tiktok());
+
+    expect(state.status).toBe(200);
+    expect(db.snapshotDeletes).toEqual([["tiktok-videos"]]);
+    expect([...db.snapshotRows.keys()].sort()).toEqual(
+      ALL_SNAPSHOT_RESOURCES.filter((r) => r !== "tiktok-videos").sort(),
+    );
+  });
+
+  it("el borrado de la conexión es PRIMERO (autoritativo), la limpieza después y la revocación de TikTok la última", async () => {
+    fetchMock.mockImplementation(async (url: unknown) => {
+      if (String(url).includes("/v2/oauth/revoke/")) db.events.push("revoke");
+      return new Response("", { status: 200 });
+    });
+    await call(tiktok());
+
+    expect(db.events).toEqual(["connection-delete", "snapshots-delete", "revoke"]);
+  });
+
+  it.each([
+    [
+      "error de Supabase",
+      () => (db.snapshotDeleteError = { code: "57014", message: "detalle" }),
+    ],
+    [
+      "excepción",
+      () => (db.snapshotDeleteThrow = new Error(`fetch failed ${SERVICE_ROLE}`)),
+    ],
+  ])(
+    "si la limpieza falla (%s) la desconexión sigue siendo efectiva y responde 200",
+    async (_n, inject) => {
+      seedAllSnapshots();
+      inject();
+      const state = await call(instagram());
+
+      expect(state.status).toBe(200);
+      expect(state.body).toEqual({
+        provider: "instagram",
+        status: "not_connected",
+        was_connected: true,
+      });
+      // La conexión ya no existe: es lo que impide servir el snapshot que quedó.
+      expect(db.rows.has("instagram")).toBe(false);
+      expect(db.rows.has("tiktok")).toBe(true);
+      expect(db.snapshotRows.has("instagram-feed")).toBe(true);
+      expect(logged()).toContain("limpieza de snapshots no confirmada");
+      expect(logged()).not.toContain(SERVICE_ROLE);
+      expect(JSON.stringify(state)).not.toMatch(/snapshot/i);
+    },
+  );
+
+  it("si la limpieza falla, TikTok igualmente se revoca y responde 200", async () => {
+    db.snapshotDeleteError = { code: "57014" };
+    const state = await call(tiktok());
+
+    expect(state.status).toBe(200);
+    expect(db.rows.has("tiktok")).toBe(false);
+    expect(
+      fetchMock.mock.calls.filter((c) => String(c[0]).includes("/v2/oauth/revoke/")),
+    ).toHaveLength(1);
+  });
+
+  it("si el borrado de la conexión NO se confirma, no se toca ningún snapshot (sigue conectado)", async () => {
+    seedAllSnapshots();
+    db.deleteError = { code: "57014" };
+    const state = await call(instagram());
+
+    expect(state.status).toBe(500);
+    expect(db.rows.has("instagram")).toBe(true);
+    expect(db.snapshotDeletes).toHaveLength(0);
+    expect(db.snapshotRows.size).toBe(ALL_SNAPSHOT_RESOURCES.length);
+  });
+
+  it("la respuesta es idéntica con o sin snapshots (no revela nada de la limpieza)", async () => {
+    const without = await call(instagram());
+    db.rows.set("instagram", igRow());
+    seedAllSnapshots();
+    const withSnapshots = await call(instagram());
+
+    expect(withSnapshots.body).toEqual(without.body);
+    expect(withSnapshots.headers).toEqual(without.headers);
+  });
+
+  it("desconexión repetida: idempotente (was_connected=false) y vuelve a limpiar", async () => {
+    seedAllSnapshots();
+    const first = await call(instagram());
+    // Un snapshot huérfano que una petición en vuelo escribió después de desconectar.
+    db.snapshotRows.set("instagram-feed", {
+      resource: "instagram-feed",
+      source_id: "huerfano",
+    });
+    const second = await call(instagram());
+
+    expect((first.body as { was_connected: boolean }).was_connected).toBe(true);
+    expect(second.status).toBe(200);
+    expect((second.body as { was_connected: boolean }).was_connected).toBe(false);
+    expect(db.snapshotDeletes).toHaveLength(2);
+    expect(db.snapshotRows.has("instagram-feed")).toBe(false);
+  });
+
+  it("dos desconexiones simultáneas: ambas 200 y los snapshots quedan borrados", async () => {
+    seedAllSnapshots();
+    const [a, b] = await Promise.all([call(tiktok()), call(tiktok())]);
+
+    expect(a.status).toBe(200);
+    expect(b.status).toBe(200);
+    expect(db.snapshotRows.has("tiktok-videos")).toBe(false);
+  });
+
+  it.each([
+    ["USER", "jwt-user-fresh"],
+    ["MODERATOR (sin social_admin)", "jwt-moderator-fresh"],
+    ["ADMIN revocado", "jwt-revoked-fresh"],
+    ["ADMIN revocado con MFA vencido", "jwt-revoked-stale"],
+    ["DEVELOPER", "jwt-developer-fresh"],
+    ["anónimo", null],
+  ])(
+    "%s NO puede provocar la limpieza (falla antes de cualquier acción destructiva)",
+    async (_n, token) => {
+      seedAllSnapshots();
+      const state = await call(req({ token }));
+
+      expect(state.status).toBeGreaterThanOrEqual(401);
+      expect(db.snapshotDeletes).toHaveLength(0);
+      expect(db.snapshotRows.size).toBe(ALL_SNAPSHOT_RESOURCES.length);
+      untouched();
+    },
+  );
+
+  it("ADMIN sin MFA reciente recibe step_up_required ANTES de desconectar y no hay reproducción tras el MFA", async () => {
+    seedAllSnapshots();
+    const state = await call(req({ token: "jwt-admin-stale" }));
+
+    expect(state.status).toBe(403);
+    expect((state.body as { code?: string }).code).toBe("step_up_required");
+    untouched();
+    // Completar el MFA no reproduce nada: sin una nueva petición confirmada no hay borrado.
+    expect(db.snapshotRows.size).toBe(ALL_SNAPSHOT_RESOURCES.length);
+    expect(db.deletes).toHaveLength(0);
+  });
+
+  it("fuera de Production o con cuerpo inválido no se limpia nada", async () => {
+    seedAllSnapshots();
+    vi.stubEnv("VERCEL_ENV", "preview");
+    expect((await call(instagram())).status).toBe(403);
+    vi.stubEnv("VERCEL_ENV", "production");
+    expect((await call(req({ body: { provider: "youtube" } }))).status).toBe(400);
+    untouched();
   });
 });
 

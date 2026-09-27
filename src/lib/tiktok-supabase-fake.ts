@@ -4,7 +4,8 @@
 // paso síncrono), igual que un UPDATE de Postgres.
 
 type Row = Record<string, unknown>;
-export type FakeOp = "select" | "lease" | "release" | "refresh-save" | "invalidate";
+export type FakeOp =
+  "select" | "lease" | "release" | "refresh-save" | "invalidate" | "invalidate-access";
 
 export const fakeDb = {
   row: null as Row | null,
@@ -51,7 +52,9 @@ function classify(values: Row): FakeOp {
   if (values.refresh_lock_until && values.refresh_lock_until !== null) return "lease";
   if ("access_token" in values) return "refresh-save";
   // Rechazo explícito del proveedor (invalid_grant): solo escribe la caducidad del refresh token.
-  return "refresh_token_expires_at" in values ? "invalidate" : "release";
+  if ("refresh_token_expires_at" in values) return "invalidate";
+  // access_token_invalid (9H-4): solo caduca el access token; el refresh token no se toca.
+  return "access_token_expires_at" in values ? "invalidate-access" : "release";
 }
 
 class UpdateBuilder implements PromiseLike<{ data: Row[] | null; error: unknown }> {

@@ -245,11 +245,21 @@ describe("api/tiktok-videos: conexión guardada", () => {
     await handler(req(), r.res);
     expect((r.state.body as { id: string }[]).map((v) => v.id)).toEqual(["7001"]);
 
-    stubTikTok(undefined, () => jsonResponse({ data: {}, error: { code: "ok" } }));
+    // Solo una lista `videos` vacía es "sin vídeos"; un `data` sin lista (9H-4) es un esquema
+    // inesperado y no se disfraza de vacío (ver tiktok-snapshot-fallback.test.ts).
+    stubTikTok(undefined, () =>
+      jsonResponse({ data: { videos: [] }, error: { code: "ok" } }),
+    );
     r = mockRes();
     await handler(req(), r.res);
     expect(r.state.status).toBe(200);
     expect(r.state.body).toEqual([]);
+
+    stubTikTok(undefined, () => jsonResponse({ data: {}, error: { code: "ok" } }));
+    r = mockRes();
+    await handler(req(), r.res);
+    expect(r.state.status).toBe(502);
+    expect(r.state.body).toEqual(ERROR_BODY);
   });
 
   it("sin conexión guardada → 503 genérico, sin llamar a TikTok ni usar las variables antiguas", async () => {

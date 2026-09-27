@@ -31,6 +31,8 @@ export class TikTokOAuthError extends Error {
     readonly httpStatus?: number,
     /** `error` de TikTok (solo si tiene forma de código, ver `safeCode`). */
     readonly providerCode?: string,
+    /** No se pudo contactar con TikTok (red) o venció el plazo: no hubo respuesta del proveedor. */
+    readonly unreachable = false,
   ) {
     super(message);
     this.name = "TikTokOAuthError";
@@ -194,7 +196,13 @@ async function requestTikTokTokens(
     });
   } catch {
     // El mensaje original de un fallo de red podría contener la URL/cuerpo: se descarta.
-    throw new TikTokOAuthError("No se pudo contactar con TikTok", 502);
+    throw new TikTokOAuthError(
+      "No se pudo contactar con TikTok",
+      502,
+      undefined,
+      undefined,
+      true,
+    );
   }
 
   let body: Record<string, unknown> = {};

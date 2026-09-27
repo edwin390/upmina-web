@@ -365,15 +365,17 @@ describe("api/instagram-feed", () => {
     expect(state.body).toEqual([]);
   });
 
-  it("200 con lista vacía si Meta responde sin `data`", async () => {
+  // 9H-4: un cuerpo sin `data` ya NO se disfraza de lista vacía (ese vacío sustituiría al último
+  // snapshot bueno); solo `data: []` es "sin publicaciones". Ver instagram-snapshot-fallback.test.ts.
+  it("502 (no una lista vacía) si Meta responde sin `data`", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async () => jsonResponse({})),
     );
     const { res, state } = mockRes();
     await feedHandler(getReq(), res);
-    expect(state.status).toBe(200);
-    expect(state.body).toEqual([]);
+    expect(state.status).toBe(502);
+    expect(state.body).toEqual({ error: "No se pudo obtener el feed de Instagram" });
   });
 
   it("503 sin llamar a Meta cuando falta INSTAGRAM_ACCESS_TOKEN", async () => {

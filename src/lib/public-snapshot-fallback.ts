@@ -47,6 +47,20 @@ const INERT: ResourceSnapshot<SnapshotResource> = {
   fallback: async () => undefined,
 };
 
+export interface OpenSnapshotOptions {
+  /**
+   * ¿Este fallo permite servir el snapshot? Por defecto la regla de Twitch y YouTube
+   * (isSnapshotFallbackEligible). Instagram y TikTok pasan la suya: lista blanca cerrada.
+   */
+  eligible?: (err: unknown) => boolean;
+  /**
+   * Comprobación FINAL, solo cuando ya hay un snapshot que servir: ¿sigue vigente la fuente? Las
+   * redes sociales vuelven a leer la conexión para no servir contenido de una cuenta desconectada
+   * o cambiada mientras esta petición esperaba al proveedor. Si devuelve false o lanza, no se sirve.
+   */
+  confirm?: () => Promise<boolean>;
+}
+
 /**
  * Sesión de snapshot de UN recurso para UNA petición. Sin recurso o sin fuente (petición no
  * canónica, canal sin configurar o con forma inválida) es inerte: no toca la base de datos.
@@ -54,10 +68,12 @@ const INERT: ResourceSnapshot<SnapshotResource> = {
 export function openSnapshot<R extends SnapshotResource>(
   resource: R | undefined,
   sourceId: SnapshotSourceId<ProviderOf<R>> | undefined,
+  options: OpenSnapshotOptions = {},
 ): ResourceSnapshot<R> {
   if (resource === undefined || sourceId === undefined) {
     return INERT as unknown as ResourceSnapshot<R>;
   }
+  const eligible = options.eligible ?? isSnapshotFallbackEligible;
 
   // readSnapshot no lanza; el catch es solo defensa: esta promesa nunca queda sin manejar.
   const read: Promise<Snapshot<R> | undefined> = readSnapshot(resource, sourceId).catch(
@@ -73,8 +89,18 @@ export function openSnapshot<R extends SnapshotResource>(
       }
     },
     async fallback(err) {
-      if (!isSnapshotFallbackEligible(err)) return undefined;
-      return read;
+      if (!eligible(err)) return undefined;
+      const snapshot = await read;
+      if (!snapshot) return undefined;
+      if (options.confirm) {
+        try {
+          if (!(await options.confirm())) return undefined;
+        } catch {
+          // No se puede confirmar la fuente: fail-closed, no se sirve.
+          return undefined;
+        }
+      }
+      return snapshot;
     },
   };
 }

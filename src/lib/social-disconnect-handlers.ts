@@ -2,6 +2,7 @@ import { createClient } from "@supabase/supabase-js";
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { AdminAuthError, authErrorBody, requireCapability } from "./admin-auth.js";
 import { isProductionEnvironment } from "./instagram-oauth-shared.js";
+import { deleteSocialSnapshots } from "./public-snapshots.js";
 import { getTikTokCredentials, revokeTikTokToken } from "./tiktok-shared.js";
 
 // Handler HTTP de POST /api/admin/social-disconnect (Fase 9H-3): desconecta Instagram o TikTok.
@@ -28,6 +29,14 @@ import { getTikTokCredentials, revokeTikTokToken } from "./tiktok-shared.js";
 // "No conectado"; reconectar requiere el OAuth normal). El borrado es un único DELETE atómico que
 // devuelve la fila borrada; un refresh en vuelo que empezó antes escribe con UPDATE condicionado
 // al token viejo → 0 filas afectadas, así que NUNCA resucita la conexión (la desconexión gana).
+//
+// Snapshots (Fase 9H-4, checkpoint 4): tras confirmar el borrado de la conexión se eliminan los
+// snapshots públicos de ESE proveedor (deleteSocialSnapshots: instagram-feed e instagram-profile, o
+// tiktok-videos; nunca los de otro). Es limpieza SECUNDARIA: la desconexión ya es efectiva y los
+// endpoints públicos solo sirven un snapshot si existe una conexión vigente con la misma fuente
+// (id de la fila + cuenta), así que un fallo de la limpieza (o un snapshot huérfano que una petición
+// en vuelo escriba después) jamás hace parecer conectada una cuenta desconectada. El resultado no
+// cambia y la respuesta no revela nada de esto. También se ejecuta en una desconexión repetida.
 //
 // Revocación remota:
 //   Instagram — LOCAL-ONLY: Meta no documenta un endpoint de revocación compatible con Instagram
@@ -122,6 +131,12 @@ export async function handleAdminSocialDisconnect(
     deleted = await deleteConnection(provider);
   } catch {
     return res.status(500).json(GENERIC_ERROR_BODY);
+  }
+
+  // Limpieza de snapshots: DESPUÉS de confirmar el borrado (autoritativo) y ANTES de la revocación
+  // remota (que puede tardar). Nunca lanza; si no se confirma, solo se registra.
+  if (!(await deleteSocialSnapshots(provider))) {
+    console.error("[social-disconnect] limpieza de snapshots no confirmada");
   }
 
   // TikTok: revocación remota best effort tras el borrado local; nunca cambia el resultado.

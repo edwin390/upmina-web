@@ -23,8 +23,16 @@ import {
   assertTikTokStorageConfigured,
   getUsableTikTokAccessToken,
   logTikTokStorageError,
+  markTikTokAccessTokenRejected,
   saveTikTokConnection,
+  tiktokSnapshotOptions,
 } from "./tiktok-connection.js";
+import {
+  openSnapshot,
+  sendSnapshotHeaders,
+  type ResourceSnapshot,
+} from "./public-snapshot-fallback.js";
+import type { SnapshotSourceId } from "./public-snapshot-resources.js";
 
 // Handlers HTTP de los endpoints públicos de TikTok (callback, videos). El INICIO del OAuth ya
 // no es público: solo existe POST /api/admin/social-connect (ADMIN + AAL2, ver
@@ -245,19 +253,28 @@ async function fetchTikTokVideos(accessToken: string): Promise<TikTokVideo[]> {
     });
   } catch {
     // El mensaje de un fallo de red podría incluir cabeceras: se descarta.
-    throw new TikTokOAuthError("No se pudo contactar con TikTok", 502);
+    throw new TikTokOAuthError(
+      "No se pudo contactar con TikTok",
+      502,
+      undefined,
+      undefined,
+      true,
+    );
   }
 
-  let body: { data?: { videos?: unknown }; error?: { code?: unknown } } = {};
+  // `undefined` = el cuerpo no es un objeto JSON (ilegible, o un valor que no es un objeto).
+  let body: { data?: unknown; error?: { code?: unknown } } | undefined;
   try {
     const parsed: unknown = await res.json();
-    if (parsed && typeof parsed === "object") body = parsed as typeof body;
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      body = parsed as typeof body;
+    }
   } catch {
-    // Cuerpo no JSON: se trata como error del proveedor.
+    // Cuerpo no JSON: se resuelve más abajo.
   }
 
   // TikTok v2 responde `{ data, error: { code: "ok" | ... } }`.
-  const errorCode = typeof body.error?.code === "string" ? body.error.code : undefined;
+  const errorCode = typeof body?.error?.code === "string" ? body.error.code : undefined;
   if (!res.ok || (errorCode !== undefined && errorCode !== "ok")) {
     throw new TikTokOAuthError(
       "TikTok rechazó la lista de videos",
@@ -267,11 +284,35 @@ async function fetchTikTokVideos(accessToken: string): Promise<TikTokVideo[]> {
     );
   }
 
-  const videos = Array.isArray(body.data?.videos) ? body.data.videos : [];
+  // HTTP correcto: solo una lista `data.videos` es una respuesta válida. `[]` es "sin videos"
+  // (vacío autoritativo); un cuerpo ilegible o sin esa lista (o con elementos que no se reconocen
+  // como videos) NO puede convertirse en `[]`: ese vacío sustituiría al último snapshot bueno.
+  const data = body?.data;
+  const videos =
+    data && typeof data === "object" && !Array.isArray(data)
+      ? (data as { videos?: unknown }).videos
+      : undefined;
+  if (!Array.isArray(videos)) throw invalidVideoList(res.status);
+  const recognizable = videos.some(
+    (video) =>
+      video !== null &&
+      typeof video === "object" &&
+      typeof (video as Partial<TikTokApiVideo>).id === "string",
+  );
+  if (videos.length > 0 && !recognizable) throw invalidVideoList(res.status);
+
   return (videos as Partial<TikTokApiVideo>[])
     .map(normalizeVideo)
     .filter((video): video is TikTokVideo => video !== null);
 }
+
+// Sin código de proveedor ni status de error: no es elegible para snapshot (esquema inesperado).
+const invalidVideoList = (httpStatus: number) =>
+  new TikTokOAuthError(
+    "TikTok devolvió una respuesta de videos inválida",
+    502,
+    httpStatus,
+  );
 
 // Feed de TikTok. El access token sale SOLO de la conexión guardada en Supabase (tabla
 // social_connections, escrita por /api/tiktok-callback); no hay fallback a variables de
@@ -283,13 +324,46 @@ export async function handleTikTokVideos(req: VercelRequest, res: VercelResponse
     return res.status(405).json({ error: "Método no permitido" });
   }
 
+  // SNAPSHOT (Fase 9H-4, checkpoint 4). Un snapshot NO basta por sí solo: se abre (y empieza a
+  // leerse, en paralelo con el resto) solo cuando getUsableTikTokAccessToken establece en ESTA
+  // petición que la conexión existe y su autorización es recuperable. Sin conexión, con el refresh
+  // token caducado o rechazado (invalid_grant), con la lectura de la conexión rota o sin fuente no
+  // hay snapshot: es resiliencia ante la disponibilidad de TikTok, nunca ante la autorización.
+  let snapshot: ResourceSnapshot<"tiktok-videos"> = openSnapshot<"tiktok-videos">(
+    undefined,
+    undefined,
+  );
+  let source: SnapshotSourceId<"tiktok"> | undefined;
+  let accessToken: string | undefined;
+
   try {
-    const accessToken = await getUsableTikTokAccessToken();
+    accessToken = await getUsableTikTokAccessToken(undefined, {
+      onConnection: (current) => {
+        // La conexión puede releerse varias veces (espera de un refresh ajeno): solo se reabre si
+        // la fuente cambió (p. ej. una reconexión entretanto).
+        if (current === source) return;
+        source = current;
+        snapshot = openSnapshot("tiktok-videos", current, tiktokSnapshotOptions(current));
+      },
+    });
     const videos = await fetchTikTokVideos(accessToken);
+
+    // `[]` (TikTok respondió sin videos) es un vacío autoritativo y también se guarda.
+    await snapshot.save(videos);
 
     res.setHeader("Cache-Control", "s-maxage=1800, stale-while-revalidate=3600");
     return res.status(200).json(videos);
   } catch (err) {
+    // TikTok rechazó el access token (401 access_token_invalid): se marca para que la siguiente
+    // petición pase por el refresh, y este fallo NUNCA sirve snapshot (ver isTikTokFallbackEligible).
+    if (
+      accessToken &&
+      err instanceof TikTokOAuthError &&
+      err.providerCode === "access_token_invalid"
+    ) {
+      await markTikTokAccessTokenRejected(accessToken);
+    }
+
     let status = 502;
     if (err instanceof TikTokConnectionError) {
       // Distinguible en logs (missing / refresh_token_expired / reauthorization_required /
@@ -302,6 +376,12 @@ export async function handleTikTokVideos(req: VercelRequest, res: VercelResponse
     } else {
       logTikTokError("tiktok-videos", err);
       status = tikTokErrorStatus(err);
+    }
+
+    const stale = await snapshot.fallback(err);
+    if (stale) {
+      sendSnapshotHeaders(res);
+      return res.status(200).json(stale.value);
     }
     return res.status(status).json({ error: ERROR_MESSAGE });
   }
