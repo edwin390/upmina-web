@@ -80,10 +80,18 @@ export function logTwitchError(scope: string, err: unknown): void {
   }
 }
 
+/**
+ * Canal configurado (mismo criterio que getTwitchConfig) SIN exigir credenciales. Sirve para
+ * identificar la fuente de un snapshot; no toca el proveedor.
+ */
+export function getTwitchChannel(): string {
+  return process.env.TWITCH_CHANNEL?.trim() || DEFAULT_TWITCH_CHANNEL;
+}
+
 export function getTwitchConfig(): TwitchConfig {
   const clientId = process.env.TWITCH_CLIENT_ID?.trim();
   const clientSecret = process.env.TWITCH_CLIENT_SECRET?.trim();
-  const channel = process.env.TWITCH_CHANNEL?.trim() || DEFAULT_TWITCH_CHANNEL;
+  const channel = getTwitchChannel();
 
   if (!clientId || !clientSecret) {
     throw new TwitchApiError("Faltan las credenciales de Twitch", 503);

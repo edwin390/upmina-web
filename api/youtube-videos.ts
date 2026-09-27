@@ -1,12 +1,19 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { sendProviderFailure } from "../src/lib/provider-http.js";
 import {
+  openSnapshot,
+  sendSnapshotHeaders,
+} from "../src/lib/public-snapshot-fallback.js";
+import {
   getRecentUploads,
   getRecentUploadsByKind,
   getUploadsPlaylistId,
   logYouTubeError,
+  youtubeListSnapshotResource,
+  youtubeSnapshotSourceId,
   type YouTubeVideoKind,
 } from "../src/lib/youtube-shared.js";
+import type { YouTubeVideo } from "../src/types/index.js";
 
 // `?type=videos` → solo videos normales, `?type=shorts` → solo Shorts. Sin `type`
 // se devuelven los uploads más recientes sin clasificar (contrato original).
@@ -24,6 +31,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(400).json({ error: "Parámetro type no válido" });
   }
 
+  // Solo la petición canónica de la aplicación tiene snapshot (tipo + cantidad exactos): un
+  // parámetro arbitrario del llamador nunca decide qué se lee ni qué se persiste.
+  const snapshot = openSnapshot(
+    youtubeListSnapshotResource(kind, maxResults),
+    youtubeSnapshotSourceId(),
+  );
+
   try {
     const uploadsPlaylistId = await getUploadsPlaylistId();
 
@@ -31,10 +45,18 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       ? await getRecentUploadsByKind(uploadsPlaylistId, kind, maxResults)
       : await getRecentUploads(uploadsPlaylistId, maxResults);
 
+    // `[]` es un vacío autoritativo y también sustituye al snapshot anterior.
+    await snapshot.save(videos as YouTubeVideo[]);
+
     res.setHeader("Cache-Control", "s-maxage=900, stale-while-revalidate=1800");
     return res.status(200).json(videos);
   } catch (err) {
     logYouTubeError("youtube-videos", err);
+    const stale = await snapshot.fallback(err);
+    if (stale) {
+      sendSnapshotHeaders(res);
+      return res.status(200).json(stale.value);
+    }
     return sendProviderFailure(res, err, "No se pudieron obtener los videos de YouTube");
   }
 }

@@ -7,6 +7,7 @@
 // original de `fetch`. Solo se registran la operación, el status HTTP y el
 // `reason` de Google, este último filtrado a un formato seguro.
 import { parseIsoDuration } from "./format.js";
+import { youtubeSourceId, type SnapshotResource } from "./public-snapshot-resources.js";
 import {
   ProviderApiError,
   fetchWithTimeout,
@@ -17,6 +18,7 @@ import type {
   YouTubeChannelResponse,
   YouTubePlaylistResponse,
   YouTubeSnippet,
+  YouTubeVideoDetails,
   YouTubeVideosResponse,
 } from "../types/api.js";
 
@@ -100,10 +102,63 @@ export async function fetchYouTube<T>(
     throw providerErrorFromResponse(
       response,
       `YouTube ${operation}: HTTP ${response.status} (${reason})`,
+      undefined,
+      reason === "unknown" ? undefined : reason,
     );
   }
 
   return readProviderJson<T>(response, `YouTube ${operation}`);
+}
+
+// ---------- Respuestas de Google: vacío válido frente a mal formado ----------
+
+/**
+ * `items` de una respuesta de lista de Google. Google devuelve `items: []` cuando no hay
+ * resultados, así que un array vacío es un VACÍO VÁLIDO; un `items` ausente o de otro tipo es un
+ * esquema inesperado y NO puede confundirse con "sin contenido" (un `?? []` lo haría, y ese vacío
+ * sustituiría al último snapshot bueno). No es un ProviderRequestError: no es un fallo transitorio
+ * y no se resuelve sirviendo contenido antiguo.
+ */
+export function requireItems<T>(data: unknown, operation: string): T[] {
+  const items = (data as { items?: unknown } | null | undefined)?.items;
+  if (!Array.isArray(items)) {
+    throw new YouTubeApiError(
+      `YouTube ${operation}: respuesta con formato inesperado`,
+      502,
+    );
+  }
+  return items as T[];
+}
+
+// ---------- Snapshots (last-known-good) ----------
+
+/**
+ * Cuántos elementos pide la aplicación de cada tipo (src/hooks/useYouTubeVideos.ts:
+ * YOUTUBE_VIDEOS_LIMIT y YOUTUBE_SHORTS_LIMIT; un test comprueba que siguen coincidiendo). Solo
+ * esa petición canónica tiene snapshot: otra combinación de parámetros nunca lee ni escribe uno.
+ */
+export const YOUTUBE_SNAPSHOT_LIMITS = { video: 12, short: 24 } as const;
+
+/** Recurso de snapshot de una petición de lista, o `undefined` si no es la canónica. */
+export function youtubeListSnapshotResource(
+  kind: YouTubeVideoKind | undefined,
+  maxResults: number,
+): Extract<SnapshotResource, "youtube-videos" | "youtube-shorts"> | undefined {
+  if (kind === "video" && maxResults === YOUTUBE_SNAPSHOT_LIMITS.video) {
+    return "youtube-videos";
+  }
+  if (kind === "short" && maxResults === YOUTUBE_SNAPSHOT_LIMITS.short) {
+    return "youtube-shorts";
+  }
+  return undefined;
+}
+
+/**
+ * Fuente de los snapshots de YouTube: el canal configurado. No depende de la API key (leerlo no
+ * toca al proveedor). `undefined` si el canal no está configurado o no tiene forma de id.
+ */
+export function youtubeSnapshotSourceId() {
+  return youtubeSourceId(process.env.YOUTUBE_CHANNEL_ID);
 }
 
 // ---------- Playlist de subidas: caché en memoria ----------
@@ -290,7 +345,7 @@ async function fetchUploadsPage(
     "playlistItems",
     params,
   );
-  const items = itemsData.items ?? [];
+  const items = requireItems<{ snippet: YouTubeSnippet }>(itemsData, "playlistItems");
 
   // Sin uploads no hay nada que detallar (y Google rechaza `videos` sin `id`).
   if (items.length === 0) return { videos: [], nextPageToken: itemsData.nextPageToken };
@@ -300,7 +355,10 @@ async function fetchUploadsPage(
     id: items.map((item) => item.snippet.resourceId.videoId).join(","),
   });
   const isoById = new Map<string, string>(
-    (videosData.items ?? []).map((video) => [video.id, video.contentDetails.duration]),
+    requireItems<YouTubeVideoDetails>(videosData, "videos").map((video) => [
+      video.id,
+      video.contentDetails.duration,
+    ]),
   );
 
   const videos = items.map((item) => {

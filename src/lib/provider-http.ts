@@ -72,14 +72,22 @@ export class ProviderRequestError extends ProviderApiError {
       /** Status HTTP del proveedor, si hubo respuesta. */
       httpStatus?: number;
       retryAfterSeconds?: number;
+      /**
+       * Motivo corto que dio el proveedor (p. ej. el `reason` de Google), ya saneado por quien lo
+       * extrae. Solo distingue casos que comparten status (un 403 de cuota frente a uno de
+       * credenciales); nunca llega al cliente.
+       */
+      providerReason?: string;
     } = {},
   ) {
     super(message, PUBLIC_STATUS[kind], PUBLIC_CODE[kind], options.retryAfterSeconds);
     this.name = "ProviderRequestError";
     this.httpStatus = options.httpStatus;
+    this.providerReason = options.providerReason;
   }
 
   readonly httpStatus?: number;
+  readonly providerReason?: string;
 }
 
 /** Clasificación de una respuesta NO exitosa por su status HTTP. */
@@ -129,15 +137,59 @@ export function providerErrorFromResponse(
   response: Pick<Response, "status" | "headers">,
   message: string,
   nowMs?: number,
+  providerReason?: string,
 ): ProviderRequestError {
   const kind = classifyProviderStatus(response.status);
   return new ProviderRequestError(kind, message, {
     httpStatus: response.status,
+    providerReason,
     retryAfterSeconds:
       kind === "RATE_LIMITED"
         ? parseRetryAfter(response.headers?.get("retry-after"), nowMs)
         : undefined,
   });
+}
+
+// ---------- Elegibilidad para servir un snapshot (last-known-good) ----------
+
+/** Fallos que describen la DISPONIBILIDAD del proveedor, no un error nuestro o de configuración. */
+const TRANSIENT_KINDS: ReadonlySet<ProviderFailureKind> = new Set([
+  "TIMEOUT",
+  "RATE_LIMITED",
+  "UPSTREAM_UNAVAILABLE",
+  "NETWORK_ERROR",
+  "INVALID_RESPONSE",
+]);
+
+/**
+ * `reason` de un 403 de Google que documenta cuota o límite de tasa (Global Domain Errors de la
+ * YouTube Data API: quotaExceeded, rateLimitExceeded, dailyLimitExceeded, userRateLimitExceeded).
+ * El resto de 403 (forbidden, accessNotConfigured…) y los 400 (keyInvalid, keyExpired) son
+ * credenciales o configuración: no se resuelven sirviendo contenido antiguo.
+ */
+const GOOGLE_QUOTA_REASONS: ReadonlySet<string> = new Set([
+  "quotaExceeded",
+  "rateLimitExceeded",
+  "dailyLimitExceeded",
+  "userRateLimitExceeded",
+]);
+
+/**
+ * ¿Puede un endpoint responder con su último snapshot bueno tras este fallo? SOLO si es un fallo
+ * transitorio de disponibilidad del proveedor: timeout, red, 429, 5xx, cuerpo ilegible (no JSON) o
+ * cuota/límite de tasa de Google. Nunca para credenciales o configuración (401/403/400 salvo cuota),
+ * configuración ausente, un JSON válido con esquema inesperado ni un error interno: esos NO son
+ * ProviderRequestError. Lista blanca cerrada: lo desconocido no es elegible.
+ */
+export function isSnapshotFallbackEligible(err: unknown): boolean {
+  if (!(err instanceof ProviderRequestError)) return false;
+  if (TRANSIENT_KINDS.has(err.kind)) return true;
+  return (
+    err.kind === "UPSTREAM_REJECTED" &&
+    err.httpStatus === 403 &&
+    err.providerReason !== undefined &&
+    GOOGLE_QUOTA_REASONS.has(err.providerReason)
+  );
 }
 
 // ---------- Plazo total de una operación con varias peticiones ----------

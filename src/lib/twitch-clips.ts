@@ -45,7 +45,11 @@
 // amortigua), pero el orden devuelto siempre es por fecha descendente.
 import type { TwitchClipApiItem } from "../types/api.js";
 import { ProviderApiError, readProviderJson, type Deadline } from "./provider-http.js";
-import { fetchTwitchHelix, twitchResponseError } from "./twitch-shared.js";
+import {
+  TwitchApiError,
+  fetchTwitchHelix,
+  twitchResponseError,
+} from "./twitch-shared.js";
 
 export const MAX_CLIPS = 12;
 
@@ -127,6 +131,29 @@ function isPlayableClip(clip: TwitchClipApiItem): boolean {
   return typeof clip.thumbnail_url === "string" && clip.thumbnail_url.trim() !== "";
 }
 
+/**
+ * `data` de una página de Helix. `data: []` es un VACÍO VÁLIDO (ventana sin clips); un `data`
+ * ausente o de otro tipo, o una página con elementos de los que NINGUNO tiene la forma de un clip,
+ * es un esquema inesperado y no puede confundirse con "sin clips" (`?? []` lo haría y el resultado
+ * vacío sustituiría al último snapshot bueno). Se descartan los elementos sueltos que no valen
+ * (sin id/fecha, o sin miniatura por un procesado fallido), pero no una página entera irreconocible.
+ * Lanza TwitchApiError (no es un fallo transitorio: no se resuelve con contenido antiguo).
+ */
+function clipsOfPage(page: ClipsPage | null | undefined): TwitchClipApiItem[] {
+  const data: unknown = page?.data;
+  if (!Array.isArray(data)) {
+    throw new TwitchApiError("Twitch clips: respuesta con formato inesperado", 502);
+  }
+  const clips = data as TwitchClipApiItem[];
+  const recognizable = clips.some(
+    (clip) => isUsableClip(clip) && typeof clip.thumbnail_url === "string",
+  );
+  if (clips.length > 0 && !recognizable) {
+    throw new TwitchApiError("Twitch clips: respuesta con formato inesperado", 502);
+  }
+  return clips;
+}
+
 export async function getRecentClips(
   broadcasterId: string,
   now: Date = new Date(),
@@ -173,7 +200,7 @@ export async function getRecentClips(
         }
 
         const page = await readProviderJson<ClipsPage>(response, "Twitch clips");
-        for (const clip of page.data ?? []) {
+        for (const clip of clipsOfPage(page)) {
           if (isUsableClip(clip) && isPlayableClip(clip)) clipsById.set(clip.id, clip);
         }
 
