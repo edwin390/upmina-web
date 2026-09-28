@@ -229,54 +229,60 @@ export function SocialConnectionCard({
   const canDisconnect = disconnect !== undefined && status !== "not_connected";
   const warn = status === "reauth_required" || status === "expiring_soon";
 
+  // Jerarquía estructural fija (contenido → acción → estado), IGUAL para Instagram y TikTok
+  // porque ambas comparten este mismo componente: antes, contenido y acción vivían en la MISMA
+  // fila con flex-wrap+justify-between, así que el botón quedaba al lado o debajo según cuánto
+  // contenido tuviera esa tarjeta en ESE momento (fecha de caducidad, aviso…) — nunca una
+  // diferencia real entre proveedores, solo una consecuencia accidental del ancho disponible.
+  // Separar contenido y acción en bloques apilados hace la jerarquía determinista en cualquier
+  // viewport, para las dos tarjetas por igual.
   return (
     <li className="min-w-0 rounded-md border border-border-subtle p-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="min-w-0">
-          <h3 className="font-semibold text-text-primary">{name}</h3>
-          <p
-            className={`mt-1 flex items-center gap-2 text-sm ${
-              warn ? "text-accent-warning" : "text-text-secondary"
-            }`}
-          >
-            <span
-              aria-hidden="true"
-              className={`inline-block h-2 w-2 shrink-0 rounded-full ${STATUS_DOT[status]}`}
-            />
-            <span>{STATUS_LABEL[status]}</span>
+      <div className="min-w-0">
+        <h3 className="font-semibold text-text-primary">{name}</h3>
+        <p
+          className={`mt-1 flex items-center gap-2 text-sm ${
+            warn ? "text-accent-warning" : "text-text-secondary"
+          }`}
+        >
+          <span
+            aria-hidden="true"
+            className={`inline-block h-2 w-2 shrink-0 rounded-full ${STATUS_DOT[status]}`}
+          />
+          <span>{STATUS_LABEL[status]}</span>
+        </p>
+        {expiresAt && (status === "connected" || status === "expiring_soon") ? (
+          <p className="mt-1 text-xs text-text-muted">
+            {status === "expiring_soon" ? "Caduca el" : "Vigente hasta el"}{" "}
+            <time dateTime={expiresAt}>{formatDate(expiresAt)}</time>
           </p>
-          {expiresAt && (status === "connected" || status === "expiring_soon") ? (
-            <p className="mt-1 text-xs text-text-muted">
-              {status === "expiring_soon" ? "Caduca el" : "Vigente hasta el"}{" "}
-              <time dateTime={expiresAt}>{formatDate(expiresAt)}</time>
-            </p>
-          ) : null}
-          {hint ? <p className="mt-2 text-sm text-text-secondary">{hint}</p> : null}
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          {action ? (
-            <button
-              type="button"
-              onClick={onConnect}
-              disabled={disabled}
-              aria-busy={pending}
-              className={PRIMARY_BUTTON_CLASS}
-            >
-              {pending ? `Conectando ${name}…` : action}
-            </button>
-          ) : null}
-          {canDisconnect && !confirming ? (
-            <button
-              ref={triggerRef}
-              type="button"
-              onClick={disconnect.onRequest}
-              disabled={disabled}
-              className={DANGER_BUTTON_CLASS}
-            >
-              Desconectar {name}
-            </button>
-          ) : null}
-        </div>
+        ) : null}
+        {hint ? <p className="mt-2 text-sm text-text-secondary">{hint}</p> : null}
+      </div>
+
+      <div className="mt-4 flex flex-wrap items-center gap-2">
+        {action ? (
+          <button
+            type="button"
+            onClick={onConnect}
+            disabled={disabled}
+            aria-busy={pending}
+            className={PRIMARY_BUTTON_CLASS}
+          >
+            {pending ? `Conectando ${name}…` : action}
+          </button>
+        ) : null}
+        {canDisconnect && !confirming ? (
+          <button
+            ref={triggerRef}
+            type="button"
+            onClick={disconnect.onRequest}
+            disabled={disabled}
+            className={DANGER_BUTTON_CLASS}
+          >
+            Desconectar {name}
+          </button>
+        ) : null}
       </div>
 
       {canDisconnect && confirming ? (
@@ -314,6 +320,11 @@ export function SocialConnectionCard({
         </div>
       ) : null}
 
+      {status === "not_connected" && !notice ? (
+        <p role="status" className="mt-3 text-sm text-text-secondary">
+          {name} está desconectado
+        </p>
+      ) : null}
       {notice ? (
         <p role="status" className="mt-3 text-sm text-text-secondary">
           {notice}

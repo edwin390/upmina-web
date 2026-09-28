@@ -142,6 +142,85 @@ describe("SocialConnectionCard (los tres estados, con independencia de lo que pr
   });
 });
 
+// Fix "alinear TikTok con Instagram": ambas tarjetas comparten EXACTAMENTE este componente, así
+// que la jerarquía contenido → acción → estado se prueba una sola vez, parametrizada por
+// proveedor, para dejar constancia de que es la MISMA para los dos — nunca dos implementaciones
+// que puedan volver a divergir visualmente.
+describe.each(["Instagram", "TikTok"] as const)(
+  "%s: jerarquía contenido → acción → estado",
+  (name) => {
+    const renderCard = (status: Status) =>
+      render(
+        <ul>
+          <SocialConnectionCard
+            name={name}
+            status={status}
+            pending={false}
+            disabled={false}
+            error={null}
+            onConnect={() => {}}
+          />
+        </ul>,
+      );
+
+    it("desconectado: muestra el mensaje explícito de desconexión DEBAJO del botón de acción", () => {
+      const { container } = renderCard("not_connected");
+      const status = screen.getByRole("status");
+      expect(status).toHaveTextContent(`${name} está desconectado`);
+
+      // Orden estructural real en el DOM: contenido, luego acción, luego el mensaje de estado.
+      const item = container.querySelector("li")!;
+      const heading = screen.getByRole("heading", { name });
+      const button = screen.getByRole("button", { name: `Conectar ${name}` });
+      const positions = [heading, button, status].map((el) =>
+        Array.prototype.indexOf.call(item.querySelectorAll("*"), el),
+      );
+      expect(positions[0]).toBeLessThan(positions[1]);
+      expect(positions[1]).toBeLessThan(positions[2]);
+    });
+
+    it("conectado: el botón de acción sigue debajo del contenido, y la información de vigencia se conserva", () => {
+      render(
+        <ul>
+          <SocialConnectionCard
+            name={name}
+            status="connected"
+            expiresAt="2026-06-01T00:00:00.000Z"
+            pending={false}
+            disabled={false}
+            error={null}
+            onConnect={() => {}}
+            disconnect={{
+              confirming: false,
+              busy: false,
+              onRequest: () => {},
+              onConfirm: () => {},
+              onCancel: () => {},
+            }}
+          />
+        </ul>,
+      );
+      expect(screen.getByText(/Vigente hasta el/)).toBeInTheDocument();
+      expect(
+        screen.getByRole("button", { name: `Desconectar ${name}` }),
+      ).toBeInTheDocument();
+      // Conectado: nunca se muestra el mensaje de desconexión.
+      expect(screen.queryByText(`${name} está desconectado`)).toBeNull();
+    });
+
+    it("el botón de acción y el de desconectar nunca aparecen en la misma fila que el contenido (bloques separados, no una fila flex que pueda envolver)", () => {
+      const { container } = renderCard("not_connected");
+      const li = container.querySelector("li")!;
+      // El primer hijo directo del <li> es el bloque de contenido (sin el botón dentro); el
+      // segundo hijo directo es el bloque de acciones. Si volvieran a compartir una sola fila
+      // envolvente, este test fallaría.
+      const directChildren = [...li.children];
+      expect(directChildren[0]!.querySelector("button")).toBeNull();
+      expect(directChildren[1]!.querySelector("button")).not.toBeNull();
+    });
+  },
+);
+
 describe("carga del estado", () => {
   it("muestra 'Cargando conexiones…' y luego las dos tarjetas", async () => {
     route({ instagram: "connected", tiktok: "not_connected" });
@@ -151,6 +230,13 @@ describe("carga del estado", () => {
     expect(screen.getByRole("heading", { name: "TikTok" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Redes sociales" })).toBeInTheDocument();
     expect(screen.queryByText("Cargando conexiones…")).toBeNull();
+  });
+
+  it("con TikTok desconectado e Instagram conectado, cada tarjeta muestra el mensaje de desconexión que le corresponde (nunca cruzado)", async () => {
+    await renderReady({ instagram: "connected", tiktok: "not_connected" });
+    const items = screen.getAllByRole("listitem");
+    expect(items[0]).not.toHaveTextContent("Instagram está desconectado");
+    expect(items[1]).toHaveTextContent("TikTok está desconectado");
   });
 
   it("consulta GET /api/admin/social-status con el Bearer de la sesión existente, una sola vez", async () => {
