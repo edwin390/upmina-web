@@ -16,6 +16,14 @@ import {
   handleAdminTeamMemberRole,
   handleAdminTeamMembers,
 } from "../../src/lib/admin-team-members.js";
+import {
+  handleCosplayMediaDetach,
+  handleCosplayPostDelete,
+  handleCosplayPostGetAdmin,
+  handleCosplayPostListAdmin,
+  handleCosplayPostReorder,
+  handleCosplayPostSave,
+} from "../../src/lib/cosplay-editor-handlers.js";
 
 // Despachador de acciones admin server-side por segmento dinámico `action`. Mismo
 // patrón que api/instagram/[resource].ts y api/tiktok/[resource].ts: un único
@@ -44,6 +52,11 @@ import {
 // y quitar acceso, team_admin+AAL2 vía RPC), lógica en src/lib/admin-team-members.ts.
 // "access" (Fase 9G-1 — acceso actual para presentación: rol, capacidades y MFA reciente; exige
 // autenticación pero NO MFA y NO autoriza nada), lógica en src/lib/admin-handlers.ts.
+// "cosplay-post-save", "cosplay-post-delete", "cosplay-media-detach", "cosplay-post-reorder",
+// "cosplay-post-list-admin" y "cosplay-post-get-admin" (Fase 9I-3, checkpoint 2 — editor ADMIN de
+// Cosplay: crear/guardar/publicar, borrado duro, desadjuntar imagen, reordenar galería y lecturas
+// ADMIN de borradores/publicadas; todas cosplay_admin + MFA reciente), lógica en
+// src/lib/cosplay-editor-handlers.ts.
 // La lógica de cada una vive en src/lib/admin-handlers.ts, no aquí, siguiendo el mismo
 // patrón que los otros dos dispatchers.
 export default function handler(req: VercelRequest, res: VercelResponse) {
@@ -70,6 +83,18 @@ export default function handler(req: VercelRequest, res: VercelResponse) {
       return handleAdminTeamMemberRole(req, res);
     case "team-members-remove":
       return handleAdminTeamMemberRemove(req, res);
+    case "cosplay-post-save":
+      return handleCosplayPostSave(req, res);
+    case "cosplay-post-delete":
+      return handleCosplayPostDelete(req, res);
+    case "cosplay-media-detach":
+      return handleCosplayMediaDetach(req, res);
+    case "cosplay-post-reorder":
+      return handleCosplayPostReorder(req, res);
+    case "cosplay-post-list-admin":
+      return handleCosplayPostListAdmin(req, res);
+    case "cosplay-post-get-admin":
+      return handleCosplayPostGetAdmin(req, res);
     default:
       return res.status(404).json({ error: "No encontrado" });
   }

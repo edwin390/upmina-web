@@ -84,10 +84,21 @@ beforeEach(() => {
   resetCosplayDb();
   vi.stubEnv("VITE_SUPABASE_URL", "https://example.supabase.co");
   vi.stubEnv("SUPABASE_SERVICE_ROLE_KEY", "test-service-role-key");
+  // URL pública real (Fase 9I-3): buildImageUrl ahora depende de r2-client.ts. Variables DEV
+  // mínimas para que publicVariantUrl resuelva sin lanzar en estos tests que no prueban el URL
+  // en sí (eso lo cubre cosplay-image-url.test.ts).
+  vi.stubEnv("R2_DEV_ACCESS_KEY_ID", "test-access-key-id");
+  vi.stubEnv("R2_DEV_SECRET_ACCESS_KEY", "test-secret-access-key");
+  vi.stubEnv("R2_DEV_ENDPOINT", "https://test-account.r2.cloudflarestorage.com");
+  vi.stubEnv("R2_DEV_PRIVATE_BUCKET", "upmina-media-dev-private");
+  vi.stubEnv("R2_DEV_PUBLIC_BUCKET", "upmina-media-dev-public");
+  vi.stubEnv("R2_DEV_PUBLIC_BASE_URL", "https://pub-test.r2.dev");
 });
 
-afterEach(() => {
+afterEach(async () => {
   vi.unstubAllEnvs();
+  const { resetR2DevConfigCache } = await import("./r2-client");
+  resetR2DevConfigCache();
 });
 
 describe("handleCosplayList", () => {

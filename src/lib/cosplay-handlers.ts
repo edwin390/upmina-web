@@ -6,6 +6,7 @@ import {
   mapPostRowToDetail,
   mapPostRowToSummary,
 } from "./cosplay-domain.js";
+import { publicVariantUrl } from "./r2-client.js";
 import type {
   CosplayPostImageRow,
   CosplayPostListPage,
@@ -28,13 +29,14 @@ const PAGE_SIZE = 24;
 const SELECT_WITH_IMAGES =
   "*, cosplay_post_images(id, position, is_cover, decorative, alt_es, alt_en, alt_de, caption_es, caption_en, caption_de, media_assets(id, status, width, height, storage_key))";
 
-/** Placeholder deliberado (Fase 9I-1: sin R2 todavía). Ningún media_asset real llega a
- *  status='ready' hasta la Fase 9I-2, así que esta ruta no se ejercita con datos reales todavía;
- *  existe para que el mapeo servidor→contrato público sea correcto desde ya. 9I-2 la
- *  reemplazará por la URL pública real de R2 (con su propia variable de entorno, configurada
- *  por el operador, no inventada aquí). */
+/** URL pública real (Fase 9I-3, sección 3): reutiliza EXACTAMENTE el mismo constructor de URL que
+ *  el pipeline de medios (r2-client.ts), nunca un segundo sistema de construcción de URLs. En
+ *  Production, publicVariantUrl (vía getR2DevConfig) lanza SIEMPRE — no existe infraestructura de
+ *  R2 de Production todavía — y ese throw se propaga hasta el try/catch del handler, que responde
+ *  el mismo error 500 genérico que cualquier otro fallo. Nunca se sirve un placeholder ni una URL
+ *  de original privado: solo la variante pública canónica ya normalizada. */
 function buildImageUrl(storageKey: string): string {
-  return `/cosplay-media/${storageKey}`;
+  return publicVariantUrl(storageKey);
 }
 
 function getServiceRoleClient() {
