@@ -585,6 +585,33 @@ describe("validadores: contenido no permitido", () => {
     }
   });
 
+  it("Instagram: productType aceptado (FEED/REELS) sobrevive la normalización; ausente también", () => {
+    const post = validPayload("instagram-feed")[0];
+    for (const productType of ["FEED", "REELS"] as const) {
+      const stored = encodeSnapshotPayload("instagram-feed", [
+        { ...post, productType },
+      ]) as Record<string, unknown>[];
+      expect(stored[0].productType).toBe(productType);
+      expect(decodeSnapshotPayload("instagram-feed", stored)).toBeDefined();
+    }
+    // El fixture base no trae productType: debe seguir aceptándose como ausente (no se inventa).
+    expect(post).not.toHaveProperty("productType");
+    const storedWithout = encodeSnapshotPayload("instagram-feed", [post]) as Record<
+      string,
+      unknown
+    >[];
+    expect(storedWithout[0]).not.toHaveProperty("productType");
+  });
+
+  it("Instagram: un productType inválido no llega a InstagramMediaItem", () => {
+    const post = validPayload("instagram-feed")[0];
+    for (const invalid of ["REEL", "feed", "STORY", 1, true, null]) {
+      expect(
+        encodeSnapshotPayload("instagram-feed", [{ ...post, productType: invalid }]),
+      ).toBeUndefined();
+    }
+  });
+
   it("el HTML/script dentro de un texto no se ejecuta ni se elimina: es texto (React lo escapa)", () => {
     const yt = { ...validPayload("youtube-latest"), title: "<script>alert(1)</script>" };
     const stored = encodeSnapshotPayload("youtube-latest", yt) as { title: string };

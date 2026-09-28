@@ -362,6 +362,16 @@ function youtubeVideo(entry: unknown): YouTubeVideo {
   } as YouTubeVideo;
 }
 
+/** Enum opcional validado con tipo de retorno explícito: a diferencia de una comprobación
+ *  inline (`if (x !== undefined && x !== "A" && x !== "B") fail()`), el tipo resultante aquí no
+ *  depende de que el análisis de flujo del compilador conserve el estrechamiento de `unknown` a
+ *  través de statements posteriores — se declara una vez, en la firma de la función. */
+function instagramProductType(value: unknown): "FEED" | "REELS" | undefined {
+  if (value === undefined) return undefined;
+  if (value !== "FEED" && value !== "REELS") return fail();
+  return value;
+}
+
 function instagramPost(entry: unknown): InstagramMediaItem {
   const f = fieldsOf(
     entry,
@@ -372,10 +382,7 @@ function instagramPost(entry: unknown): InstagramMediaItem {
   if (mediaType !== "IMAGE" && mediaType !== "VIDEO" && mediaType !== "CAROUSEL_ALBUM") {
     return fail();
   }
-  const productType = f.get("productType");
-  if (productType !== undefined && productType !== "FEED" && productType !== "REELS") {
-    return fail();
-  }
+  const productType = instagramProductType(f.get("productType"));
   const video = f.get("videoUrl");
   // Solo un VIDEO lleva archivo de video.
   if (video !== undefined && mediaType !== "VIDEO") return fail();
