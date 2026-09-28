@@ -1,8 +1,6 @@
 import { useEffect, useRef } from "react";
 import { useTranslations } from "use-intl";
 import type { CosplayImage } from "@/types";
-import { resolveEditorial } from "@/lib/cosplay-domain";
-import { useUpminaLocale } from "@/i18n/useUpminaLocale";
 
 interface CosplayLightboxProps {
   images: CosplayImage[];
@@ -31,7 +29,6 @@ export default function CosplayLightbox({
   const dialogRef = useRef<HTMLDialogElement>(null);
   const touchStartX = useRef<number | null>(null);
   const t = useTranslations("common.lightbox");
-  const { locale } = useUpminaLocale();
 
   const total = images.length;
   const canNavigate = total > 1;
@@ -83,15 +80,6 @@ export default function CosplayLightbox({
 
   if (!image) return null;
 
-  const alt = resolveEditorial(
-    { es: image.altEs, en: image.altEn, de: image.altDe },
-    locale,
-  );
-  const caption = resolveEditorial(
-    { es: image.captionEs, en: image.captionEn, de: image.captionDe },
-    locale,
-  );
-
   return (
     <dialog
       ref={dialogRef}
@@ -120,16 +108,12 @@ export default function CosplayLightbox({
         <figure className="relative flex max-h-full max-w-5xl flex-col items-center gap-3">
           <img
             src={image.url}
-            alt={alt.text ?? ""}
-            {...(alt.lang !== locale ? { lang: alt.lang } : {})}
+            alt={image.alt ?? ""}
             className="max-h-[78dvh] max-w-full rounded-lg object-contain shadow-glow-secondary"
           />
-          {caption.text && (
-            <figcaption
-              {...(caption.lang !== locale ? { lang: caption.lang } : {})}
-              className="max-w-prose text-center text-sm text-text-secondary"
-            >
-              {caption.text}
+          {image.caption && (
+            <figcaption className="max-w-prose text-center text-sm text-text-secondary">
+              {image.caption}
             </figcaption>
           )}
         </figure>

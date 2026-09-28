@@ -1,8 +1,9 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { AdminAuthError, authErrorBody, requireCapability } from "./admin-auth.js";
-import { generateUniqueSlug, slugify } from "./cosplay-domain.js";
+import { generateUniqueSlug, MAX_COSPLAY_PHOTOS, slugify } from "./cosplay-domain.js";
 import { attemptMediaAssetCleanup } from "./cosplay-media-lifecycle.js";
+import { publicVariantUrl } from "./r2-client.js";
 
 // Handlers HTTP del editor ADMIN de Cosplay (Fase 9I-3, checkpoint 2): crear/guardar/publicar,
 // actualizar con concurrencia optimista, reordenar, desadjuntar y borrar en duro. Despachados
@@ -23,15 +24,21 @@ const GENERIC_ERROR_BODY = { error: "Error interno" };
 const BAD_REQUEST_BODY = { error: "Solicitud inválida" };
 const NOT_FOUND_BODY = { error: "No encontrado" };
 const PLPGSQL_RAISE_EXCEPTION_CODE = "P0001";
-const MAX_PHOTOS = 20;
+const MAX_PHOTOS = MAX_COSPLAY_PHOTOS;
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /** Lista CERRADA de códigos de negocio que las RPC pueden lanzar (RAISE EXCEPTION sin SQLSTATE
  *  propio => P0001), y cómo se traducen a HTTP. Cualquier otro error de Postgres/PostgREST es un
  *  500 genérico: nunca se expone un mensaje crudo del proveedor. */
+// Las claves de la izquierda son el mensaje EXACTO que la RPC (SQL, sin migración nueva — ver
+// el checkpoint de corrección de producto 9I-3) sigue lanzando con `raise exception`: siguen
+// nombrando la columna interna *_es porque esa RPC no cambió. El `code` de la derecha es el
+// contrato HTTP público, y ese SÍ es neutral (missing_title/missing_alt, no missing_title_es/
+// missing_alt_es): que el almacenamiento real sea la columna española es un detalle de
+// implementación que nunca debe filtrarse al frontend/dominio de aplicación.
 const RPC_ERROR_MAP: Readonly<Record<string, { status: number; code: string }>> = {
   invalid_argument: { status: 400, code: "validation" },
-  missing_title_es: { status: 422, code: "missing_title_es" },
+  missing_title_es: { status: 422, code: "missing_title" },
   too_many_photos: { status: 400, code: "too_many_photos" },
   duplicate_asset_id: { status: 400, code: "duplicate_asset_id" },
   invalid_positions: { status: 400, code: "invalid_positions" },
@@ -47,7 +54,7 @@ const RPC_ERROR_MAP: Readonly<Record<string, { status: number; code: string }>> 
   asset_already_attached: { status: 409, code: "asset_already_attached" },
   no_ready_images: { status: 422, code: "no_ready_images" },
   no_cover: { status: 422, code: "no_cover" },
-  missing_alt_es: { status: 422, code: "missing_alt_es" },
+  missing_alt_es: { status: 422, code: "missing_alt" },
   actor_not_admin: { status: 403, code: "forbidden" },
 };
 
@@ -125,12 +132,8 @@ interface SaveImageInput {
   position: number;
   isCover: boolean;
   decorative: boolean;
-  altEs: string | null;
-  altEn: string | null;
-  altDe: string | null;
-  captionEs: string | null;
-  captionEn: string | null;
-  captionDe: string | null;
+  alt: string | null;
+  caption: string | null;
 }
 
 function optionalString(value: unknown): string | null | undefined {
@@ -148,46 +151,29 @@ function parseImageInput(raw: unknown): SaveImageInput | null {
   ) {
     return null;
   }
-  const altEs = optionalString(r.altEs);
-  const altEn = optionalString(r.altEn);
-  const altDe = optionalString(r.altDe);
-  const captionEs = optionalString(r.captionEs);
-  const captionEn = optionalString(r.captionEn);
-  const captionDe = optionalString(r.captionDe);
-  if (
-    altEs === undefined ||
-    altEn === undefined ||
-    altDe === undefined ||
-    captionEs === undefined ||
-    captionEn === undefined ||
-    captionDe === undefined
-  ) {
-    return null;
-  }
+  const alt = optionalString(r.alt);
+  const caption = optionalString(r.caption);
+  if (alt === undefined || caption === undefined) return null;
   return {
     assetId: r.assetId,
     position: r.position,
     isCover: r.isCover === true,
     decorative: r.decorative === true,
-    altEs,
-    altEn,
-    altDe,
-    captionEs,
-    captionEn,
-    captionDe,
+    alt,
+    caption,
   };
 }
 
+// Modelo editorial neutral (corrección de producto, Fase 9I-3): un valor canónico por campo,
+// como lo escribe Mina — nunca tres variantes ES/EN/DE. El wire body ya NO admite title_en/
+// title_de/etc.: el servidor los envía siempre como null a la RPC (ver más abajo), sin necesidad
+// de una migración nueva porque esas columnas ya eran nullable.
 interface SavePostInput {
   postId: string | null;
   expectedVersion: number | null;
   status: "draft" | "published";
-  titleEs: string;
-  titleEn: string | null;
-  titleDe: string | null;
-  descriptionEs: string | null;
-  descriptionEn: string | null;
-  descriptionDe: string | null;
+  title: string;
+  description: string | null;
   characterName: string | null;
   series: string | null;
   event: string | null;
@@ -211,24 +197,16 @@ function parseSavePostInput(body: Record<string, unknown> | null): SavePostInput
   if (!postId && expectedVersion !== undefined && expectedVersion !== null) return null;
 
   if (body.status !== "draft" && body.status !== "published") return null;
-  if (typeof body.titleEs !== "string" || body.titleEs.trim().length === 0) return null;
+  if (typeof body.title !== "string" || body.title.trim().length === 0) return null;
 
-  const titleEn = optionalString(body.titleEn);
-  const titleDe = optionalString(body.titleDe);
-  const descriptionEs = optionalString(body.descriptionEs);
-  const descriptionEn = optionalString(body.descriptionEn);
-  const descriptionDe = optionalString(body.descriptionDe);
+  const description = optionalString(body.description);
   const characterName = optionalString(body.characterName);
   const series = optionalString(body.series);
   const event = optionalString(body.event);
   const shotOn = optionalString(body.shotOn);
   const photographerCredit = optionalString(body.photographerCredit);
   if (
-    titleEn === undefined ||
-    titleDe === undefined ||
-    descriptionEs === undefined ||
-    descriptionEn === undefined ||
-    descriptionDe === undefined ||
+    description === undefined ||
     characterName === undefined ||
     series === undefined ||
     event === undefined ||
@@ -250,12 +228,8 @@ function parseSavePostInput(body: Record<string, unknown> | null): SavePostInput
     postId: isUuid(postId) ? postId : null,
     expectedVersion: typeof expectedVersion === "number" ? expectedVersion : null,
     status: body.status,
-    titleEs: body.titleEs,
-    titleEn,
-    titleDe,
-    descriptionEs,
-    descriptionEn,
-    descriptionDe,
+    title: body.title,
+    description,
     characterName,
     series,
     event,
@@ -266,12 +240,12 @@ function parseSavePostInput(body: Record<string, unknown> | null): SavePostInput
 }
 
 /** Slug candidato: para una publicación nueva o mientras siga en borrador, se deriva del título
- *  ES y se resuelve contra los slugs YA existentes (excluyendo la propia fila al actualizar). Si
+ *  canónico y se resuelve contra los slugs YA existentes (excluyendo la propia fila al actualizar). Si
  *  la publicación ya está publicada, la RPC ignora este valor (slug inmutable) — se calcula igual
  *  porque el handler no conoce el estado actual sin una consulta adicional, y es inofensivo. */
 async function resolveSlugCandidate(
   client: SupabaseClient,
-  titleEs: string,
+  title: string,
   excludePostId: string | null,
 ): Promise<string | null> {
   let query = client.from("cosplay_posts").select("slug");
@@ -279,7 +253,66 @@ async function resolveSlugCandidate(
   const { data, error } = await query;
   if (error || !Array.isArray(data)) return null;
   const existing = new Set((data as { slug: string }[]).map((r) => r.slug));
-  return generateUniqueSlug(slugify(titleEs), existing);
+  return generateUniqueSlug(slugify(title), existing);
+}
+
+// ────────────────────────────────────────────────────────────────────────────────────────────
+// Filas crudas que la RPC/Postgres devuelven (snake_case, columnas *_es/_en/_de heredadas — ver
+// el comentario de types/index.ts) → contrato neutral de aplicación. Un único punto de mapeo:
+// ni el editor ADMIN ni cosplay-admin-client.ts vuelven a ver *_en/*_de ni snake_case.
+
+interface RawPostRow {
+  id: string;
+  slug: string;
+  status: "draft" | "published";
+  title_es: string;
+  description_es: string | null;
+  character_name: string | null;
+  series: string | null;
+  event: string | null;
+  shot_on: string | null;
+  photographer_credit: string | null;
+  version: number;
+  published_at: string | null;
+}
+
+function mapPostRowNeutral(row: RawPostRow) {
+  return {
+    id: row.id,
+    slug: row.slug,
+    status: row.status,
+    title: row.title_es,
+    description: row.description_es,
+    characterName: row.character_name,
+    series: row.series,
+    event: row.event,
+    shotOn: row.shot_on,
+    photographerCredit: row.photographer_credit,
+    version: row.version,
+    publishedAt: row.published_at,
+  };
+}
+
+interface RawSavedImageRow {
+  id: string;
+  asset_id: string;
+  position: number;
+  is_cover: boolean;
+  decorative: boolean;
+  alt_es: string | null;
+  caption_es: string | null;
+}
+
+function mapSavedImageRowNeutral(row: RawSavedImageRow) {
+  return {
+    id: row.id,
+    assetId: row.asset_id,
+    position: row.position,
+    isCover: row.is_cover,
+    decorative: row.decorative,
+    alt: row.alt_es,
+    caption: row.caption_es,
+  };
 }
 
 export async function handleCosplayPostSave(
@@ -300,22 +333,26 @@ export async function handleCosplayPostSave(
   const client = getServiceRoleClient();
   if (!client) return res.status(500).json(GENERIC_ERROR_BODY);
 
-  const slugCandidate = await resolveSlugCandidate(client, input.titleEs, input.postId);
+  const slugCandidate = await resolveSlugCandidate(client, input.title, input.postId);
   if (slugCandidate === null) return res.status(500).json(GENERIC_ERROR_BODY);
 
   try {
+    // La RPC (sin migración nueva) sigue aceptando title_en/title_de/etc.: se envían SIEMPRE
+    // null — el modelo de aplicación ya no tiene traducciones editoriales que escribir ahí (ver
+    // el comentario de types/index.ts). title_es/description_es/alt_es/caption_es son el
+    // almacenamiento canónico real.
     const { data, error } = await client.rpc("cosplay_admin_save_post", {
       p_actor_user_id: actorId,
       p_post_id: input.postId,
       p_expected_version: input.expectedVersion,
       p_status: input.status,
       p_slug: slugCandidate,
-      p_title_es: input.titleEs,
-      p_title_en: input.titleEn,
-      p_title_de: input.titleDe,
-      p_description_es: input.descriptionEs,
-      p_description_en: input.descriptionEn,
-      p_description_de: input.descriptionDe,
+      p_title_es: input.title,
+      p_title_en: null,
+      p_title_de: null,
+      p_description_es: input.description,
+      p_description_en: null,
+      p_description_de: null,
       p_character_name: input.characterName,
       p_series: input.series,
       p_event: input.event,
@@ -326,18 +363,22 @@ export async function handleCosplayPostSave(
         position: image.position,
         is_cover: image.isCover,
         decorative: image.decorative,
-        alt_es: image.altEs,
-        alt_en: image.altEn,
-        alt_de: image.altDe,
-        caption_es: image.captionEs,
-        caption_en: image.captionEn,
-        caption_de: image.captionDe,
+        alt_es: image.alt,
+        alt_en: null,
+        alt_de: null,
+        caption_es: image.caption,
+        caption_en: null,
+        caption_de: null,
       })),
     });
     if (error) return respondRpcError(res, error);
 
+    const result = data as { post: RawPostRow; images: RawSavedImageRow[] };
     res.setHeader("Cache-Control", "no-store");
-    return res.status(200).json(data);
+    return res.status(200).json({
+      post: mapPostRowNeutral(result.post),
+      images: result.images.map(mapSavedImageRowNeutral),
+    });
   } catch {
     return res.status(500).json(GENERIC_ERROR_BODY);
   }
@@ -551,11 +592,74 @@ export async function handleCosplayPostListAdmin(
       .order("updated_at", { ascending: false });
     if (error || !Array.isArray(data)) return res.status(500).json(GENERIC_ERROR_BODY);
 
+    const rows = data as {
+      id: string;
+      slug: string;
+      status: "draft" | "published";
+      title_es: string;
+      version: number;
+      published_at: string | null;
+      updated_at: string;
+    }[];
+    const items = rows.map((row) => ({
+      id: row.id,
+      slug: row.slug,
+      status: row.status,
+      title: row.title_es,
+      version: row.version,
+      publishedAt: row.published_at,
+      updatedAt: row.updated_at,
+    }));
+
     res.setHeader("Cache-Control", "no-store");
-    return res.status(200).json({ items: data });
+    return res.status(200).json({ items });
   } catch {
     return res.status(500).json(GENERIC_ERROR_BODY);
   }
+}
+
+interface AdminMediaAssetRow {
+  id: string;
+  status: string;
+  width: number;
+  height: number;
+  storage_key: string;
+}
+
+interface AdminImageRow {
+  id: string;
+  asset_id: string;
+  position: number;
+  is_cover: boolean;
+  decorative: boolean;
+  alt_es: string | null;
+  caption_es: string | null;
+  media_assets: AdminMediaAssetRow | null;
+}
+
+/** Igual que mapImageRow (cosplay-handlers.ts) pero para el editor ADMIN: reutiliza EXACTAMENTE
+ *  publicVariantUrl (nunca un segundo constructor de URLs) y nunca expone storage_key en bruto —
+ *  el editor solo necesita la URL pública ya resuelta para pintar la vista previa. A diferencia
+ *  del camino público, aquí SÍ se incluye una imagen cuyo asset todavía no esté 'ready' (el ADMIN
+ *  necesita ver que sigue procesándose), simplemente sin `url` resoluble en ese caso.
+ */
+function mapAdminImageRow(row: AdminImageRow) {
+  const asset = row.media_assets;
+  return {
+    ...mapSavedImageRowNeutral({
+      id: row.id,
+      asset_id: row.asset_id,
+      position: row.position,
+      is_cover: row.is_cover,
+      decorative: row.decorative,
+      alt_es: row.alt_es,
+      caption_es: row.caption_es,
+    }),
+    assetStatus: asset?.status ?? null,
+    width: asset?.width ?? null,
+    height: asset?.height ?? null,
+    url: asset && asset.status === "ready" ? publicVariantUrl(asset.storage_key) : null,
+  };
 }
 
 export async function handleCosplayPostGetAdmin(
@@ -586,8 +690,17 @@ export async function handleCosplayPostGetAdmin(
     if (error) return res.status(500).json(GENERIC_ERROR_BODY);
     if (!data) return res.status(404).json(NOT_FOUND_BODY);
 
+    const row = data as unknown as RawPostRow & { cosplay_post_images?: AdminImageRow[] };
+    const gallery = (row.cosplay_post_images ?? [])
+      .map(mapAdminImageRow)
+      .sort((a, b) => a.position - b.position);
+
+    // Reshape explícito, nunca un spread de la fila cruda: la fila real trae también
+    // title_en/title_de/description_en/description_de (columnas heredadas sin usar) y metadata
+    // de auditoría (created_by/updated_by/created_at/updated_at) que el editor ADMIN no necesita
+    // ni debe recibir por cable.
     res.setHeader("Cache-Control", "no-store");
-    return res.status(200).json(data);
+    return res.status(200).json({ ...mapPostRowNeutral(row), images: gallery });
   } catch {
     return res.status(500).json(GENERIC_ERROR_BODY);
   }

@@ -32,6 +32,94 @@
   "admin": {
     "newPost": "New post",
     "edit": "Edit",
-    "delete": "Delete"
+    "delete": "Delete",
+    "panelHeading": "Your posts",
+    "loadingPosts": "Loading posts…",
+    "loadPostsError": "Couldn't load your posts.",
+    "noPosts": "No posts or drafts yet.",
+    "statusDraft": "Draft",
+    "statusPublished": "Published",
+    "close": "Close",
+    "editorTitleCreate": "New Cosplay post",
+    "editorTitleEdit": "Edit Cosplay post",
+    "fields": {
+      "title": "Title",
+      "description": "Description",
+      "characterName": "Character",
+      "series": "Series / franchise",
+      "event": "Event",
+      "shotOn": "Date"
+    },
+    "photos": {
+      "heading": "Photos",
+      "addPhotos": "Add photos",
+      "remaining": "{count, plural, one {# photo left} other {# photos left}}",
+      "limitReached": "You reached the 20-photo limit.",
+      "cover": "Cover",
+      "setCover": "Set {name} as cover",
+      "isCover": "This is the cover",
+      "moveUp": "Move {name} up",
+      "moveDown": "Move {name} down",
+      "remove": "Remove {name}",
+      "removeConfirmHeading": "Remove this photo?",
+      "removeConfirmBody": "This photo will be permanently deleted from the post and from storage.",
+      "removeConfirmAction": "Confirm removal",
+      "removeCancel": "Cancel",
+      "retry": "Retry",
+      "status": {
+        "queued": "Queued",
+        "preparing": "Preparing…",
+        "uploading": "Uploading…",
+        "uploaded": "Uploaded",
+        "processing": "Processing…",
+        "ready": "Ready",
+        "failed": "Failed"
+      }
+    },
+    "actions": {
+      "saveDraft": "Save draft",
+      "publish": "Publish",
+      "saving": "Saving…",
+      "publishing": "Publishing…"
+    },
+    "publishSuccess": "Published successfully",
+    "errors": {
+      "generic": "Something went wrong. Please try again.",
+      "missing_title": "The title is missing.",
+      "too_many_photos": "A post can have at most 20 photos.",
+      "duplicate_asset_id": "There's a duplicate photo in the list.",
+      "invalid_positions": "The photo order isn't valid.",
+      "multiple_covers": "Only one photo can be the cover.",
+      "images_missing_existing": "A photo that was already in the post is missing: remove it explicitly if you want it gone.",
+      "unpublish_not_supported": "A published post can't be turned back into a draft.",
+      "not_found": "The post wasn't found.",
+      "cosplay_version_conflict": "This post changed somewhere else while you were editing it.",
+      "invalid_asset": "One of the photos is no longer valid.",
+      "foreign_asset": "One of the photos doesn't belong to you.",
+      "asset_not_ready": "Wait for all photos to finish processing.",
+      "asset_already_attached": "One of the photos is already attached to another post.",
+      "no_ready_images": "You need at least one ready photo to publish.",
+      "no_cover": "Choose a cover before publishing.",
+      "missing_alt": "A photo is missing alt text (unless marked decorative).",
+      "validation": "Check the form's data.",
+      "forbidden": "You don't have permission for this action."
+    },
+    "conflict": {
+      "heading": "The post changed",
+      "body": "Someone (or you, in another tab) saved changes to this post after you opened it here. Reload it to see the latest version before continuing to edit.",
+      "reload": "Reload post"
+    },
+    "deletePost": {
+      "confirmHeading": "Delete this post?",
+      "confirmBody": "This permanently deletes the post and its photos. This can't be undone.",
+      "confirmAction": "Confirm deletion",
+      "cancel": "Cancel"
+    },
+    "dirty": {
+      "heading": "Close without saving?",
+      "body": "You have unsaved changes. Closing now will lose them.",
+      "discard": "Close without saving",
+      "keepEditing": "Keep editing"
+    }
   }
 }

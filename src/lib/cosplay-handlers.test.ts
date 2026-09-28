@@ -117,6 +117,18 @@ describe("handleCosplayList", () => {
     expect(state.body).toEqual({ error: "Error interno" });
   });
 
+  it("base de datos sin publicaciones (0 filas): 200 con lista vacía, NUNCA un 500 (estado de producto legítimo, no un error)", async () => {
+    // cosplayDb.rows ya queda en [] tras resetCosplayDb() en beforeEach: es exactamente el caso
+    // real reproducido en un smoke test local (proyecto de prueba desechable recién creado, sin
+    // publicaciones todavía). Con 0 filas nunca se llama a publicVariantUrl/getR2DevConfig
+    // (el .map de imagesFromRow nunca se ejecuta sobre un array vacío de publicaciones), así que
+    // esto NUNCA debe depender de la config de R2 estando presente.
+    const { res, state } = mockRes();
+    await handleCosplayList(req("GET"), res);
+    expect(state.status).toBe(200);
+    expect(state.body).toEqual({ items: [], nextCursor: null });
+  });
+
   it("solo devuelve publicaciones published; los borradores nunca aparecen", async () => {
     cosplayDb.rows = [
       row({ id: "p1", slug: "publicada", published_at: "2026-03-02T10:00:00.000Z" }),
@@ -239,8 +251,8 @@ describe("handleCosplayPost", () => {
     expect(state.status).toBe(200);
     expect(state.body).toMatchObject({
       slug: "kirito-sao",
-      titleEs: "Kirito",
-      descriptionEs: "Del anime Sword Art Online.",
+      title: "Kirito",
+      description: "Del anime Sword Art Online.",
       gallery: [expect.objectContaining({ id: "img-1" })],
     });
     expect(state.headers["Cache-Control"]).toBe(

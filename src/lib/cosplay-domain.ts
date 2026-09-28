@@ -5,11 +5,18 @@ import type {
   CosplayPostRow,
   CosplayPostSummary,
 } from "../types/index.js";
-import type { Locale } from "../i18n/locale-core.js";
 
 // Dominio de Cosplay (Fase 9I-1): funciones PURAS, sin I/O, compartidas entre los handlers de
 // servidor (src/lib/cosplay-handlers.ts) y, más adelante, el editor ADMIN (Fase 9I-3). Nada aquí
 // llama a Supabase, a R2 ni al navegador — por eso se prueba sin fakes ni red.
+
+// ────────────────────────────────────────────────────────────────────────────────────────────
+// Límites compartidos (Fase 9I-3): constante ÚNICA, importada tanto por el backend
+// (cosplay-editor-handlers.ts) como por el editor ADMIN del navegador — nunca duplicada como un
+// literal en cada lado. El backend sigue siendo la autoridad real (ver la RPC
+// cosplay_admin_save_post, sección too_many_photos); esto es solo para que la UI prevenga el
+// envío antes de golpear el servidor.
+export const MAX_COSPLAY_PHOTOS = 20;
 
 // ────────────────────────────────────────────────────────────────────────────────────────────
 // Slug
@@ -31,13 +38,14 @@ export function isValidSlugFormat(slug: string): boolean {
   );
 }
 
-/** Deriva un slug candidato del título en español: minúsculas, sin acentos/diacríticos, símbolos
+/** Deriva un slug candidato del título canónico (en el idioma que Mina haya escrito): minúsculas,
+ *  sin acentos/diacríticos, símbolos
  *  y espacios colapsados a un solo guion, recortado a 80 caracteres sin cortar a mitad de
  *  palabra cuando es posible. Nunca lanza: un título sin ningún carácter ASCII alfanumérico cae
  *  en SLUG_FALLBACK_BASE (p. ej. un título solo en japonés). El resultado es un CANDIDATO: quien
  *  llama debe resolver colisiones con generateUniqueSlug antes de guardarlo. */
-export function slugify(titleEs: string): string {
-  const normalized = titleEs
+export function slugify(title: string): string {
+  const normalized = title
     .normalize("NFD")
     .replace(/[̀-ͯ]/g, "") // quita diacríticos (á→a, ñ→n vía NFD+combining tilde)
     .toLowerCase()
@@ -88,50 +96,14 @@ export function generateUniqueSlug(
 }
 
 // ────────────────────────────────────────────────────────────────────────────────────────────
-// Fallback editorial ES → idioma solicitado
+// Editorial: un string vacío/solo-espacios cuenta como ausente. El contenido editorial (título,
+// descripción, alt, caption) ya NO depende del idioma de la UI (corrección de producto, Fase
+// 9I-3): Mina escribe cada campo UNA vez, en el idioma que elija, y se muestra idéntico sin
+// importar el locale activo. La columna *_es de Postgres es el almacenamiento canónico interno
+// (detalle de implementación); *_en/*_de quedan sin usar. Ver types/index.ts.
 
-export interface EditorialField {
-  es: string | null;
-  en: string | null;
-  de: string | null;
-}
-
-export interface ResolvedEditorial {
-  text: string | null;
-  /** Idioma REAL del texto devuelto (puede no ser el `locale` pedido: fallback a ES). Los
-   *  componentes deben usarlo como `lang="…"` del elemento cuando difiera del idioma activo,
-   *  para que un lector de pantalla no pronuncie español con reglas de inglés/alemán. */
-  lang: Locale;
-}
-
-/** title_en/description_en/etc. ausente o vacío → se trata como ausente (cae a ES). Un string de
- *  solo espacios no cuenta como traducción real. */
 function isBlank(value: string | null): value is null {
   return value === null || value.trim().length === 0;
-}
-
-/** Resuelve un campo editorial OPCIONAL (puede no tener ni siquiera texto en español, p. ej.
- *  description). Español → el propio texto (o null si tampoco hay ES). Inglés/alemán → el
- *  texto en ese idioma si existe; si no, cae a español (con `lang` marcado como "es"). */
-export function resolveEditorial(
-  field: EditorialField,
-  locale: Locale,
-): ResolvedEditorial {
-  if (locale === "es") return { text: isBlank(field.es) ? null : field.es, lang: "es" };
-
-  const requested = locale === "en" ? field.en : field.de;
-  if (!isBlank(requested)) return { text: requested, lang: locale };
-  return { text: isBlank(field.es) ? null : field.es, lang: "es" };
-}
-
-/** Igual que resolveEditorial, pero para un campo que la base de datos garantiza NOT NULL en
- *  español (hoy solo title_es): el resultado nunca es null. */
-export function resolveRequiredEditorial(
-  field: { es: string; en: string | null; de: string | null },
-  locale: Locale,
-): { text: string; lang: Locale } {
-  const resolved = resolveEditorial(field, locale);
-  return { text: resolved.text ?? field.es, lang: resolved.lang };
 }
 
 // ────────────────────────────────────────────────────────────────────────────────────────────
@@ -156,12 +128,8 @@ export function mapImageRow(
     position: row.position,
     isCover: row.is_cover,
     decorative: row.decorative,
-    altEs: row.alt_es,
-    altEn: row.alt_en,
-    altDe: row.alt_de,
-    captionEs: row.caption_es,
-    captionEn: row.caption_en,
-    captionDe: row.caption_de,
+    alt: row.alt_es,
+    caption: row.caption_es,
   };
 }
 
@@ -181,9 +149,7 @@ export function mapPostRowToSummary(
   return {
     id: row.id,
     slug: row.slug,
-    titleEs: row.title_es,
-    titleEn: row.title_en,
-    titleDe: row.title_de,
+    title: row.title_es,
     characterName: row.character_name,
     series: row.series,
     event: row.event,
@@ -203,9 +169,7 @@ export function mapPostRowToDetail(
 
   return {
     ...summary,
-    descriptionEs: row.description_es,
-    descriptionEn: row.description_en,
-    descriptionDe: row.description_de,
+    description: row.description_es,
     photographerCredit: row.photographer_credit,
     gallery: [...images].sort((a, b) => a.position - b.position),
   };
@@ -218,15 +182,11 @@ export function mapPostRowToDetail(
 // borrador con imágenes sin alt es válido mientras siga siendo borrador.
 
 export type PublishValidationErrorCode =
-  | "missing_title_es"
-  | "no_ready_images"
-  | "no_cover"
-  | "multiple_covers"
-  | "missing_alt_es";
+  "missing_title" | "no_ready_images" | "no_cover" | "multiple_covers" | "missing_alt";
 
 export interface PublishValidationError {
   code: PublishValidationErrorCode;
-  /** Solo presente para missing_alt_es: qué imagen falla (para que el editor la señale). */
+  /** Solo presente para missing_alt: qué imagen falla (para que el editor la señale). */
   imageId?: string;
 }
 
@@ -235,18 +195,20 @@ export interface PublishReadinessImage {
   status: "reserved" | "ready" | "deleting";
   isCover: boolean;
   decorative: boolean;
-  altEs: string | null;
+  alt: string | null;
 }
 
 /** Lista CERRADA de errores (vacía = lista para publicar). Nunca lanza: el llamador decide cómo
- *  presentar cada código. El orden no importa; el editor los agrupará como convenga. */
+ *  presentar cada código. El orden no importa; el editor los agrupará como convenga. Los códigos
+ *  son neutrales (ver types/index.ts): que el almacenamiento real siga siendo la columna *_es es
+ *  un detalle de implementación que este contrato nunca expone. */
 export function validatePublishReadiness(
-  post: { titleEs: string },
+  post: { title: string },
   images: readonly PublishReadinessImage[],
 ): PublishValidationError[] {
   const errors: PublishValidationError[] = [];
 
-  if (post.titleEs.trim().length === 0) errors.push({ code: "missing_title_es" });
+  if (post.title.trim().length === 0) errors.push({ code: "missing_title" });
 
   const ready = images.filter((image) => image.status === "ready");
   if (ready.length === 0) {
@@ -257,8 +219,8 @@ export function validatePublishReadiness(
     if (covers.length > 1) errors.push({ code: "multiple_covers" });
 
     for (const image of ready) {
-      if (!image.decorative && isBlank(image.altEs)) {
-        errors.push({ code: "missing_alt_es", imageId: image.id });
+      if (!image.decorative && isBlank(image.alt)) {
+        errors.push({ code: "missing_alt", imageId: image.id });
       }
     }
   }

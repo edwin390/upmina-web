@@ -1,16 +1,11 @@
 import { Link } from "react-router-dom";
 import { useTranslations } from "use-intl";
 import type { CosplayPostSummary } from "@/types";
-import { resolveRequiredEditorial } from "@/lib/cosplay-domain";
-import { useUpminaLocale } from "@/i18n/useUpminaLocale";
 
+/** El título es contenido editorial de Mina: se muestra idéntico sin importar el idioma de la UI
+ *  (corrección de producto, Fase 9I-3 — ver types/index.ts). */
 export default function CosplayCard({ post }: { post: CosplayPostSummary }) {
-  const { locale } = useUpminaLocale();
   const t = useTranslations("cosplay.list");
-  const title = resolveRequiredEditorial(
-    { es: post.titleEs, en: post.titleEn, de: post.titleDe },
-    locale,
-  );
   const meta = [post.characterName, post.series].filter(Boolean).join(" · ");
 
   return (
@@ -37,11 +32,8 @@ export default function CosplayCard({ post }: { post: CosplayPostSummary }) {
         )}
       </div>
       <div className="flex flex-1 flex-col gap-1 p-3">
-        <h3
-          {...(title.lang !== locale ? { lang: title.lang } : {})}
-          className="line-clamp-2 font-display text-base tracking-wide text-text-primary"
-        >
-          {title.text}
+        <h3 className="line-clamp-2 font-display text-base tracking-wide text-text-primary">
+          {post.title}
         </h3>
         {meta && <p className="line-clamp-1 text-sm text-text-secondary">{meta}</p>}
       </div>

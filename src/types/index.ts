@@ -165,11 +165,15 @@ export interface Report {
 
 // ---------- Cosplay (Fase 9I) ----------
 // Contrato público normalizado (lo que devuelve /api/content, camelCase) y las filas crudas de
-// Supabase (snake_case) que lo alimentan, mismo patrón que Edit/EditRow arriba. Las traducciones
-// van en columnas *_es/_en/_de (modelo congelado, ver la migración 20260930120000): la API
-// pública devuelve las TRES cuando existen y el fallback ES/EN/DE se resuelve en el cliente
-// (src/lib/cosplay-domain.ts), no en el servidor, para que cambiar de idioma no repita la
-// petición ni divida la caché de TanStack Query por idioma.
+// Supabase (snake_case) que lo alimentan, mismo patrón que Edit/EditRow arriba.
+//
+// Modelo editorial (corrección de producto, Fase 9I-3): el contenido de Mina (título,
+// descripción, alt, caption) es UN valor canónico por campo, en el idioma que ella elija al
+// escribir — NUNCA depende del idioma de la interfaz. Solo la UI (rótulos, fechas, chrome) se
+// localiza ES/EN/DE; el contenido editorial se muestra IDÉNTICO sin importar el idioma activo.
+// Las columnas *_es/_en/_de siguen existiendo en Postgres (ver supabase/migrations) como detalle
+// de almacenamiento heredado — *_es es la columna canónica real; *_en/*_de quedan sin usar — pero
+// el contrato de aplicación (estos tipos, la API, el editor ADMIN) es neutral y nunca los expone.
 
 /** Imagen de galería, ya en su URL pública final (la construye el servidor; en 9I-1 sin R2 real
  *  puede ser una URL de fixture local). */
@@ -181,21 +185,15 @@ export interface CosplayImage {
   position: number;
   isCover: boolean;
   decorative: boolean;
-  altEs: string | null;
-  altEn: string | null;
-  altDe: string | null;
-  captionEs: string | null;
-  captionEn: string | null;
-  captionDe: string | null;
+  alt: string | null;
+  caption: string | null;
 }
 
 /** Tarjeta de listado: sin galería completa ni descripción (evita sobrecargar /cosplay). */
 export interface CosplayPostSummary {
   id: string;
   slug: string;
-  titleEs: string;
-  titleEn: string | null;
-  titleDe: string | null;
+  title: string;
   characterName: string | null;
   series: string | null;
   event: string | null;
@@ -208,9 +206,7 @@ export interface CosplayPostSummary {
 }
 
 export interface CosplayPostDetail extends CosplayPostSummary {
-  descriptionEs: string | null;
-  descriptionEn: string | null;
-  descriptionDe: string | null;
+  description: string | null;
   photographerCredit: string | null;
   gallery: CosplayImage[];
 }

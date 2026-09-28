@@ -32,6 +32,94 @@
   "admin": {
     "newPost": "Neuer Beitrag",
     "edit": "Bearbeiten",
-    "delete": "Löschen"
+    "delete": "Löschen",
+    "panelHeading": "Deine Beiträge",
+    "loadingPosts": "Beiträge werden geladen…",
+    "loadPostsError": "Deine Beiträge konnten nicht geladen werden.",
+    "noPosts": "Noch keine Beiträge oder Entwürfe.",
+    "statusDraft": "Entwurf",
+    "statusPublished": "Veröffentlicht",
+    "close": "Schließen",
+    "editorTitleCreate": "Neuer Cosplay-Beitrag",
+    "editorTitleEdit": "Cosplay-Beitrag bearbeiten",
+    "fields": {
+      "title": "Titel",
+      "description": "Beschreibung",
+      "characterName": "Charakter",
+      "series": "Serie / Franchise",
+      "event": "Event",
+      "shotOn": "Datum"
+    },
+    "photos": {
+      "heading": "Fotos",
+      "addPhotos": "Fotos hinzufügen",
+      "remaining": "{count, plural, one {# Foto übrig} other {# Fotos übrig}}",
+      "limitReached": "Du hast das Limit von 20 Fotos erreicht.",
+      "cover": "Titelbild",
+      "setCover": "{name} als Titelbild festlegen",
+      "isCover": "Ist das Titelbild",
+      "moveUp": "{name} nach oben verschieben",
+      "moveDown": "{name} nach unten verschieben",
+      "remove": "{name} entfernen",
+      "removeConfirmHeading": "Dieses Foto entfernen?",
+      "removeConfirmBody": "Dieses Foto wird dauerhaft aus dem Beitrag und dem Speicher gelöscht.",
+      "removeConfirmAction": "Entfernen bestätigen",
+      "removeCancel": "Abbrechen",
+      "retry": "Erneut versuchen",
+      "status": {
+        "queued": "In Warteschlange",
+        "preparing": "Wird vorbereitet…",
+        "uploading": "Wird hochgeladen…",
+        "uploaded": "Hochgeladen",
+        "processing": "Wird verarbeitet…",
+        "ready": "Bereit",
+        "failed": "Fehlgeschlagen"
+      }
+    },
+    "actions": {
+      "saveDraft": "Entwurf speichern",
+      "publish": "Veröffentlichen",
+      "saving": "Wird gespeichert…",
+      "publishing": "Wird veröffentlicht…"
+    },
+    "publishSuccess": "Erfolgreich veröffentlicht",
+    "errors": {
+      "generic": "Etwas ist schiefgelaufen. Bitte versuch es erneut.",
+      "missing_title": "Der Titel fehlt.",
+      "too_many_photos": "Ein Beitrag darf höchstens 20 Fotos haben.",
+      "duplicate_asset_id": "Es gibt ein doppeltes Foto in der Liste.",
+      "invalid_positions": "Die Reihenfolge der Fotos ist ungültig.",
+      "multiple_covers": "Nur ein Foto kann das Titelbild sein.",
+      "images_missing_existing": "Ein Foto, das bereits im Beitrag war, fehlt: Entferne es explizit, wenn du es löschen willst.",
+      "unpublish_not_supported": "Ein veröffentlichter Beitrag kann nicht wieder zum Entwurf werden.",
+      "not_found": "Der Beitrag wurde nicht gefunden.",
+      "cosplay_version_conflict": "Dieser Beitrag wurde an anderer Stelle geändert, während du ihn bearbeitet hast.",
+      "invalid_asset": "Eines der Fotos ist nicht mehr gültig.",
+      "foreign_asset": "Eines der Fotos gehört dir nicht.",
+      "asset_not_ready": "Warte, bis alle Fotos fertig verarbeitet sind.",
+      "asset_already_attached": "Eines der Fotos ist bereits einem anderen Beitrag zugeordnet.",
+      "no_ready_images": "Du brauchst mindestens ein fertiges Foto, um zu veröffentlichen.",
+      "no_cover": "Wähle ein Titelbild, bevor du veröffentlichst.",
+      "missing_alt": "Bei einem Foto fehlt der Alt-Text (außer es ist als dekorativ markiert).",
+      "validation": "Überprüfe die Angaben im Formular.",
+      "forbidden": "Du hast keine Berechtigung für diese Aktion."
+    },
+    "conflict": {
+      "heading": "Der Beitrag hat sich geändert",
+      "body": "Jemand (oder du, in einem anderen Tab) hat Änderungen an diesem Beitrag gespeichert, nachdem du ihn hier geöffnet hast. Lade ihn neu, um die aktuelle Version zu sehen, bevor du weiter bearbeitest.",
+      "reload": "Beitrag neu laden"
+    },
+    "deletePost": {
+      "confirmHeading": "Diesen Beitrag löschen?",
+      "confirmBody": "Dies löscht den Beitrag und seine Fotos dauerhaft. Das kann nicht rückgängig gemacht werden.",
+      "confirmAction": "Löschen bestätigen",
+      "cancel": "Abbrechen"
+    },
+    "dirty": {
+      "heading": "Ohne Speichern schließen?",
+      "body": "Du hast ungespeicherte Änderungen. Wenn du jetzt schließt, gehen sie verloren.",
+      "discard": "Ohne Speichern schließen",
+      "keepEditing": "Weiter bearbeiten"
+    }
   }
 }

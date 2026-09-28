@@ -2,7 +2,6 @@ import { useState } from "react";
 import { Link } from "react-router-dom";
 import { useTranslations } from "use-intl";
 import { useCosplayPost } from "@/hooks/useCosplayPost";
-import { resolveEditorial, resolveRequiredEditorial } from "@/lib/cosplay-domain";
 import { formatDateOnly, useUpminaLocale } from "@/i18n/useUpminaLocale";
 import CosplayLightbox from "./CosplayLightbox";
 
@@ -68,15 +67,6 @@ export default function CosplayDetail({ slug }: { slug: string | undefined }) {
     );
   }
 
-  const title = resolveRequiredEditorial(
-    { es: post.titleEs, en: post.titleEn, de: post.titleDe },
-    locale,
-  );
-  const description = resolveEditorial(
-    { es: post.descriptionEs, en: post.descriptionEn, de: post.descriptionDe },
-    locale,
-  );
-
   return (
     <section className="mx-auto max-w-4xl px-4 py-16">
       <Link
@@ -86,19 +76,13 @@ export default function CosplayDetail({ slug }: { slug: string | undefined }) {
         {t("backLink")}
       </Link>
 
-      <h1
-        {...(title.lang !== locale ? { lang: title.lang } : {})}
-        className="font-display text-3xl tracking-wide text-text-primary sm:text-4xl"
-      >
-        {title.text}
+      <h1 className="font-display text-3xl tracking-wide text-text-primary sm:text-4xl">
+        {post.title}
       </h1>
 
-      {description.text && (
-        <p
-          {...(description.lang !== locale ? { lang: description.lang } : {})}
-          className="mt-4 whitespace-pre-line leading-relaxed text-text-secondary"
-        >
-          {description.text}
+      {post.description && (
+        <p className="mt-4 whitespace-pre-line leading-relaxed text-text-secondary">
+          {post.description}
         </p>
       )}
 
@@ -116,10 +100,6 @@ export default function CosplayDetail({ slug }: { slug: string | undefined }) {
       <h2 className="sr-only">{t("galleryLabel")}</h2>
       <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-3">
         {post.gallery.map((image, index) => {
-          const alt = resolveEditorial(
-            { es: image.altEs, en: image.altEn, de: image.altDe },
-            locale,
-          );
           return (
             <button
               key={image.id}
@@ -134,8 +114,8 @@ export default function CosplayDetail({ slug }: { slug: string | undefined }) {
               // genérico "Ver foto N" en vez de dejar el botón sin nombre (falla de accesibilidad
               // real, detectada al revisar el visor en localhost).
               aria-label={
-                !image.decorative && alt.text
-                  ? alt.text
+                !image.decorative && image.alt
+                  ? image.alt
                   : t("openPhoto", { position: index + 1 })
               }
               className="group aspect-square overflow-hidden rounded-md border border-transparent bg-bg-surface transition-[border-color,box-shadow] hover:border-accent-primary/70 hover:shadow-glow-primary focus-visible:border-accent-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-secondary"

@@ -25,12 +25,8 @@ function image(id: string, overrides: Record<string, unknown> = {}) {
     position: Number(id),
     isCover: id === "0",
     decorative: false,
-    altEs: `Alt ${id}`,
-    altEn: null,
-    altDe: null,
-    captionEs: null,
-    captionEn: null,
-    captionDe: null,
+    alt: `Alt ${id}`,
+    caption: null,
     ...overrides,
   };
 }
@@ -39,9 +35,7 @@ function detail(overrides: Partial<CosplayPostDetail> = {}): CosplayPostDetail {
   return {
     id: "post-1",
     slug: "kirito-sao",
-    titleEs: "Kirito",
-    titleEn: null,
-    titleDe: null,
+    title: "Kirito",
     characterName: "Kirito",
     series: "Sword Art Online",
     event: null,
@@ -49,9 +43,7 @@ function detail(overrides: Partial<CosplayPostDetail> = {}): CosplayPostDetail {
     publishedAt: "2026-03-20T00:00:00.000Z",
     cover: image("0"),
     photoCount: 2,
-    descriptionEs: "Descripción de Kirito.",
-    descriptionEn: null,
-    descriptionDe: null,
+    description: "Descripción de Kirito.",
     photographerCredit: "Fotógrafo de prueba",
     gallery: [image("0"), image("1")],
     ...overrides,
@@ -212,7 +204,7 @@ describe("/cosplay/:slug — galería y visor", () => {
       vi.fn().mockResolvedValue(
         json(
           detail({
-            gallery: [image("0"), image("1", { decorative: true, altEs: null })],
+            gallery: [image("0"), image("1", { decorative: true, alt: null })],
           }),
         ),
       ),

@@ -32,6 +32,94 @@
   "admin": {
     "newPost": "Nueva publicación",
     "edit": "Editar",
-    "delete": "Eliminar"
+    "delete": "Eliminar",
+    "panelHeading": "Tus publicaciones",
+    "loadingPosts": "Cargando publicaciones…",
+    "loadPostsError": "No se pudieron cargar tus publicaciones.",
+    "noPosts": "Todavía no hay publicaciones ni borradores.",
+    "statusDraft": "Borrador",
+    "statusPublished": "Publicado",
+    "close": "Cerrar",
+    "editorTitleCreate": "Nueva publicación de Cosplay",
+    "editorTitleEdit": "Editar publicación de Cosplay",
+    "fields": {
+      "title": "Título",
+      "description": "Descripción",
+      "characterName": "Personaje",
+      "series": "Serie / franquicia",
+      "event": "Evento",
+      "shotOn": "Fecha"
+    },
+    "photos": {
+      "heading": "Fotos",
+      "addPhotos": "Añadir fotos",
+      "remaining": "{count, plural, one {# foto disponible} other {# fotos disponibles}}",
+      "limitReached": "Llegaste al máximo de 20 fotos.",
+      "cover": "Portada",
+      "setCover": "Marcar {name} como portada",
+      "isCover": "Es la portada",
+      "moveUp": "Mover {name} arriba",
+      "moveDown": "Mover {name} abajo",
+      "remove": "Quitar {name}",
+      "removeConfirmHeading": "¿Quitar esta foto?",
+      "removeConfirmBody": "Esta foto se borrará de forma permanente de la publicación y del almacenamiento.",
+      "removeConfirmAction": "Confirmar y quitar",
+      "removeCancel": "Cancelar",
+      "retry": "Reintentar",
+      "status": {
+        "queued": "En cola",
+        "preparing": "Preparando…",
+        "uploading": "Subiendo…",
+        "uploaded": "Subida",
+        "processing": "Procesando…",
+        "ready": "Lista",
+        "failed": "Falló"
+      }
+    },
+    "actions": {
+      "saveDraft": "Guardar borrador",
+      "publish": "Publicar",
+      "saving": "Guardando…",
+      "publishing": "Publicando…"
+    },
+    "publishSuccess": "Publicado con éxito",
+    "errors": {
+      "generic": "Algo salió mal. Inténtalo de nuevo.",
+      "missing_title": "Falta el título.",
+      "too_many_photos": "Como mucho 20 fotos por publicación.",
+      "duplicate_asset_id": "Hay una foto duplicada en la lista.",
+      "invalid_positions": "El orden de las fotos no es válido.",
+      "multiple_covers": "Solo puede haber una portada.",
+      "images_missing_existing": "Falta una foto que ya estaba en la publicación: quítala explícitamente si quieres eliminarla.",
+      "unpublish_not_supported": "No se puede volver a borrador una publicación ya publicada.",
+      "not_found": "No se encontró la publicación.",
+      "cosplay_version_conflict": "Esta publicación cambió en otro lugar mientras la editabas.",
+      "invalid_asset": "Una de las fotos ya no es válida.",
+      "foreign_asset": "Una de las fotos no te pertenece.",
+      "asset_not_ready": "Espera a que todas las fotos terminen de procesarse.",
+      "asset_already_attached": "Una de las fotos ya está en otra publicación.",
+      "no_ready_images": "Necesitas al menos una foto lista para publicar.",
+      "no_cover": "Elige una portada antes de publicar.",
+      "missing_alt": "Falta el texto alternativo en alguna foto (salvo que la marques como decorativa).",
+      "validation": "Revisa los datos del formulario.",
+      "forbidden": "No tienes permiso para esta acción."
+    },
+    "conflict": {
+      "heading": "La publicación cambió",
+      "body": "Alguien (o tú, en otra pestaña) guardó cambios en esta publicación después de que la abrieras aquí. Recárgala para ver la versión más reciente antes de seguir editando.",
+      "reload": "Recargar publicación"
+    },
+    "deletePost": {
+      "confirmHeading": "¿Eliminar esta publicación?",
+      "confirmBody": "Esta acción borra la publicación y sus fotos de forma permanente. No se puede deshacer.",
+      "confirmAction": "Confirmar eliminación",
+      "cancel": "Cancelar"
+    },
+    "dirty": {
+      "heading": "¿Cerrar sin guardar?",
+      "body": "Tienes cambios sin guardar. Si cierras ahora, se perderán.",
+      "discard": "Cerrar sin guardar",
+      "keepEditing": "Seguir editando"
+    }
   }
 }

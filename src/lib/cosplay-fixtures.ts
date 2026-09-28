@@ -49,23 +49,20 @@ function image(
     height,
     isCover: overrides.position === 0,
     decorative: false,
-    altEs: `[fixture] Foto de prueba ${overrides.position + 1}`,
-    altEn: `[fixture] Test photo ${overrides.position + 1}`,
-    altDe: `[fixture] Testfoto ${overrides.position + 1}`,
-    captionEs: null,
-    captionEn: null,
-    captionDe: null,
+    alt: `[fixture] Foto de prueba ${overrides.position + 1}`,
+    caption: null,
     ...overrides,
   };
 }
 
-// Publicación 1: la más reciente (hero), con galería completa de 6 fotos, traducciones EN/DE
-// completas y todos los campos opcionales presentes.
+// Publicación 1: la más reciente (hero), con galería completa de 6 fotos y todos los campos
+// opcionales presentes. El contenido editorial (título/descripción/alt/caption) es UN valor
+// canónico, como lo escribiría Mina — nunca varía con el idioma de la UI (ver types/index.ts).
 const galleryOne: CosplayImage[] = [
   image({ id: "fx-1-0", position: 0 }),
-  image({ id: "fx-1-1", position: 1, captionEs: "[fixture] Con luces de neón" }),
+  image({ id: "fx-1-1", position: 1, caption: "[fixture] Con luces de neón" }),
   image({ id: "fx-1-2", position: 2 }),
-  image({ id: "fx-1-3", position: 3, decorative: true, altEs: "" }),
+  image({ id: "fx-1-3", position: 3, decorative: true, alt: "" }),
   image({ id: "fx-1-4", position: 4 }),
   image({ id: "fx-1-5", position: 5 }),
 ];
@@ -73,15 +70,10 @@ const galleryOne: CosplayImage[] = [
 const postOne: CosplayPostDetail = {
   id: "fx-post-1",
   slug: "fixture-personaje-de-prueba",
-  titleEs: "[fixture] Personaje de prueba",
-  titleEn: "[fixture] Test character",
-  titleDe: "[fixture] Testcharakter",
-  descriptionEs:
-    "[fixture] Descripción de ejemplo en español, con varias líneas para comprobar el ajuste " +
-    "de texto en la página de detalle y confirmar que un párrafo largo no rompe el diseño.",
-  descriptionEn:
-    "[fixture] Sample English description, shorter than the Spanish one on purpose.",
-  descriptionDe: null, // a propósito ausente: prueba el fallback a ES en alemán.
+  title: "[fixture] Personaje de prueba",
+  description:
+    "[fixture] Descripción de ejemplo, con varias líneas para comprobar el ajuste de texto " +
+    "en la página de detalle y confirmar que un párrafo largo no rompe el diseño.",
   characterName: "[fixture] Nombre del personaje",
   series: "[fixture] Serie o franquicia de ejemplo",
   event: "[fixture] Convención de ejemplo 2026",
@@ -93,28 +85,21 @@ const postOne: CosplayPostDetail = {
   gallery: galleryOne,
 };
 
-// Publicación 2: título deliberadamente largo, sin traducciones EN/DE (prueba el fallback), sin
-// evento ni crédito de fotógrafo (campos opcionales ausentes), galería de 2 fotos.
+// Publicación 2: título deliberadamente largo, sin evento ni crédito de fotógrafo (campos
+// opcionales ausentes), galería de 2 fotos.
 const galleryTwo: CosplayImage[] = [
   image({ id: "fx-2-0", position: 0 }),
   image({ id: "fx-2-1", position: 1 }),
 ];
 
 const postTwo: CosplayPostSummary &
-  Pick<
-    CosplayPostDetail,
-    "descriptionEs" | "descriptionEn" | "descriptionDe" | "photographerCredit" | "gallery"
-  > = {
+  Pick<CosplayPostDetail, "description" | "photographerCredit" | "gallery"> = {
   id: "fx-post-2",
   slug: "fixture-titulo-largo",
-  titleEs:
+  title:
     "[fixture] Un título deliberadamente muy largo para comprobar cómo se recorta o ajusta en " +
     "la tarjeta del listado y en la cabecera de la página de detalle",
-  titleEn: null,
-  titleDe: null,
-  descriptionEs: null,
-  descriptionEn: null,
-  descriptionDe: null,
+  description: null,
   characterName: "[fixture] Otro personaje",
   series: null,
   event: null,
@@ -131,19 +116,11 @@ const postTwo: CosplayPostSummary &
 const galleryThree: CosplayImage[] = [image({ id: "fx-3-0", position: 0 })];
 
 const postThree: CosplayPostSummary &
-  Pick<
-    CosplayPostDetail,
-    "descriptionEs" | "descriptionEn" | "descriptionDe" | "photographerCredit" | "gallery"
-  > = {
+  Pick<CosplayPostDetail, "description" | "photographerCredit" | "gallery"> = {
   id: "fx-post-3",
   slug: "fixture-una-sola-foto",
-  titleEs: "[fixture] Publicación con una sola foto",
-  titleEn: "[fixture] Single-photo post",
-  titleDe: "[fixture] Beitrag mit einem Foto",
-  descriptionEs:
-    "[fixture] El caso mínimo: una publicación válida solo necesita una foto.",
-  descriptionEn: null,
-  descriptionDe: null,
+  title: "[fixture] Publicación con una sola foto",
+  description: "[fixture] El caso mínimo: una publicación válida solo necesita una foto.",
   characterName: null,
   series: "[fixture] Serie de ejemplo",
   event: null,
@@ -169,9 +146,7 @@ export const COSPLAY_FIXTURE_LIST: CosplayPostSummary[] = [...COSPLAY_FIXTURE_PO
   .map(
     ({
       gallery: _gallery,
-      descriptionEs: _de,
-      descriptionEn: _den,
-      descriptionDe: _dde,
+      description: _description,
       photographerCredit: _pc,
       ...summary
     }) => summary,

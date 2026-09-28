@@ -1,0 +1,580 @@
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  CosplayAdminClientError,
+  deleteCosplayPost,
+  detachCosplayMedia,
+  getCosplayPostAdmin,
+  saveCosplayPost,
+  type CosplayAdminImage,
+  type CosplayEditorImageInput,
+} from "@/lib/cosplay-admin-client";
+import { MAX_COSPLAY_PHOTOS } from "@/lib/cosplay-domain";
+import {
+  useMediaUpload,
+  type MediaItemStatus,
+  type MediaQueueItem,
+} from "@/hooks/useMediaUpload";
+import type { PrivilegedFailure } from "@/lib/privileged-response";
+import type { PrivilegedIntent } from "@/lib/privileged-intent";
+
+// Estado del editor ADMIN de Cosplay (Fase 9I-3, checkpoint 3; modelo editorial corregido a un
+// único valor por campo — ver types/index.ts). Combina:
+//   - los campos editoriales del formulario (título/descripción/metadata) — UN valor por campo,
+//     en el idioma que Mina elija: nunca varía con el idioma de la interfaz;
+//   - la cola de subida REAL (useMediaUpload, sin sobrescribir concurrencia — mantiene la
+//     política 2/3 desktop y 1/2 móvil ya congelada);
+//   - las fotos YA adjuntas cargadas del servidor al editar una publicación existente.
+//
+// Diseño deliberado: mover una foto arriba/abajo o cambiar su portada son SOLO cambios de estado
+// LOCAL — nunca llaman a la red por sí solos. La posición final (el índice
+// del array, siempre contiguo 0..n-1 por construcción) y el resto de metadata editorial se
+// persisten juntos en la SIGUIENTE llamada explícita a Guardar borrador/Publicar. Esto evita una
+// llamada de red por cada clic y mantiene la concurrencia optimista simple: una única versión
+// esperada por guardado, no una por cada micro-cambio.
+
+export interface EditorPhoto {
+  /** Clave estable de React. */
+  key: string;
+  assetId: string | null;
+  /** Id de cosplay_post_images si esta foto YA estaba adjunta al cargar el editor. */
+  existingImageId: string | null;
+  /** localId de useMediaUpload si esta foto se añadió EN ESTA sesión del editor. */
+  localId: string | null;
+  fileName: string | null;
+  /** "existing" = cargada del servidor, ya lista; si no, el estado real de la cola de subida. */
+  uploadStatus: MediaItemStatus | "existing";
+  uploadErrorCode: string | null;
+  uploadErrorMessage: string | null;
+  privilegedFailure: PrivilegedFailure | null;
+  uploadedBytes: number;
+  totalUploadBytes: number;
+  url: string | null;
+  width: number | null;
+  height: number | null;
+  isCover: boolean;
+}
+
+export interface EditorFields {
+  title: string;
+  description: string;
+  characterName: string;
+  series: string;
+  event: string;
+  shotOn: string;
+}
+
+const EMPTY_FIELDS: EditorFields = {
+  title: "",
+  description: "",
+  characterName: "",
+  series: "",
+  event: "",
+  shotOn: "",
+};
+
+function emptyToNull(value: string): string | null {
+  const trimmed = value.trim();
+  return trimmed.length === 0 ? null : trimmed;
+}
+
+function photoFromExisting(image: CosplayAdminImage): EditorPhoto {
+  return {
+    key: `existing:${image.id}`,
+    assetId: image.assetId,
+    existingImageId: image.id,
+    localId: null,
+    fileName: null,
+    uploadStatus: "existing",
+    uploadErrorCode: null,
+    uploadErrorMessage: null,
+    privilegedFailure: null,
+    uploadedBytes: 0,
+    totalUploadBytes: 0,
+    url: image.url,
+    width: image.width,
+    height: image.height,
+    isCover: image.isCover,
+  };
+}
+
+function photoFromQueueItem(item: MediaQueueItem): EditorPhoto {
+  const variant =
+    item.variants && item.variants.length > 0
+      ? item.variants[item.variants.length - 1]!
+      : null;
+  return {
+    key: `new:${item.localId}`,
+    assetId: item.assetId,
+    existingImageId: null,
+    localId: item.localId,
+    fileName: item.fileName,
+    uploadStatus: item.status,
+    uploadErrorCode: item.errorCode,
+    uploadErrorMessage: item.errorMessage,
+    privilegedFailure: item.privilegedFailure,
+    uploadedBytes: item.uploadedBytes,
+    totalUploadBytes: item.totalUploadBytes,
+    url: variant?.url ?? null,
+    width: variant?.width ?? null,
+    height: variant?.height ?? null,
+    isCover: false,
+  };
+}
+
+/** Actualiza SOLO los campos derivados de la subida (nunca los editoriales, que el ADMIN puede
+ *  haber cambiado ya mientras la foto seguía procesándose). */
+function mergeUploadFields(photo: EditorPhoto, item: MediaQueueItem): EditorPhoto {
+  const variant =
+    item.variants && item.variants.length > 0
+      ? item.variants[item.variants.length - 1]!
+      : null;
+  return {
+    ...photo,
+    assetId: item.assetId,
+    uploadStatus: item.status,
+    uploadErrorCode: item.errorCode,
+    uploadErrorMessage: item.errorMessage,
+    privilegedFailure: item.privilegedFailure,
+    uploadedBytes: item.uploadedBytes,
+    totalUploadBytes: item.totalUploadBytes,
+    url: variant?.url ?? photo.url,
+    width: variant?.width ?? photo.width,
+    height: variant?.height ?? photo.height,
+  };
+}
+
+const NON_TERMINAL_UPLOAD_STATUSES: ReadonlySet<MediaItemStatus> = new Set([
+  "queued",
+  "preparing",
+  "uploading",
+  "uploaded",
+  "processing",
+]);
+
+export type ConflictState = { kind: "version" } | null;
+
+export interface UseCosplayEditorOptions {
+  /** null = crear una publicación nueva; un id = editar una existente. */
+  initialPostId: string | null;
+  onClosed?: () => void;
+  /** Se invoca tras un guardado/publicación/borrado exitoso, para refrescar el listado público. */
+  onPostChanged?: () => void;
+}
+
+export function useCosplayEditor({
+  initialPostId,
+  onPostChanged,
+}: UseCosplayEditorOptions) {
+  const [postId, setPostId] = useState<string | null>(initialPostId);
+  const [status, setStatus] = useState<"draft" | "published">("draft");
+  const [version, setVersion] = useState<number | null>(null);
+  const [fields, setFields] = useState<EditorFields>(EMPTY_FIELDS);
+  const [photos, setPhotos] = useState<EditorPhoto[]>([]);
+  const [loading, setLoading] = useState(initialPostId !== null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [saving, setSaving] = useState<"draft" | "published" | null>(null);
+  const [saveErrorCode, setSaveErrorCode] = useState<string | null>(null);
+  const [conflict, setConflict] = useState<ConflictState>(null);
+  const [stepUpIntent, setStepUpIntent] = useState<PrivilegedIntent | null>(null);
+  const [dirty, setDirty] = useState(false);
+  const [pendingDetachKey, setPendingDetachKey] = useState<string | null>(null);
+  const [detaching, setDetaching] = useState(false);
+  const [detachErrorKey, setDetachErrorKey] = useState<string | null>(null);
+
+  const mediaUpload = useMediaUpload({ domain: "cosplay" });
+  const savedSnapshotRef = useRef<string>("");
+  const stepUpNavigatedForUploadRef = useRef(false);
+
+  const markClean = useCallback((f: EditorFields, p: EditorPhoto[]) => {
+    savedSnapshotRef.current = JSON.stringify({
+      f,
+      p: p.map((x) => ({ assetId: x.assetId, isCover: x.isCover })),
+    });
+    setDirty(false);
+  }, []);
+
+  // Carga inicial (modo edición): cosplay-post-get-admin, nunca la ruta pública (que nunca
+  // devolvería un borrador ni un asset no-ready).
+  useEffect(() => {
+    if (initialPostId === null) {
+      markClean(EMPTY_FIELDS, []);
+      return;
+    }
+    let cancelled = false;
+    setLoading(true);
+    setLoadError(null);
+    getCosplayPostAdmin(initialPostId)
+      .then((detail) => {
+        if (cancelled) return;
+        const f: EditorFields = {
+          title: detail.title,
+          description: detail.description ?? "",
+          characterName: detail.characterName ?? "",
+          series: detail.series ?? "",
+          event: detail.event ?? "",
+          shotOn: detail.shotOn ?? "",
+        };
+        const p = [...detail.images]
+          .sort((a, b) => a.position - b.position)
+          .map(photoFromExisting);
+        setPostId(detail.id);
+        setStatus(detail.status);
+        setVersion(detail.version);
+        setFields(f);
+        setPhotos(p);
+        markClean(f, p);
+      })
+      .catch((err: unknown) => {
+        if (cancelled) return;
+        setLoadError(
+          err instanceof CosplayAdminClientError ? err.message : "Error inesperado",
+        );
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialPostId]);
+
+  // Sincroniza la cola de subida REAL con la lista de fotos del editor: nunca reemplaza metadata
+  // editorial ya introducida, solo el estado/URL/errores derivados de la subida en curso.
+  useEffect(() => {
+    setPhotos((prev) => {
+      const nextLocalIds = new Set(mediaUpload.items.map((i) => i.localId));
+      const kept = prev
+        .filter((p) => p.localId === null || nextLocalIds.has(p.localId))
+        .map((p) => {
+          if (p.localId === null) return p;
+          const item = mediaUpload.items.find((i) => i.localId === p.localId);
+          return item ? mergeUploadFields(p, item) : p;
+        });
+      const knownLocalIds = new Set(kept.map((p) => p.localId).filter(Boolean));
+      const additions = mediaUpload.items
+        .filter((item) => !knownLocalIds.has(item.localId))
+        .map(photoFromQueueItem);
+      return additions.length > 0 ? [...kept, ...additions] : kept;
+    });
+    setDirty(true);
+  }, [mediaUpload.items]);
+
+  // Endurecimiento global de MFA privilegiado (9G/9I): un 403 step_up_required DURANTE LA SUBIDA
+  // (el MFA venció con el editor ya abierto) debe enrutar al mismo step-up que
+  // guardar/detach/borrar — nunca quedarse como un simple mensaje de "No autorizado" en la
+  // tarjeta de la foto (bug real observado en un smoke test ADMIN). Mismo patrón que
+  // MediaHarnessPage (Fase 9I-2C): un ref, no solo el state `stepUpIntent`, porque este efecto
+  // reacciona a la COLA de subida (no a una única llamada) y el item sigue "failed" en renders
+  // posteriores — sin la guarda se repetiría la navegación. La subida fallida NUNCA se reintenta
+  // sola: al volver del MFA el editor se remonta vacío y el ADMIN decide si repite la subida.
+  useEffect(() => {
+    if (stepUpNavigatedForUploadRef.current) return;
+    const hasStepUpUpload = mediaUpload.items.some(
+      (item) => item.privilegedFailure === "step_up_required",
+    );
+    if (!hasStepUpUpload) return;
+    stepUpNavigatedForUploadRef.current = true;
+    setStepUpIntent(postId === null ? "create" : "edit");
+  }, [mediaUpload.items, postId]);
+
+  const remainingCapacity = MAX_COSPLAY_PHOTOS - photos.length;
+
+  const addFiles = useCallback(
+    (files: FileList | File[]) => {
+      const list = Array.from(files).slice(0, Math.max(0, remainingCapacity));
+      if (list.length === 0) return;
+      mediaUpload.addFiles(list);
+    },
+    [mediaUpload, remainingCapacity],
+  );
+
+  const updateField = useCallback(
+    <K extends keyof EditorFields>(key: K, value: EditorFields[K]) => {
+      setFields((prev) => ({ ...prev, [key]: value }));
+      setDirty(true);
+    },
+    [],
+  );
+
+  const setCover = useCallback((key: string) => {
+    setPhotos((prev) => prev.map((p) => ({ ...p, isCover: p.key === key })));
+    setDirty(true);
+  }, []);
+
+  const movePhoto = useCallback((key: string, delta: -1 | 1) => {
+    setPhotos((prev) => {
+      const index = prev.findIndex((p) => p.key === key);
+      const target = index + delta;
+      if (index === -1 || target < 0 || target >= prev.length) return prev;
+      const next = [...prev];
+      [next[index], next[target]] = [next[target]!, next[index]!];
+      return next;
+    });
+    setDirty(true);
+  }, []);
+
+  /** Foto NUNCA adjunta a la publicación (subida en esta sesión, sin confirmar aún): usa
+   *  exactamente el mismo abort/orphan de useMediaUpload (que ya llama a abortMediaUpload en el
+   *  servidor) — nunca borra nada directamente en R2 desde el navegador. Sin confirmación: no es
+   *  una operación destructiva sobre una publicación real. */
+  const removeNewPhoto = useCallback(
+    (key: string) => {
+      const photo = photos.find((p) => p.key === key);
+      if (!photo || photo.localId === null) return;
+      mediaUpload.remove(photo.localId);
+      setDirty(true);
+    },
+    [photos, mediaUpload],
+  );
+
+  const requestRemoveExisting = useCallback((key: string) => {
+    setPendingDetachKey(key);
+  }, []);
+  const cancelRemoveExisting = useCallback(() => setPendingDetachKey(null), []);
+
+  /** Foto YA adjunta: acción destructiva real (sección 14/F del checkpoint 2) — exige
+   *  confirmación explícita (ya reunida antes de llamar a esto) y usa el ciclo de vida de
+   *  desadjuntar del backend, nunca un ocultamiento local. */
+  const confirmRemoveExisting = useCallback(async () => {
+    const key = pendingDetachKey;
+    const photo = photos.find((p) => p.key === key);
+    if (
+      !key ||
+      !photo ||
+      photo.existingImageId === null ||
+      postId === null ||
+      version === null
+    ) {
+      setPendingDetachKey(null);
+      return;
+    }
+    setDetaching(true);
+    setDetachErrorKey(null);
+    try {
+      const result = await detachCosplayMedia({
+        postId,
+        expectedVersion: version,
+        imageId: photo.existingImageId,
+      });
+      setVersion(result.version);
+      setPhotos((prev) => prev.filter((p) => p.key !== key));
+      setPendingDetachKey(null);
+    } catch (err) {
+      if (err instanceof CosplayAdminClientError) {
+        if (err.privilegedFailure === "step_up_required") {
+          setStepUpIntent("edit");
+          setPendingDetachKey(null);
+          return;
+        }
+        if (err.code === "cosplay_version_conflict") {
+          setConflict({ kind: "version" });
+          setPendingDetachKey(null);
+          return;
+        }
+      }
+      // Fallo recuperable (p. ej. limpieza de R2 parcial ya reportada como cleaned:false por el
+      // propio 200, o un error real de red): la confirmación se mantiene abierta para reintentar.
+      setDetachErrorKey(key);
+    } finally {
+      setDetaching(false);
+    }
+  }, [pendingDetachKey, photos, postId, version]);
+
+  const canSave = useMemo(() => {
+    if (fields.title.trim().length === 0) return false;
+    return !photos.some(
+      (p) =>
+        p.localId !== null &&
+        NON_TERMINAL_UPLOAD_STATUSES.has(p.uploadStatus as MediaItemStatus),
+    );
+  }, [fields, photos]);
+
+  // Alt/caption/decorativa ya no son campos editables del editor (ajuste UX posterior a 9I-3):
+  // cada foto se envía SIEMPRE como no decorativa, sin leyenda, con un texto alternativo derivado
+  // automáticamente del título canónico de la publicación (nunca vacío mientras haya título, que
+  // es requisito para poder guardar — ver canSave). Esto conserva accesibilidad real sin pedirle
+  // al ADMIN que escriba un alt a mano por cada foto.
+  const buildImagesPayload = useCallback((): CosplayEditorImageInput[] => {
+    const title = fields.title.trim();
+    return photos
+      .filter(
+        (p) =>
+          p.assetId !== null &&
+          (p.uploadStatus === "ready" || p.uploadStatus === "existing"),
+      )
+      .map((p, index) => ({
+        assetId: p.assetId!,
+        position: index,
+        isCover: p.isCover,
+        decorative: false,
+        alt: emptyToNull(`${title} — foto ${index + 1}`),
+        caption: null,
+      }));
+  }, [photos, fields.title]);
+
+  const save = useCallback(
+    async (desiredStatus: "draft" | "published") => {
+      if (!canSave) return;
+      setSaving(desiredStatus);
+      setSaveErrorCode(null);
+      try {
+        const result = await saveCosplayPost({
+          postId,
+          expectedVersion: version,
+          status: desiredStatus,
+          title: fields.title.trim(),
+          description: emptyToNull(fields.description),
+          characterName: emptyToNull(fields.characterName),
+          series: emptyToNull(fields.series),
+          event: emptyToNull(fields.event),
+          shotOn: emptyToNull(fields.shotOn),
+          // Créditos del fotógrafo: eliminado del editor (ajuste UX posterior a 9I-3). El campo
+          // sigue existiendo en el esquema/contrato (compatibilidad, sin migración) pero ya no se
+          // recoge del ADMIN, así que siempre se envía null.
+          photographerCredit: null,
+          images: buildImagesPayload(),
+        });
+        setPostId(result.post.id);
+        setStatus(result.post.status);
+        setVersion(result.post.version);
+        markClean(fields, photos);
+        onPostChanged?.();
+        return result;
+      } catch (err) {
+        if (err instanceof CosplayAdminClientError) {
+          if (err.privilegedFailure === "step_up_required") {
+            setStepUpIntent(postId === null ? "create" : "edit");
+            return;
+          }
+          if (err.code === "cosplay_version_conflict") {
+            setConflict({ kind: "version" });
+            return;
+          }
+          setSaveErrorCode(err.code ?? "generic");
+          return;
+        }
+        setSaveErrorCode("generic");
+      } finally {
+        setSaving(null);
+      }
+    },
+    [
+      canSave,
+      postId,
+      version,
+      fields,
+      photos,
+      buildImagesPayload,
+      markClean,
+      onPostChanged,
+    ],
+  );
+
+  const [deleting, setDeleting] = useState(false);
+  const [deleteErrorCode, setDeleteErrorCode] = useState<string | null>(null);
+
+  const confirmDelete = useCallback(async () => {
+    if (postId === null || version === null) return false;
+    setDeleting(true);
+    setDeleteErrorCode(null);
+    try {
+      await deleteCosplayPost({ postId, expectedVersion: version });
+      onPostChanged?.();
+      return true;
+    } catch (err) {
+      if (err instanceof CosplayAdminClientError) {
+        if (err.privilegedFailure === "step_up_required") {
+          setStepUpIntent("delete");
+          return false;
+        }
+        if (err.code === "cosplay_version_conflict") {
+          setConflict({ kind: "version" });
+          return false;
+        }
+        setDeleteErrorCode(err.code ?? "generic");
+        return false;
+      }
+      setDeleteErrorCode("generic");
+      return false;
+    } finally {
+      setDeleting(false);
+    }
+  }, [postId, version, onPostChanged]);
+
+  const reloadFromServer = useCallback(async () => {
+    if (postId === null) return;
+    setConflict(null);
+    setLoading(true);
+    try {
+      const detail = await getCosplayPostAdmin(postId);
+      const f: EditorFields = {
+        title: detail.title,
+        description: detail.description ?? "",
+        characterName: detail.characterName ?? "",
+        series: detail.series ?? "",
+        event: detail.event ?? "",
+        shotOn: detail.shotOn ?? "",
+      };
+      const p = [...detail.images]
+        .sort((a, b) => a.position - b.position)
+        .map(photoFromExisting);
+      setStatus(detail.status);
+      setVersion(detail.version);
+      setFields(f);
+      setPhotos(p);
+      markClean(f, p);
+    } catch (err) {
+      setLoadError(
+        err instanceof CosplayAdminClientError ? err.message : "Error inesperado",
+      );
+    } finally {
+      setLoading(false);
+    }
+  }, [postId, markClean]);
+
+  const currentSnapshot = useMemo(
+    () =>
+      JSON.stringify({
+        f: fields,
+        p: photos.map((x) => ({ assetId: x.assetId, isCover: x.isCover })),
+      }),
+    [fields, photos],
+  );
+  const isDirty = dirty && currentSnapshot !== savedSnapshotRef.current;
+
+  return {
+    postId,
+    status,
+    version,
+    fields,
+    photos,
+    loading,
+    loadError,
+    saving,
+    saveErrorCode,
+    conflict,
+    stepUpIntent,
+    clearStepUpIntent: () => setStepUpIntent(null),
+    isDirty,
+    canSave,
+    remainingCapacity,
+    updateField,
+    addFiles,
+    setCover,
+    movePhoto,
+    removeNewPhoto,
+    pendingDetachKey,
+    requestRemoveExisting,
+    cancelRemoveExisting,
+    confirmRemoveExisting,
+    detaching,
+    detachErrorKey,
+    retryUpload: mediaUpload.retry,
+    save,
+    deleting,
+    deleteErrorCode,
+    confirmDelete,
+    reloadFromServer,
+  };
+}

@@ -5,8 +5,6 @@ import {
   mapImageRow,
   mapPostRowToDetail,
   mapPostRowToSummary,
-  resolveEditorial,
-  resolveRequiredEditorial,
   slugify,
   validatePublishReadiness,
   type PublishReadinessImage,
@@ -110,60 +108,6 @@ describe("generateUniqueSlug", () => {
 });
 
 // ────────────────────────────────────────────────────────────────────────────────────────────
-describe("resolveEditorial", () => {
-  const full = { es: "Título ES", en: "Title EN", de: "Titel DE" };
-  const esOnly = { es: "Solo ES", en: null, de: null };
-  const nothing = { es: null, en: null, de: null };
-
-  it("locale es: siempre devuelve el texto en español, lang es", () => {
-    expect(resolveEditorial(full, "es")).toEqual({ text: "Título ES", lang: "es" });
-  });
-
-  it("locale en con traducción disponible: usa EN, lang en", () => {
-    expect(resolveEditorial(full, "en")).toEqual({ text: "Title EN", lang: "en" });
-  });
-
-  it("locale de con traducción disponible: usa DE, lang de", () => {
-    expect(resolveEditorial(full, "de")).toEqual({ text: "Titel DE", lang: "de" });
-  });
-
-  it("locale en SIN traducción: cae a ES con lang es (no lang en)", () => {
-    expect(resolveEditorial(esOnly, "en")).toEqual({ text: "Solo ES", lang: "es" });
-  });
-
-  it("locale de SIN traducción: cae a ES con lang es", () => {
-    expect(resolveEditorial(esOnly, "de")).toEqual({ text: "Solo ES", lang: "es" });
-  });
-
-  it("un string de solo espacios cuenta como ausente (cae a ES)", () => {
-    expect(resolveEditorial({ es: "Solo ES", en: "   ", de: null }, "en")).toEqual({
-      text: "Solo ES",
-      lang: "es",
-    });
-  });
-
-  it("sin nada en ningún idioma: text null", () => {
-    expect(resolveEditorial(nothing, "en")).toEqual({ text: null, lang: "es" });
-    expect(resolveEditorial(nothing, "es")).toEqual({ text: null, lang: "es" });
-  });
-});
-
-describe("resolveRequiredEditorial", () => {
-  it("nunca devuelve null: cae a title_es", () => {
-    expect(resolveRequiredEditorial({ es: "Kirito", en: null, de: null }, "de")).toEqual({
-      text: "Kirito",
-      lang: "es",
-    });
-  });
-
-  it("usa la traducción cuando existe", () => {
-    expect(
-      resolveRequiredEditorial({ es: "Kirito", en: "Kirito EN", de: null }, "en"),
-    ).toEqual({ text: "Kirito EN", lang: "en" });
-  });
-});
-
-// ────────────────────────────────────────────────────────────────────────────────────────────
 function imageRow(overrides: Partial<CosplayPostImageRow> = {}): CosplayPostImageRow {
   return {
     id: "img-1",
@@ -199,12 +143,8 @@ describe("mapImageRow", () => {
       position: 0,
       isCover: true,
       decorative: false,
-      altEs: "Kirito posando",
-      altEn: null,
-      altDe: null,
-      captionEs: null,
-      captionEn: null,
-      captionDe: null,
+      alt: "Kirito posando",
+      caption: null,
     });
   });
 
@@ -292,14 +232,14 @@ describe("mapPostRowToSummary / mapPostRowToDetail", () => {
     expect(detail?.gallery.map((i) => i.id)).toEqual(["img-2", "img-1"]);
   });
 
-  it("el detalle incluye descripciones y crédito, el resumen no los expone", () => {
+  it("el detalle incluye descripción y crédito, el resumen no los expone", () => {
     const detail = mapPostRowToDetail(postRow(), images);
     expect(detail).toMatchObject({
-      descriptionEs: "Descripción",
+      description: "Descripción",
       photographerCredit: null,
     });
     const summary = mapPostRowToSummary(postRow(), images);
-    expect(summary).not.toHaveProperty("descriptionEs");
+    expect(summary).not.toHaveProperty("description");
     expect(summary).not.toHaveProperty("gallery");
   });
 });
@@ -313,77 +253,77 @@ function readyImage(
     status: "ready",
     isCover: true,
     decorative: false,
-    altEs: "Alt",
+    alt: "Alt",
     ...overrides,
   };
 }
 
 describe("validatePublishReadiness", () => {
   it("publicación válida: sin errores", () => {
-    expect(validatePublishReadiness({ titleEs: "Kirito" }, [readyImage()])).toEqual([]);
+    expect(validatePublishReadiness({ title: "Kirito" }, [readyImage()])).toEqual([]);
   });
 
-  it("título vacío → missing_title_es", () => {
-    const errors = validatePublishReadiness({ titleEs: "   " }, [readyImage()]);
-    expect(errors).toContainEqual({ code: "missing_title_es" });
+  it("título vacío → missing_title", () => {
+    const errors = validatePublishReadiness({ title: "   " }, [readyImage()]);
+    expect(errors).toContainEqual({ code: "missing_title" });
   });
 
   it("sin ninguna imagen ready → no_ready_images (aunque haya reservadas)", () => {
-    const errors = validatePublishReadiness({ titleEs: "Kirito" }, [
+    const errors = validatePublishReadiness({ title: "Kirito" }, [
       readyImage({ status: "reserved" }),
     ]);
     expect(errors).toEqual([{ code: "no_ready_images" }]);
   });
 
   it("cero portadas entre las ready → no_cover", () => {
-    const errors = validatePublishReadiness({ titleEs: "Kirito" }, [
+    const errors = validatePublishReadiness({ title: "Kirito" }, [
       readyImage({ isCover: false }),
     ]);
     expect(errors).toContainEqual({ code: "no_cover" });
   });
 
   it("dos portadas → multiple_covers", () => {
-    const errors = validatePublishReadiness({ titleEs: "Kirito" }, [
+    const errors = validatePublishReadiness({ title: "Kirito" }, [
       readyImage({ id: "a", isCover: true }),
       readyImage({ id: "b", isCover: true }),
     ]);
     expect(errors).toContainEqual({ code: "multiple_covers" });
   });
 
-  it("imagen no decorativa sin alt_es → missing_alt_es con el id de la imagen", () => {
-    const errors = validatePublishReadiness({ titleEs: "Kirito" }, [
-      readyImage({ id: "img-9", decorative: false, altEs: null }),
+  it("imagen no decorativa sin alt → missing_alt con el id de la imagen", () => {
+    const errors = validatePublishReadiness({ title: "Kirito" }, [
+      readyImage({ id: "img-9", decorative: false, alt: null }),
     ]);
-    expect(errors).toContainEqual({ code: "missing_alt_es", imageId: "img-9" });
+    expect(errors).toContainEqual({ code: "missing_alt", imageId: "img-9" });
   });
 
-  it("imagen decorativa sin alt_es: válida (decorative exime del requisito)", () => {
-    const errors = validatePublishReadiness({ titleEs: "Kirito" }, [
-      readyImage({ decorative: true, altEs: null }),
+  it("imagen decorativa sin alt: válida (decorative exime del requisito)", () => {
+    const errors = validatePublishReadiness({ title: "Kirito" }, [
+      readyImage({ decorative: true, alt: null }),
     ]);
     expect(errors).toEqual([]);
   });
 
-  it("alt_es de solo espacios cuenta como ausente", () => {
-    const errors = validatePublishReadiness({ titleEs: "Kirito" }, [
-      readyImage({ altEs: "   " }),
+  it("alt de solo espacios cuenta como ausente", () => {
+    const errors = validatePublishReadiness({ title: "Kirito" }, [
+      readyImage({ alt: "   " }),
     ]);
-    expect(errors).toContainEqual({ code: "missing_alt_es", imageId: "img-1" });
+    expect(errors).toContainEqual({ code: "missing_alt", imageId: "img-1" });
   });
 
   it("una imagen reservada (no ready) nunca cuenta para el requisito de alt/portada", () => {
-    const errors = validatePublishReadiness({ titleEs: "Kirito" }, [
+    const errors = validatePublishReadiness({ title: "Kirito" }, [
       readyImage(),
-      readyImage({ id: "img-2", status: "reserved", altEs: null, isCover: true }),
+      readyImage({ id: "img-2", status: "reserved", alt: null, isCover: true }),
     ]);
     // La reservada con isCover no cuenta como segunda portada ni exige alt: solo hay 1 ready.
     expect(errors).toEqual([]);
   });
 
   it("acumula varios errores a la vez", () => {
-    const errors = validatePublishReadiness({ titleEs: "" }, []);
+    const errors = validatePublishReadiness({ title: "" }, []);
     expect(errors).toEqual(
-      expect.arrayContaining([{ code: "missing_title_es" }, { code: "no_ready_images" }]),
+      expect.arrayContaining([{ code: "missing_title" }, { code: "no_ready_images" }]),
     );
     expect(errors).toHaveLength(2);
   });

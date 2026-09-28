@@ -6,10 +6,23 @@ import CosplayLocaleProvider from "@/i18n/LocaleProvider";
 import type { CosplayPostListPage } from "@/types";
 import CosplaySection from "./CosplaySection";
 
-// /cosplay (Fase 9I-1): estados de carga/error/vacío/contenido, y que el listado NUNCA renderiza
-// controles privilegiados (Nueva publicación/Editar/Eliminar) — la arquitectura de ese control
-// existe (PrivilegedOnly + cosplay_admin) pero deliberadamente no se monta todavía en esta
-// página (Fase 9I-3 lo hará; ver la decisión documentada en el checkpoint 9I-1).
+// /cosplay (Fase 9I-1/9I-3): estados de carga/error/vacío/contenido de la lista pública, y que un
+// USER/visitante sin sesión NUNCA ve controles privilegiados (Nueva publicación/Editar/Eliminar).
+// La visibilidad ADMIN real (con sesión y cosplay_admin) se prueba en CosplaySection.admin.test.tsx
+// — aquí useAuth se mockea SIN sesión (nunca <AuthProvider> real ni Supabase real) para mantener
+// estos tests centrados en el listado, exactamente como antes de que 9I-3 montara el editor.
+
+const authFakes = vi.hoisted(() => ({
+  session: null as { access_token: string; user: { id: string } } | null,
+}));
+vi.mock("@/lib/auth-context", () => ({
+  useAuth: () => ({
+    session: authFakes.session,
+    user: authFakes.session?.user ?? null,
+    loading: false,
+    signOut: vi.fn(),
+  }),
+}));
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), {
@@ -25,21 +38,15 @@ const image = (id: string) => ({
   position: 0,
   isCover: true,
   decorative: false,
-  altEs: `Alt ${id}`,
-  altEn: null,
-  altDe: null,
-  captionEs: null,
-  captionEn: null,
-  captionDe: null,
+  alt: `Alt ${id}`,
+  caption: null,
 });
 
 function post(id: string, overrides: Record<string, unknown> = {}) {
   return {
     id,
     slug: `post-${id}`,
-    titleEs: `Publicación ${id}`,
-    titleEn: null,
-    titleDe: null,
+    title: `Publicación ${id}`,
     characterName: "Personaje",
     series: "Serie",
     event: null,

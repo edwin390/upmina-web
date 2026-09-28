@@ -172,12 +172,12 @@ const validImage = () => ({
   position: 0,
   isCover: true,
   decorative: false,
-  altEs: "Kirito con espada",
+  alt: "Kirito con espada",
 });
 
 const validSaveBody = (over: Record<string, unknown> = {}) => ({
   status: "draft",
-  titleEs: "Kirito de prueba",
+  title: "Kirito de prueba",
   images: [validImage()],
   ...over,
 });
@@ -308,7 +308,7 @@ describe("POST cosplay-post-save", () => {
               position: 1,
               isCover: false,
               decorative: false,
-              altEs: "otra",
+              alt: "otra",
             },
           ],
         }),
@@ -337,7 +337,7 @@ describe("POST cosplay-post-save", () => {
       position: i,
       isCover: i === 0,
       decorative: false,
-      altEs: "x",
+      alt: "x",
     }));
     const state = await call(
       handleCosplayPostSave,
@@ -350,7 +350,7 @@ describe("POST cosplay-post-save", () => {
   it("título ausente: rechazado ANTES de llamar a la RPC (400)", async () => {
     const state = await call(
       handleCosplayPostSave,
-      req({ body: { status: "draft", titleEs: "", images: [] } }),
+      req({ body: { status: "draft", title: "", images: [] } }),
     );
     expect(state.status).toBe(400);
     expect(fake.rpcCalls).toHaveLength(0);
@@ -366,7 +366,7 @@ describe("POST cosplay-post-save", () => {
     ["asset_already_attached", "asset_already_attached", 409],
     ["no_ready_images", "no_ready_images", 422],
     ["no_cover", "no_cover", 422],
-    ["missing_alt_es", "missing_alt_es", 422],
+    ["missing_alt_es", "missing_alt", 422],
   ])(
     "la RPC rechaza con %s → HTTP %i con code %s (nunca el mensaje crudo de Postgres)",
     async (message, code, status) => {
@@ -388,6 +388,61 @@ describe("POST cosplay-post-save", () => {
     expect(fake.rpcCalls[0]!.args.p_post_id).toBe(POST_ID);
     expect(fake.rpcCalls[0]!.args.p_expected_version).toBe(1);
     expect(state.headers["Cache-Control"]).toBe("no-store");
+  });
+
+  it("modelo editorial neutral: la RPC recibe SIEMPRE null en title_en/title_de/description_en/description_de/alt_en/alt_de/caption_en/caption_de (corrección de producto 9I-3)", async () => {
+    fake.rpcResult = ok({
+      post: { id: POST_ID, version: 1, title_es: "Kirito de prueba" },
+      images: [],
+    });
+    await call(
+      handleCosplayPostSave,
+      req({
+        body: validSaveBody({
+          description: "Una descripción",
+          images: [{ ...validImage(), caption: "Una leyenda" }],
+        }),
+      }),
+    );
+    const args = fake.rpcCalls[0]!.args as Record<string, unknown>;
+    expect(args.p_title_en).toBeNull();
+    expect(args.p_title_de).toBeNull();
+    expect(args.p_description_en).toBeNull();
+    expect(args.p_description_de).toBeNull();
+    expect(args.p_title_es).toBe("Kirito de prueba");
+    expect(args.p_description_es).toBe("Una descripción");
+    const image = (args.p_images as Record<string, unknown>[])[0]!;
+    expect(image.alt_en).toBeNull();
+    expect(image.alt_de).toBeNull();
+    expect(image.caption_en).toBeNull();
+    expect(image.caption_de).toBeNull();
+    expect(image.alt_es).toBe("Kirito con espada");
+    expect(image.caption_es).toBe("Una leyenda");
+  });
+
+  it("la respuesta expone el contrato neutral (title/description), nunca title_es/description_es en bruto", async () => {
+    fake.rpcResult = ok({
+      post: {
+        id: POST_ID,
+        slug: "kirito-de-prueba",
+        status: "draft",
+        title_es: "Kirito de prueba",
+        description_es: null,
+        character_name: null,
+        series: null,
+        event: null,
+        shot_on: null,
+        photographer_credit: null,
+        version: 1,
+        published_at: null,
+      },
+      images: [],
+    });
+    const state = await call(handleCosplayPostSave, req({ body: validSaveBody() }));
+    expect(state.status).toBe(200);
+    const body = state.body as { post: { title: string } };
+    expect(body.post.title).toBe("Kirito de prueba");
+    expect(JSON.stringify(body)).not.toContain("title_es");
   });
 
   it("postId presente sin expectedVersion numérico: 400 sin llamar a la RPC", async () => {
@@ -572,8 +627,11 @@ describe("GET cosplay-post-list-admin / cosplay-post-get-admin", () => {
     };
     const state = await call(handleCosplayPostListAdmin, req({ method: "GET" }));
     expect(state.status).toBe(200);
-    const body = state.body as { items: { status: string }[] };
+    const body = state.body as { items: { status: string; title: string }[] };
     expect(body.items.map((i) => i.status)).toEqual(["draft", "published"]);
+    // Contrato neutral (corrección de producto, 9I-3): "title", nunca "title_es" ni "titleEs".
+    expect(body.items.map((i) => i.title)).toEqual(["A", "B"]);
+    expect(JSON.stringify(body)).not.toContain("title_es");
   });
 
   it("get de una publicación inexistente → 404", async () => {
@@ -596,6 +654,87 @@ describe("GET cosplay-post-list-admin / cosplay-post-get-admin", () => {
     );
     expect(state.status).toBe(200);
     expect((state.body as { status: string }).status).toBe("draft");
+  });
+
+  it("la galería usa la URL pública real (publicVariantUrl), nunca expone storage_key en bruto", async () => {
+    vi.stubEnv("R2_DEV_ACCESS_KEY_ID", "test-access-key-id");
+    vi.stubEnv("R2_DEV_SECRET_ACCESS_KEY", "test-secret-access-key");
+    vi.stubEnv("R2_DEV_ENDPOINT", "https://test-account.r2.cloudflarestorage.com");
+    vi.stubEnv("R2_DEV_PRIVATE_BUCKET", "upmina-media-dev-private");
+    vi.stubEnv("R2_DEV_PUBLIC_BUCKET", "upmina-media-dev-public");
+    vi.stubEnv("R2_DEV_PUBLIC_BASE_URL", "https://pub-test.r2.dev");
+    const { resetR2DevConfigCache } = await import("./r2-client");
+    resetR2DevConfigCache();
+
+    fake.postGetResult = {
+      data: {
+        id: POST_ID,
+        slug: "x",
+        status: "draft",
+        title_es: "X",
+        version: 1,
+        cosplay_post_images: [
+          {
+            id: IMAGE_ID,
+            asset_id: ASSET_ID,
+            position: 0,
+            is_cover: true,
+            decorative: false,
+            alt_es: "alt",
+            alt_en: null,
+            alt_de: null,
+            caption_es: null,
+            caption_en: null,
+            caption_de: null,
+            media_assets: {
+              id: ASSET_ID,
+              status: "ready",
+              width: 480,
+              height: 640,
+              storage_key: "cosplay/asset-1/w480.webp",
+            },
+          },
+          {
+            id: "img-processing",
+            asset_id: "asset-processing",
+            position: 1,
+            is_cover: false,
+            decorative: false,
+            alt_es: null,
+            alt_en: null,
+            alt_de: null,
+            caption_es: null,
+            caption_en: null,
+            caption_de: null,
+            media_assets: {
+              id: "asset-processing",
+              status: "processing",
+              width: 0,
+              height: 0,
+              storage_key: "cosplay/asset-2/staging",
+            },
+          },
+        ],
+      },
+      error: null,
+    };
+
+    const state = await call(
+      handleCosplayPostGetAdmin,
+      req({ method: "GET", query: { postId: POST_ID } }),
+    );
+
+    expect(state.status).toBe(200);
+    const body = state.body as { images: { url: string | null; assetStatus: string }[] };
+    expect(body.images[0]!.url).toBe("https://pub-test.r2.dev/cosplay/asset-1/w480.webp");
+    // Un asset aún no 'ready' no tiene URL pública resoluble todavía.
+    expect(body.images[1]!.url).toBeNull();
+    expect(body.images[1]!.assetStatus).toBe("processing");
+    expect(JSON.stringify(body)).not.toContain("storage_key");
+    expect(JSON.stringify(body)).not.toContain("staging");
+
+    vi.unstubAllEnvs();
+    resetR2DevConfigCache();
   });
 
   it("postId con formato inválido → 400 sin tocar la base de datos", async () => {

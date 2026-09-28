@@ -17,16 +17,16 @@ describe("COSPLAY_FIXTURE_POSTS", () => {
     expect(new Set(slugs).size).toBe(slugs.length);
   });
 
-  it("cada post es publicable según el dominio: exactamente una portada y alt_es en toda imagen no decorativa", () => {
+  it("cada post es publicable según el dominio: exactamente una portada y alt en toda imagen no decorativa", () => {
     for (const post of COSPLAY_FIXTURE_POSTS) {
       const errors = validatePublishReadiness(
-        { titleEs: post.titleEs },
+        { title: post.title },
         post.gallery.map((image) => ({
           id: image.id,
           status: "ready" as const,
           isCover: image.isCover,
           decorative: image.decorative,
-          altEs: image.altEs,
+          alt: image.alt,
         })),
       );
       expect(errors, `post ${post.slug}: ${JSON.stringify(errors)}`).toEqual([]);
@@ -37,11 +37,6 @@ describe("COSPLAY_FIXTURE_POSTS", () => {
     for (const post of COSPLAY_FIXTURE_POSTS) {
       expect(post.photoCount).toBe(post.gallery.length);
     }
-  });
-
-  it("al menos una publicación tiene EN/DE completos y al menos una carece de ambos (prueba el fallback)", () => {
-    expect(COSPLAY_FIXTURE_POSTS.some((p) => p.titleEn && p.titleDe)).toBe(true);
-    expect(COSPLAY_FIXTURE_POSTS.some((p) => !p.titleEn && !p.titleDe)).toBe(true);
   });
 
   it("al menos una publicación tiene un campo opcional (series/event/shotOn/photographerCredit) ausente", () => {
@@ -63,7 +58,7 @@ describe("COSPLAY_FIXTURE_POSTS", () => {
   });
 
   it("al menos un título es deliberadamente largo (prueba el recorte visual)", () => {
-    expect(COSPLAY_FIXTURE_POSTS.some((p) => p.titleEs.length > 80)).toBe(true);
+    expect(COSPLAY_FIXTURE_POSTS.some((p) => p.title.length > 80)).toBe(true);
   });
 
   it("todas las imágenes son data: URI (SVG generado), nunca una URL externa ni un archivo real", () => {
@@ -76,7 +71,7 @@ describe("COSPLAY_FIXTURE_POSTS", () => {
 
   it("todo el texto editorial está marcado como [fixture] (nunca pasa por contenido real)", () => {
     for (const post of COSPLAY_FIXTURE_POSTS) {
-      expect(post.titleEs).toContain("[fixture]");
+      expect(post.title).toContain("[fixture]");
     }
   });
 });
@@ -91,7 +86,7 @@ describe("COSPLAY_FIXTURE_LIST", () => {
   it("no expone campos de detalle (descripción, galería completa, crédito)", () => {
     for (const item of COSPLAY_FIXTURE_LIST) {
       expect(item).not.toHaveProperty("gallery");
-      expect(item).not.toHaveProperty("descriptionEs");
+      expect(item).not.toHaveProperty("description");
       expect(item).not.toHaveProperty("photographerCredit");
     }
   });
