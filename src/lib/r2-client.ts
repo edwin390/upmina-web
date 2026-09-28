@@ -14,15 +14,21 @@ import {
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { isProductionEnvironment } from "./instagram-oauth-shared.js";
 
-// Cliente R2 DEV, SOLO servidor (Fase 9I-2B). SDK S3 v3 modular (paquetes independientes, no el
-// monolítico `aws-sdk` v2) apuntando al endpoint S3-compatible de R2. `forcePathStyle: true`
-// porque R2 no resuelve automáticamente <bucket>.<endpoint> como un vhost DNS salvo que se
-// configure aparte — direccionamiento por ruta es el modo recomendado para el SDK genérico.
+// Cliente R2, SOLO servidor (Fase 9I-2B; soporte de Production añadido en el release 9I). SDK S3
+// v3 modular (paquetes independientes, no el monolítico `aws-sdk` v2) apuntando al endpoint
+// S3-compatible de R2. `forcePathStyle: true` porque R2 no resuelve automáticamente
+// <bucket>.<endpoint> como un vhost DNS salvo que se configure aparte — direccionamiento por ruta
+// es el modo recomendado para el SDK genérico.
 //
-// Fail-closed (Fase 9I-2, sección 7): getR2DevConfig() SIEMPRE lanza en un runtime de Production
-// (VERCEL_ENV=production), incluso si las variables DEV estuvieran presentes por error. Hoy
-// (9I-2B) no existe ninguna infraestructura de R2 de Production — esto no es una selección entre
-// dos entornos, es un rechazo total en Production hasta que 9I-2 (fase de Production) exista.
+// Fail-closed simétrico en ambos sentidos: getR2DevConfig() SIEMPRE lanza en un runtime de
+// Production (VERCEL_ENV=production), incluso si las variables DEV estuvieran presentes por
+// error; getR2ProdConfig() SIEMPRE lanza FUERA de Production, incluso si las variables
+// R2_PROD_* estuvieran presentes por error. Ningún entorno puede usar accidentalmente la
+// configuración del otro, y Production NUNCA hace fallback a R2_DEV_* si falta una variable
+// R2_PROD_* — simplemente falla. getActiveR2Config() (más abajo) es el ÚNICO punto que decide
+// cuál usar; las operaciones de R2 nunca deciden esto por su cuenta. La infraestructura real de
+// R2 de Production (buckets, credenciales) puede seguir sin existir todavía — este cambio es
+// solo el soporte de código, fail-closed por diseño hasta que esas variables se configuren.
 //
 // Las credenciales nunca llegan al navegador: solo se usan aquí para (a) operaciones server-side
 // (HEAD/GET/COPY/DELETE/crear-completar-abortar multipart) y (b) firmar URLs de corta duración
@@ -43,33 +49,49 @@ export const PRESIGN_TTL_SINGLE_PUT_SECONDS = 900;
  *  PUT único porque un archivo grande implica más partes y más tiempo total de subida. */
 export const PRESIGN_TTL_MULTIPART_PART_SECONDS = 1800;
 
-interface R2DevConfig {
+interface R2RuntimeConfig {
   client: S3Client;
   privateBucket: string;
   publicBucket: string;
   publicBaseUrl: string;
 }
 
-let cached: R2DevConfig | null = null;
+let cachedDev: R2RuntimeConfig | null = null;
+let cachedProd: R2RuntimeConfig | null = null;
 
-function requiredEnv(name: string): string {
+function requiredEnv(name: string, errorMessage: string): string {
   const value = process.env[name]?.trim();
-  if (!value) throw new R2ConfigError("Configuración de R2 DEV incompleta");
+  if (!value) throw new R2ConfigError(errorMessage);
   return value;
 }
 
-export function getR2DevConfig(): R2DevConfig {
+export function getR2DevConfig(): R2RuntimeConfig {
   if (isProductionEnvironment()) {
     throw new R2ConfigError("Medios DEV no disponibles en Production");
   }
-  if (cached) return cached;
+  if (cachedDev) return cachedDev;
 
-  const accessKeyId = requiredEnv("R2_DEV_ACCESS_KEY_ID");
-  const secretAccessKey = requiredEnv("R2_DEV_SECRET_ACCESS_KEY");
-  const endpoint = requiredEnv("R2_DEV_ENDPOINT");
-  const privateBucket = requiredEnv("R2_DEV_PRIVATE_BUCKET");
-  const publicBucket = requiredEnv("R2_DEV_PUBLIC_BUCKET");
-  const publicBaseUrl = requiredEnv("R2_DEV_PUBLIC_BASE_URL");
+  const accessKeyId = requiredEnv(
+    "R2_DEV_ACCESS_KEY_ID",
+    "Configuración de R2 DEV incompleta",
+  );
+  const secretAccessKey = requiredEnv(
+    "R2_DEV_SECRET_ACCESS_KEY",
+    "Configuración de R2 DEV incompleta",
+  );
+  const endpoint = requiredEnv("R2_DEV_ENDPOINT", "Configuración de R2 DEV incompleta");
+  const privateBucket = requiredEnv(
+    "R2_DEV_PRIVATE_BUCKET",
+    "Configuración de R2 DEV incompleta",
+  );
+  const publicBucket = requiredEnv(
+    "R2_DEV_PUBLIC_BUCKET",
+    "Configuración de R2 DEV incompleta",
+  );
+  const publicBaseUrl = requiredEnv(
+    "R2_DEV_PUBLIC_BASE_URL",
+    "Configuración de R2 DEV incompleta",
+  );
 
   const client = new S3Client({
     region: "auto",
@@ -78,14 +100,74 @@ export function getR2DevConfig(): R2DevConfig {
     credentials: { accessKeyId, secretAccessKey },
   });
 
-  cached = { client, privateBucket, publicBucket, publicBaseUrl };
-  return cached;
+  cachedDev = { client, privateBucket, publicBucket, publicBaseUrl };
+  return cachedDev;
 }
 
-/** SOLO tests: limpia la config cacheada tras cambiar/restaurar variables de entorno con
+/** Config R2 de PRODUCTION (soporte de código añadido en el release 9I): SOLO server-side, SOLO
+ *  cuando VERCEL_ENV=production. Nunca lee ninguna variable R2_DEV_*, nunca hace fallback a DEV
+ *  si falta una variable R2_PROD_* — falla cerrado, igual que getR2DevConfig() falla cerrado en
+ *  Production. Simétrica a propósito: fuera de Production, SIEMPRE lanza (defensa en
+ *  profundidad — un entorno nunca puede usar por accidente la configuración del otro). */
+export function getR2ProdConfig(): R2RuntimeConfig {
+  if (!isProductionEnvironment()) {
+    throw new R2ConfigError("Medios de Production no disponibles fuera de Production");
+  }
+  if (cachedProd) return cachedProd;
+
+  const accessKeyId = requiredEnv(
+    "R2_PROD_ACCESS_KEY_ID",
+    "Configuración de R2 Production incompleta",
+  );
+  const secretAccessKey = requiredEnv(
+    "R2_PROD_SECRET_ACCESS_KEY",
+    "Configuración de R2 Production incompleta",
+  );
+  const endpoint = requiredEnv(
+    "R2_PROD_ENDPOINT",
+    "Configuración de R2 Production incompleta",
+  );
+  const privateBucket = requiredEnv(
+    "R2_PROD_PRIVATE_BUCKET",
+    "Configuración de R2 Production incompleta",
+  );
+  const publicBucket = requiredEnv(
+    "R2_PROD_PUBLIC_BUCKET",
+    "Configuración de R2 Production incompleta",
+  );
+  const publicBaseUrl = requiredEnv(
+    "R2_PROD_PUBLIC_BASE_URL",
+    "Configuración de R2 Production incompleta",
+  );
+
+  const client = new S3Client({
+    region: "auto",
+    endpoint,
+    forcePathStyle: true,
+    credentials: { accessKeyId, secretAccessKey },
+  });
+
+  cachedProd = { client, privateBucket, publicBucket, publicBaseUrl };
+  return cachedProd;
+}
+
+/** Único punto de decisión DEV vs Production para las operaciones de más abajo — ellas nunca
+ *  inspeccionan VERCEL_ENV por su cuenta. En Production usa EXCLUSIVAMENTE getR2ProdConfig()
+ *  (nunca getR2DevConfig(), nunca R2_DEV_*); fuera de Production usa getR2DevConfig() sin
+ *  cambios respecto al comportamiento previo a este release. */
+function getActiveR2Config(): R2RuntimeConfig {
+  return isProductionEnvironment() ? getR2ProdConfig() : getR2DevConfig();
+}
+
+/** SOLO tests: limpia la config DEV cacheada tras cambiar/restaurar variables de entorno con
  *  vi.stubEnv, para que la siguiente llamada a getR2DevConfig() las vuelva a leer. */
 export function resetR2DevConfigCache(): void {
-  cached = null;
+  cachedDev = null;
+}
+
+/** SOLO tests: mismo propósito que resetR2DevConfigCache(), para la config de Production. */
+export function resetR2ProdConfigCache(): void {
+  cachedProd = null;
 }
 
 function isNotFoundError(err: unknown): boolean {
@@ -102,7 +184,7 @@ export function presignPrivatePut(
   contentType: string,
   expiresIn: number = PRESIGN_TTL_SINGLE_PUT_SECONDS,
 ): Promise<string> {
-  const { client, privateBucket } = getR2DevConfig();
+  const { client, privateBucket } = getActiveR2Config();
   const command = new PutObjectCommand({
     Bucket: privateBucket,
     Key: key,
@@ -115,7 +197,7 @@ export async function createPrivateMultipartUpload(
   key: string,
   contentType: string,
 ): Promise<string> {
-  const { client, privateBucket } = getR2DevConfig();
+  const { client, privateBucket } = getActiveR2Config();
   const result = await client.send(
     new CreateMultipartUploadCommand({
       Bucket: privateBucket,
@@ -133,7 +215,7 @@ export function presignPrivateUploadPart(
   partNumber: number,
   expiresIn: number = PRESIGN_TTL_MULTIPART_PART_SECONDS,
 ): Promise<string> {
-  const { client, privateBucket } = getR2DevConfig();
+  const { client, privateBucket } = getActiveR2Config();
   const command = new UploadPartCommand({
     Bucket: privateBucket,
     Key: key,
@@ -153,7 +235,7 @@ export async function completePrivateMultipartUpload(
   uploadId: string,
   parts: CompletedPart[],
 ): Promise<void> {
-  const { client, privateBucket } = getR2DevConfig();
+  const { client, privateBucket } = getActiveR2Config();
   await client.send(
     new CompleteMultipartUploadCommand({
       Bucket: privateBucket,
@@ -170,7 +252,7 @@ export async function abortPrivateMultipartUpload(
   key: string,
   uploadId: string,
 ): Promise<void> {
-  const { client, privateBucket } = getR2DevConfig();
+  const { client, privateBucket } = getActiveR2Config();
   await client.send(
     new AbortMultipartUploadCommand({
       Bucket: privateBucket,
@@ -188,7 +270,7 @@ export interface HeadResult {
 /** null = el objeto no existe (nunca se distingue de otro 404 más específico: quien llama solo
  *  necesita saber "¿está ahí o no?"). Cualquier otro fallo se relanza. */
 export async function headPrivateObject(key: string): Promise<HeadResult | null> {
-  const { client, privateBucket } = getR2DevConfig();
+  const { client, privateBucket } = getActiveR2Config();
   try {
     const result = await client.send(
       new HeadObjectCommand({ Bucket: privateBucket, Key: key }),
@@ -201,7 +283,7 @@ export async function headPrivateObject(key: string): Promise<HeadResult | null>
 }
 
 export async function getPrivateObjectBytes(key: string): Promise<Buffer> {
-  const { client, privateBucket } = getR2DevConfig();
+  const { client, privateBucket } = getActiveR2Config();
   const result = await client.send(
     new GetObjectCommand({ Bucket: privateBucket, Key: key }),
   );
@@ -213,7 +295,7 @@ export async function copyPrivateObject(
   sourceKey: string,
   destinationKey: string,
 ): Promise<void> {
-  const { client, privateBucket } = getR2DevConfig();
+  const { client, privateBucket } = getActiveR2Config();
   await client.send(
     new CopyObjectCommand({
       Bucket: privateBucket,
@@ -224,7 +306,7 @@ export async function copyPrivateObject(
 }
 
 export async function deletePrivateObject(key: string): Promise<void> {
-  const { client, privateBucket } = getR2DevConfig();
+  const { client, privateBucket } = getActiveR2Config();
   await client.send(new DeleteObjectCommand({ Bucket: privateBucket, Key: key }));
 }
 
@@ -235,7 +317,7 @@ export async function putPublicVariant(
   body: Buffer,
   contentType: string,
 ): Promise<void> {
-  const { client, publicBucket } = getR2DevConfig();
+  const { client, publicBucket } = getActiveR2Config();
   await client.send(
     new PutObjectCommand({
       Bucket: publicBucket,
@@ -251,7 +333,7 @@ export async function putPublicVariant(
 
 export async function deletePublicVariants(keys: string[]): Promise<void> {
   if (keys.length === 0) return;
-  const { client, publicBucket } = getR2DevConfig();
+  const { client, publicBucket } = getActiveR2Config();
   await client.send(
     new DeleteObjectsCommand({
       Bucket: publicBucket,
@@ -260,9 +342,10 @@ export async function deletePublicVariants(keys: string[]): Promise<void> {
   );
 }
 
-/** URL pública derivada SIEMPRE de R2_DEV_PUBLIC_BASE_URL (variable de servidor) — nunca de una
- *  base que el navegador proponga (Fase 9I-2, sección 27). */
+/** URL pública derivada SIEMPRE de la base pública configurada server-side (R2_DEV_PUBLIC_BASE_URL
+ *  fuera de Production, R2_PROD_PUBLIC_BASE_URL en Production, vía getActiveR2Config()) — nunca
+ *  de una base que el navegador proponga (Fase 9I-2, sección 27). */
 export function publicVariantUrl(key: string): string {
-  const { publicBaseUrl } = getR2DevConfig();
+  const { publicBaseUrl } = getActiveR2Config();
   return `${publicBaseUrl.replace(/\/+$/, "")}/${key}`;
 }
