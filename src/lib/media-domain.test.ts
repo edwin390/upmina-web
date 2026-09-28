@@ -11,6 +11,7 @@ import {
   privateObjectKey,
   publicVariantKey,
   qualityForOutputWidth,
+  reservationValidationError,
   stagingKey,
   targetWidthsForLongEdge,
   usesMultipart,
@@ -262,6 +263,24 @@ describe("validateReservationInput", () => {
       ownerId: "otro-usuario",
     });
     expect(result.ok).toBe(true);
+  });
+});
+
+describe("reservationValidationError", () => {
+  it("devuelve null para un resultado válido", () => {
+    const result = validateReservationInput({
+      sourceMime: "image/jpeg",
+      sourceBytes: 1000,
+    });
+    expect(reservationValidationError(result)).toBeNull();
+  });
+
+  it("devuelve el código de error exacto para un resultado inválido", () => {
+    const result = validateReservationInput({
+      sourceMime: "image/svg+xml",
+      sourceBytes: 1000,
+    });
+    expect(reservationValidationError(result)).toBe("invalid_mime");
   });
 });
 

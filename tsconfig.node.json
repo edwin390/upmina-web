@@ -11,5 +11,11 @@
     "noEmit": true,
     "strict": true
   },
-  "include": ["vite.config.ts", "playwright.config.ts", "api/**/*.ts", "e2e/**/*.ts"]
+  "include": [
+    "vite.config.ts",
+    "playwright.config.ts",
+    "api/**/*.ts",
+    "e2e/**/*.ts",
+    "src/lib/libheif-js.d.ts"
+  ]
 }

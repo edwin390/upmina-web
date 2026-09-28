@@ -194,6 +194,16 @@ export function validateReservationInput(
   };
 }
 
+/** Código de error de un resultado ya evaluado de validateReservationInput, o null si fue válido.
+ *  Tipo de retorno explícito: el llamador no depende de que el compilador conserve el
+ *  estrechamiento del discriminante `ok` más allá de esta función (mismo patrón que
+ *  instagramProductType en public-snapshot-resources.ts). */
+export function reservationValidationError(
+  result: ReturnType<typeof validateReservationInput>,
+): ReservationValidationError | null {
+  return result.ok ? null : result.error;
+}
+
 // ────────────────────────────────────────────────────────────────────────────────────────────
 // Códigos de fallo (Fase 9I-2, sección 24/35): deben coincidir EXACTAMENTE con
 // media_assets_failure_code_check de la migración.

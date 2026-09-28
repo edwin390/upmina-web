@@ -10,6 +10,7 @@ import {
   multipartPartCount,
   privateObjectKey,
   publicVariantKey,
+  reservationValidationError,
   stagingKey,
   usesMultipart,
   validateReservationInput,
@@ -205,8 +206,11 @@ export async function handleMediaReserve(
     sourceWidth: body.sourceWidth,
     sourceHeight: body.sourceHeight,
   });
-  if (!validated.ok)
-    return res.status(400).json({ error: "Solicitud inválida", code: validated.error });
+  if (!validated.ok) {
+    return res
+      .status(400)
+      .json({ error: "Solicitud inválida", code: reservationValidationError(validated) });
+  }
 
   const client = getServiceRoleClient();
   if (!client) return res.status(500).json(GENERIC_ERROR_BODY);

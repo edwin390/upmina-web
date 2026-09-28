@@ -1,8 +1,11 @@
 import sharp, { type Sharp } from "sharp";
 // libheif-js no publica tipos para su export CJS de alto nivel (index.js; los únicos .d.ts del
-// paquete son para el binding wasm de bajo nivel). Se tipa localmente lo mínimo que se usa (ver
-// LibheifModule más abajo) en vez de arrastrar `any` por todo el archivo.
-// @ts-expect-error — ver comentario de arriba.
+// paquete son para el binding wasm de bajo nivel). libheif-js.d.ts (mismo directorio, incluido
+// explícitamente en tsconfig.node.json) declara el módulo ambientalmente en vez de suprimir el
+// error con @ts-expect-error, que dependía de que el compilador SIEMPRE reportara el mismo error
+// de "módulo sin tipos" — no reproducible de forma fiable bajo la compilación aislada por función
+// de Vercel (@vercel/node). Se tipa localmente lo mínimo que se usa (ver LibheifModule más abajo)
+// en vez de arrastrar `any` por todo el archivo.
 import libheifJs from "libheif-js";
 import type { FailureCode, SourceMimeType } from "./media-domain.js";
 import { qualityForOutputWidth, targetWidthsForLongEdge } from "./media-domain.js";
