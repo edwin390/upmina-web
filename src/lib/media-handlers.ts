@@ -2,7 +2,6 @@ import { randomUUID } from "node:crypto";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { AdminAuthError, authErrorBody, requireCapability } from "./admin-auth.js";
-import { isProductionEnvironment } from "./instagram-oauth-shared.js";
 import {
   canTransition,
   isSourceMimeType,
@@ -102,17 +101,6 @@ async function authorize(
   }
 }
 
-/** Guarda de entorno (Fase 9I-2, sección 7): la infraestructura R2 de HOY es exclusivamente DEV.
- *  Fail closed en Production, no una elección entre dos entornos — no existe ninguna credencial
- *  de Production todavía. */
-function refuseIfProduction(res: VercelResponse): boolean {
-  if (isProductionEnvironment()) {
-    res.status(403).json({ error: "No disponible en este entorno" });
-    return true;
-  }
-  return false;
-}
-
 async function setStatus(
   client: SupabaseClient,
   assetId: string,
@@ -190,7 +178,6 @@ export async function handleMediaReserve(
 
   const auth = await authorize(req);
   if ("status" in auth) return res.status(auth.status).json(auth.body);
-  if (refuseIfProduction(res)) return res;
 
   const body = parseJsonBody(req);
   if (!body) return res.status(400).json(BAD_REQUEST_BODY);
@@ -331,7 +318,6 @@ export async function handleMediaComplete(
 
   const auth = await authorize(req);
   if ("status" in auth) return res.status(auth.status).json(auth.body);
-  if (refuseIfProduction(res)) return res;
 
   const body = parseJsonBody(req);
   const assetId = body?.assetId;
@@ -553,7 +539,6 @@ export async function handleMediaAbort(
 
   const auth = await authorize(req);
   if ("status" in auth) return res.status(auth.status).json(auth.body);
-  if (refuseIfProduction(res)) return res;
 
   const body = parseJsonBody(req);
   const assetId = body?.assetId;

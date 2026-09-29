@@ -291,26 +291,60 @@ describe("autorización — los 3 handlers exigen cosplay_admin, nunca confían 
   });
 });
 
-describe("guarda de Production — sección 7: DEV nunca usable desde un runtime de Production", () => {
-  it("los 3 handlers refusan con 403 en Production, sin llegar a R2/DB", async () => {
+describe("Production — release 9I: la reserva ya NO se rechaza solo por VERCEL_ENV=production", () => {
+  // Guarda un tiempo obsoleta (sección 7 original, de cuando Production no tenía credenciales R2):
+  // refuseIfProduction() devolvía 403 "No disponible en este entorno" incondicionalmente en
+  // Production, sin importar que R2_PROD_* ya existiera. Se eliminó junto con sus 3 llamadas en
+  // reserve/complete/abort — la única puerta de entorno real ahora vive en r2-client.ts
+  // (getActiveR2Config(), probado en r2-client.test.ts), no en estos handlers.
+  it("handleMediaReserve en Production: NO devuelve 403 'No disponible en este entorno', llega a R2 y crea la fila", async () => {
     isProductionEnvironmentMock.mockReturnValue(true);
 
-    const resReserve = makeRes();
+    const res = makeRes();
     await handleMediaReserve(
-      makeReq({ domain: "cosplay", sourceMime: "image/jpeg", sourceBytes: 1000 }),
-      resReserve,
+      makeReq({ domain: "cosplay", sourceMime: "image/jpeg", sourceBytes: 1_000_000 }),
+      res,
     );
-    expect(resReserve.status).toHaveBeenCalledWith(403);
-    expect(mediaDb.media_assets).toHaveLength(0);
-    expect(r2Mocks.presignPrivatePut).not.toHaveBeenCalled();
 
-    const resComplete = makeRes();
-    await handleMediaComplete(makeReq({ assetId: "any" }), resComplete);
-    expect(resComplete.status).toHaveBeenCalledWith(403);
+    expect(res.status).not.toHaveBeenCalledWith(403);
+    expect(res.json).not.toHaveBeenCalledWith({ error: "No disponible en este entorno" });
+    expect(res.status).toHaveBeenCalledWith(200);
+    expect(mediaDb.media_assets).toHaveLength(1);
+    expect(r2Mocks.presignPrivatePut).toHaveBeenCalled();
+  });
 
-    const resAbort = makeRes();
-    await handleMediaAbort(makeReq({ assetId: "any" }), resAbort);
-    expect(resAbort.status).toHaveBeenCalledWith(403);
+  it("handleMediaComplete en Production: no se rechaza por entorno (avanza a validación normal de assetId)", async () => {
+    isProductionEnvironmentMock.mockReturnValue(true);
+
+    const res = makeRes();
+    await handleMediaComplete(makeReq({ assetId: "no-existe" }), res);
+
+    expect(res.status).not.toHaveBeenCalledWith(403);
+    // El asset no existe en la DB fake: 404, no 403 de entorno — prueba que pasó la guarda obsoleta.
+    expect(res.status).toHaveBeenCalledWith(404);
+  });
+
+  it("handleMediaAbort en Production: no se rechaza por entorno (avanza a validación normal de assetId)", async () => {
+    isProductionEnvironmentMock.mockReturnValue(true);
+
+    const res = makeRes();
+    await handleMediaAbort(makeReq({ assetId: "no-existe" }), res);
+
+    expect(res.status).not.toHaveBeenCalledWith(403);
+    expect(res.status).toHaveBeenCalledWith(404);
+  });
+
+  it("fuera de Production, el comportamiento no cambia: reserva sigue funcionando igual que antes", async () => {
+    isProductionEnvironmentMock.mockReturnValue(false);
+
+    const res = makeRes();
+    await handleMediaReserve(
+      makeReq({ domain: "cosplay", sourceMime: "image/jpeg", sourceBytes: 1_000_000 }),
+      res,
+    );
+
+    expect(res.status).toHaveBeenCalledWith(200);
+    expect(mediaDb.media_assets).toHaveLength(1);
   });
 });
 
