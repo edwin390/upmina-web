@@ -13,12 +13,12 @@ const FIXTURE_ROUTES: ReturnRoutes = {
 };
 
 describe("allowlist inicial", () => {
-  it("contiene exactamente /admin, /admin/activate, /account, /comunidad y /cosplay", () => {
+  it("contiene exactamente /admin, /admin/activate, /account, /community y /cosplay", () => {
     expect(Object.keys(RETURN_ROUTES).sort()).toEqual([
       "/account",
       "/admin",
       "/admin/activate",
-      "/comunidad",
+      "/community",
       "/cosplay",
     ]);
   });
@@ -81,7 +81,7 @@ describe("la allowlist de producción no puede ser alterada ni sustituida", () =
 });
 
 describe("destinos válidos", () => {
-  it.each(["/admin", "/admin/activate", "/account", "/comunidad", "/cosplay"])(
+  it.each(["/admin", "/admin/activate", "/account", "/community", "/cosplay"])(
     "%s",
     (path) => {
       expect(parseSafeReturnTo(path)).toEqual({ pathname: path, intent: null, path });

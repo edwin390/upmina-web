@@ -120,7 +120,8 @@ function AppShell() {
             <Route path="/youtube" element={<YouTubeSection />} />
             <Route path="/instagram" element={<InstagramSection />} />
             <Route path="/tiktok" element={<TikTokSection />} />
-            <Route path="/comunidad" element={<CommunitySection />} />
+            <Route path="/community" element={<CommunitySection />} />
+            <Route path="/comunidad" element={<Navigate to="/community" replace />} />
             <Route path="/cosplay" element={<CosplayPage />} />
             <Route path="/cosplay/:slug" element={<CosplayDetailPage />} />
             {MediaHarnessPage && (

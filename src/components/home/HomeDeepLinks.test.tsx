@@ -158,7 +158,7 @@ describe("Home: enlaces de contenido (deep links)", () => {
     await waitFor(() => expect(hrefOf("YouTube · Short")).toBeTruthy());
 
     const links = [...document.querySelectorAll("a")].map((a) => a.getAttribute("href"));
-    for (const path of ["/twitch", "/youtube", "/instagram", "/tiktok", "/comunidad"]) {
+    for (const path of ["/twitch", "/youtube", "/instagram", "/tiktok", "/community"]) {
       expect(links).toContain(path);
     }
   });

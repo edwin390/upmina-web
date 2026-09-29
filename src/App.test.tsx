@@ -117,3 +117,39 @@ describe("/admin (Bloque 5C)", () => {
     ).toBeInTheDocument();
   });
 });
+
+// /community (Fase 9J-2A): /comunidad pasa a ser una redirección de compatibilidad — nunca dos
+// páginas de Comunidad renderizadas por separado.
+describe("/community (Fase 9J-2A)", () => {
+  beforeEach(() => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(JSON.stringify({ items: [], nextCursor: null }), {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          }),
+      ),
+    );
+  });
+
+  afterEach(() => {
+    cleanup();
+    vi.unstubAllGlobals();
+  });
+
+  it("/comunidad redirige a /community (misma página, sin duplicar Comunidad)", async () => {
+    render(
+      <QueryClientProvider client={testQueryClient}>
+        <MemoryRouter initialEntries={["/comunidad"]}>
+          <App />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    expect(
+      await screen.findByRole("heading", { level: 1, name: "Comunidad" }),
+    ).toBeInTheDocument();
+  });
+});

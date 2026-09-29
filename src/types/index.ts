@@ -257,3 +257,41 @@ export interface CosplayPostImageRow {
     storage_key: string;
   } | null;
 }
+
+// ---------- Community feed (Fase 9J-2A) ----------
+// Contrato PÚBLICO del feed de /community (lo que devuelve /api/content?resource=community-feed,
+// camelCase) — distinto del contrato "propio" de /account (ver CommunityOwnPost en
+// community-client.ts), que sí expone datos de gestión (version, expectedVersion) que un
+// visitante nunca necesita ni debe ver.
+
+export interface CommunityFeedAuthor {
+  /** Identidad pública técnica (@username). Nunca el user_id/UUID. */
+  username: string;
+  /** Nombre de presentación opcional. null = mostrar @username, nunca inventar un nombre. */
+  displayName: string | null;
+}
+
+export interface CommunityFeedMediaItem {
+  id: string;
+  position: number;
+  /** Discriminador preparado para un futuro item de vídeo (checkpoint aparte): hoy solo "image". */
+  kind: "image";
+  url: string;
+  width: number;
+  height: number;
+}
+
+export interface CommunityFeedPost {
+  id: string;
+  text: string | null;
+  /** ISO 8601. */
+  createdAt: string;
+  author: CommunityFeedAuthor;
+  media: CommunityFeedMediaItem[];
+}
+
+/** Página de listado con paginación por cursor, mismo patrón que CosplayPostListPage. */
+export interface CommunityFeedPage {
+  items: CommunityFeedPost[];
+  nextCursor: string | null;
+}

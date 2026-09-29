@@ -482,21 +482,21 @@ describe("AdminMfaPage — returnTo seguro", () => {
     expect(await screen.findByTestId("account")).toHaveTextContent("/account [fromMfa]");
   });
 
-  it("returnTo=/comunidad (permitido) navega ahí", async () => {
+  it("returnTo=/community (permitido) navega ahí", async () => {
     authenticated();
     accessFakes.recent = true;
     render(
       <QueryClientProvider client={testQueryClient}>
-        <MemoryRouter initialEntries={["/admin/mfa?returnTo=/comunidad"]}>
+        <MemoryRouter initialEntries={["/admin/mfa?returnTo=/community"]}>
           <Routes>
             <Route path="/admin/mfa" element={<AdminMfaPage />} />
-            <Route path="/comunidad" element={<LocationProbe id="comunidad" />} />
+            <Route path="/community" element={<LocationProbe id="community" />} />
           </Routes>
         </MemoryRouter>
       </QueryClientProvider>,
     );
 
-    expect(await screen.findByTestId("comunidad")).toHaveTextContent("/comunidad");
+    expect(await screen.findByTestId("community")).toHaveTextContent("/community");
   });
 
   it("returnTo=/cosplay (permitido, Fase 9I-1) navega ahí", async () => {

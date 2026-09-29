@@ -9,7 +9,7 @@ const DESTINATIONS: { platform: Platform; to: string; label: string; blurb: stri
   { platform: "tiktok", to: "/tiktok", label: "TikTok", blurb: "Videos y momentos" },
   {
     platform: "comunidad",
-    to: "/comunidad",
+    to: "/community",
     label: "Comunidad",
     blurb: "Contenido de fans",
   },

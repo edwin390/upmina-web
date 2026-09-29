@@ -23,7 +23,7 @@ export default function CommunityCta() {
             Un espacio para fanarts, clips y momentos compartidos por la comunidad.
           </p>
           <Link
-            to="/comunidad"
+            to="/community"
             className="mt-8 inline-flex min-h-12 items-center rounded-md border border-accent-primary/60 bg-accent-primary px-6 py-3 text-sm font-bold uppercase tracking-[0.18em] text-text-inverse shadow-glow-primary transition duration-200 ease-bounce hover:-translate-y-1 hover:bg-accent-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-secondary focus-visible:ring-offset-2 focus-visible:ring-offset-bg-surface"
           >
             Explorar comunidad

@@ -9,7 +9,7 @@ const NAV_LINKS = [
   { to: "/youtube", label: "YouTube" },
   { to: "/instagram", label: "Instagram" },
   { to: "/tiktok", label: "TikTok" },
-  { to: "/comunidad", label: "Comunidad" },
+  { to: "/community", label: "Comunidad" },
   { to: "/cosplay", label: "Cosplay" },
 ];
 

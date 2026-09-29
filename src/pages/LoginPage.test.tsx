@@ -59,7 +59,7 @@ function loginTree(entry = "/login") {
         <Route path="/admin" element={<p>Admin stub</p>} />
         <Route path="/admin/activate" element={<p>Activate stub</p>} />
         <Route path="/account" element={<p>Account stub</p>} />
-        <Route path="/comunidad" element={<p>Comunidad stub</p>} />
+        <Route path="/community" element={<p>Comunidad stub</p>} />
         <Route path="/cosplay" element={<p>Cosplay stub</p>} />
       </Routes>
     </MemoryRouter>
@@ -277,7 +277,7 @@ describe("/login — returnTo seguro", () => {
     ["/admin", "Admin stub"],
     ["/admin/activate", "Activate stub"],
     ["/account", "Account stub"],
-    ["/comunidad", "Comunidad stub"],
+    ["/community", "Comunidad stub"],
     ["/cosplay", "Cosplay stub"],
   ])("login correcto con returnTo=%s → navega ahí", async (path, stub) => {
     renderLogin(`/login?returnTo=${path}`);
