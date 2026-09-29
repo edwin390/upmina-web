@@ -1,16 +1,27 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen, waitFor, fireEvent } from "@testing-library/react";
+import {
+  cleanup,
+  render,
+  screen,
+  waitFor,
+  fireEvent,
+  within,
+} from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 import CosplayLocaleProvider from "@/i18n/LocaleProvider";
 import type { CosplayPostListPage } from "@/types";
 import CosplaySection from "./CosplaySection";
 
-// Visibilidad y apertura del editor ADMIN de Cosplay en /cosplay (Fase 9I-3, checkpoint 3). El
-// backend sigue siendo la única autoridad real (cada mutación revalida cosplay_admin + MFA
-// reciente, ver cosplay-editor-handlers.ts) — aquí solo se prueba que la UI: (a) no muestra NADA
-// privilegiado sin la capacidad, (b) sí lo muestra con ella, y (c) abrir el editor nunca dispara
-// una mutación por sí solo.
+// Menú ADMIN contextual por tarjeta de Cosplay en /cosplay (ajuste UX posterior a 9I-3: reemplaza
+// el panel "Tus publicaciones" — ver CLAUDE.md). El backend sigue siendo la única autoridad real
+// (cada mutación revalida cosplay_admin + MFA reciente, ver cosplay-editor-handlers.ts) — aquí
+// solo se prueba que la UI: (a) no muestra NADA privilegiado sin la capacidad, (b) sí lo muestra
+// con ella, en CADA tarjeta, (c) Editar/Eliminar apuntan siempre a la publicación exacta cuyo
+// menú se abrió, (d) el borrado exige confirmación explícita y nunca se reproduce solo por volver
+// de un step-up de MFA, y (e) el catálogo público (con el menú incluido) nunca exige MFA reciente
+// solo para renderizarse — solo pulsar "Eliminar" cruza esa frontera (necesita la versión ACTUAL
+// del post, que getCosplayPostAdmin también protege con MFA reciente en el servidor).
 
 const authFakes = vi.hoisted(() => ({
   session: null as { access_token: string; user: { id: string } } | null,
@@ -42,15 +53,64 @@ function jsonResponse(body: unknown, status = 200) {
   });
 }
 
+const image = (id: string) => ({
+  id,
+  url: `https://example.test/${id}.webp`,
+  width: 1600,
+  height: 2400,
+  position: 0,
+  isCover: true,
+  decorative: false,
+  alt: `Alt ${id}`,
+  caption: null,
+});
+
+function post(id: string, overrides: Record<string, unknown> = {}) {
+  return {
+    id: `post-${id}`,
+    slug: `post-${id}`,
+    title: `Publicación ${id}`,
+    characterName: null,
+    series: null,
+    event: null,
+    shotOn: null,
+    publishedAt: "2026-03-01T00:00:00.000Z",
+    cover: image(id),
+    photoCount: 1,
+    ...overrides,
+  };
+}
+
+function adminDetailFor(id: string, overrides: Record<string, unknown> = {}) {
+  return {
+    id: `post-${id}`,
+    slug: `post-${id}`,
+    status: "published",
+    title: `Publicación ${id}`,
+    description: null,
+    characterName: null,
+    series: null,
+    event: null,
+    shotOn: null,
+    photographerCredit: null,
+    version: 3,
+    publishedAt: "2026-03-01T00:00:00.000Z",
+    images: [],
+    ...overrides,
+  };
+}
+
 function routeFetch(
   opts: {
-    adminList?: unknown[];
     mfaRecent?: boolean;
+    posts?: CosplayPostListPage;
+    /** Respuesta de GET /api/admin/cosplay-post-get-admin (necesaria para leer la versión ANTES
+     *  de mostrar la confirmación de borrado — ver CosplayCardAdminMenu). */
+    adminDetail?: { status: number; body: unknown };
+    /** Respuesta de POST /api/admin/cosplay-post-delete. */
+    deleteResult?: { status: number; body: unknown };
     /** Respuesta de POST /api/admin/cosplay-post-save (éxito por defecto, publicado). */
     saveResult?: { status: number; body: unknown };
-    /** Respuesta del listado público SOLO para el refetch con cache-bust (?_r=…) que sigue a
-     *  onPostChanged — simula que la publicación nueva YA está en Postgres, a diferencia de la
-     *  respuesta (posiblemente cacheada) que se sirve antes de publicar. */
     listAfterPublish?: CosplayPostListPage;
   } = {},
 ) {
@@ -59,7 +119,7 @@ function routeFetch(
       if (url.includes("_r=") && opts.listAfterPublish) {
         return jsonResponse(opts.listAfterPublish);
       }
-      return jsonResponse(EMPTY_LIST_PAGE);
+      return jsonResponse(opts.posts ?? EMPTY_LIST_PAGE);
     }
     if (url === "/api/admin/access") {
       return jsonResponse({
@@ -68,8 +128,16 @@ function routeFetch(
         mfa: { recent: opts.mfaRecent ?? true },
       });
     }
-    if (url.startsWith("/api/admin/cosplay-post-list-admin")) {
-      return jsonResponse({ items: opts.adminList ?? [] });
+    if (url.startsWith("/api/admin/cosplay-post-get-admin")) {
+      const result = opts.adminDetail ?? { status: 200, body: adminDetailFor("1") };
+      return jsonResponse(result.body, result.status);
+    }
+    if (url === "/api/admin/cosplay-post-delete" && init?.method === "POST") {
+      const result = opts.deleteResult ?? {
+        status: 200,
+        body: { postId: "post-1", deletedAssets: [], allCleaned: true },
+      };
+      return jsonResponse(result.body, result.status);
     }
     if (url === "/api/admin/cosplay-post-save" && init?.method === "POST") {
       const result = opts.saveResult ?? {
@@ -141,177 +209,205 @@ afterEach(() => {
   window.localStorage.clear();
 });
 
-describe("USER/sin sesión — cero UI privilegiada", () => {
-  it("sin sesión: no se monta el panel ADMIN ni 'Nueva publicación', y nunca se pide /api/admin/access", async () => {
-    const fetchMock = routeFetch();
+describe("USER/sin sesión — cero UI privilegiada (test 1)", () => {
+  it("sin sesión: cero menús ADMIN en las tarjetas, cero 'Nueva publicación', nunca se pide /api/admin/access", async () => {
+    const fetchMock = routeFetch({
+      posts: { items: [post("1"), post("2")], nextCursor: null },
+    });
     vi.stubGlobal("fetch", fetchMock);
     renderSection();
 
-    await waitFor(() =>
-      expect(screen.getByText("Todavía no hay publicaciones")).toBeInTheDocument(),
-    );
+    await waitFor(() => expect(screen.getByText("Publicación 1")).toBeInTheDocument());
     expect(screen.queryByRole("button", { name: /nueva publicación/i })).toBeNull();
-    expect(screen.queryByRole("heading", { name: /tus publicaciones/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /más acciones/i })).toBeNull();
+    expect(screen.queryByText(/^editar$/i)).toBeNull();
+    expect(screen.queryByText(/^eliminar$/i)).toBeNull();
     expect(fetchMock.mock.calls.some((c) => c[0] === "/api/admin/access")).toBe(false);
   });
 });
 
-describe("ADMIN (cosplay_admin + MFA reciente) — controles visibles", () => {
+describe("ADMIN (cosplay_admin + MFA reciente) — menú contextual por tarjeta", () => {
   beforeEach(() => {
     authFakes.session = { access_token: "at-admin", user: { id: "admin-1" } };
   });
 
-  it("muestra 'Nueva publicación' y el panel de publicaciones", async () => {
-    vi.stubGlobal("fetch", routeFetch());
+  it("test 2: cada tarjeta pública muestra su propio menú ADMIN '⋯'", async () => {
+    vi.stubGlobal(
+      "fetch",
+      routeFetch({ posts: { items: [post("1"), post("2")], nextCursor: null } }),
+    );
     renderSection();
 
-    await waitFor(() =>
-      expect(
-        screen.getByRole("button", { name: /nueva publicación/i }),
-      ).toBeInTheDocument(),
-    );
+    await screen.findByText("Publicación 1");
     expect(
-      screen.getByRole("heading", { name: /tus publicaciones/i }),
+      await screen.findByRole("button", { name: /más acciones para publicación 1/i }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /más acciones para publicación 2/i }),
     ).toBeInTheDocument();
   });
 
-  it("abrir el editor con 'Nueva publicación' NUNCA crea una publicación por sí solo (sin POST)", async () => {
-    const fetchMock = routeFetch();
+  it("test 7: renderizar el catálogo (incluido el menú ADMIN de cada tarjeta) NUNCA exige MFA reciente — no llama a ningún endpoint que la revalide", async () => {
+    const fetchMock = routeFetch({
+      mfaRecent: false,
+      posts: { items: [post("1"), post("2")], nextCursor: null },
+    });
     vi.stubGlobal("fetch", fetchMock);
     renderSection();
 
-    const openButton = await screen.findByRole("button", { name: /nueva publicación/i });
-    fireEvent.click(openButton);
-
-    await screen.findByRole("heading", { name: /nueva publicación de cosplay/i });
-    // Solo lecturas: nunca un POST a cosplay-post-save con solo abrir el editor.
+    await screen.findByText("Publicación 1");
+    await screen.findByRole("button", { name: /más acciones para publicación 1/i });
+    // Ni abrir el menú en sí ni ver el catálogo llamó a un endpoint privilegiado más allá de
+    // /api/admin/access (que solo informa capacidad, nunca exige MFA reciente por sí mismo).
     expect(
-      fetchMock.mock.calls.some((c) => c[0] === "/api/admin/cosplay-post-save"),
+      fetchMock.mock.calls.some(
+        (c) =>
+          typeof c[0] === "string" &&
+          c[0].startsWith("/api/admin/cosplay-post-get-admin"),
+      ),
     ).toBe(false);
-    expect(screen.getByLabelText(/título/i, { selector: "input" })).toHaveValue("");
-  });
-
-  it("cerrar el editor recién abierto (sin cambios) no pide confirmación", async () => {
-    vi.stubGlobal("fetch", routeFetch());
-    renderSection();
-
-    fireEvent.click(await screen.findByRole("button", { name: /nueva publicación/i }));
-    await screen.findByRole("heading", { name: /nueva publicación de cosplay/i });
-
-    fireEvent.click(screen.getByRole("button", { name: /^cerrar$/i }));
-    await waitFor(() =>
-      expect(
-        screen.queryByRole("heading", { name: /nueva publicación de cosplay/i }),
-      ).toBeNull(),
-    );
-    expect(screen.queryByRole("alertdialog")).toBeNull();
-  });
-
-  it("escribir un título y cerrar SIN guardar pide confirmación explícita (no descarta en silencio)", async () => {
-    vi.stubGlobal("fetch", routeFetch());
-    renderSection();
-
-    fireEvent.click(await screen.findByRole("button", { name: /nueva publicación/i }));
-    const titleInput = await screen.findByLabelText(/título/i, {
-      selector: "input",
-    });
-    fireEvent.change(titleInput, { target: { value: "Kirito de prueba" } });
-
-    fireEvent.click(screen.getByRole("button", { name: /^cerrar$/i }));
-    const alertDialog = await screen.findByRole("alertdialog");
-    expect(alertDialog).toHaveTextContent(/cerrar sin guardar/i);
-
-    // El editor sigue abierto detrás de la confirmación.
     expect(
-      screen.getByRole("heading", { name: /nueva publicación de cosplay/i }),
-    ).toBeInTheDocument();
+      fetchMock.mock.calls.some((c) => c[0] === "/api/admin/cosplay-post-delete"),
+    ).toBe(false);
   });
 
-  it("?intent=create en la URL abre el editor automáticamente y limpia el parámetro", async () => {
-    vi.stubGlobal("fetch", routeFetch());
-    renderSection(["/cosplay?intent=create"]);
-    await screen.findByRole("heading", { name: /nueva publicación de cosplay/i });
+  it("test 8: el panel 'Tus publicaciones' ya no existe en absoluto", async () => {
+    vi.stubGlobal(
+      "fetch",
+      routeFetch({ posts: { items: [post("1")], nextCursor: null } }),
+    );
+    renderSection();
+
+    await screen.findByText("Publicación 1");
+    expect(screen.queryByRole("heading", { name: /tus publicaciones/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /^tus publicaciones$/i })).toBeNull();
   });
 
-  it("?intent=delete NUNCA identifica una publicación: solo abre el panel de descubrimiento", async () => {
+  it("test 9: el mensaje obsoleto 'No se pudieron cargar tus publicaciones.' ya no puede aparecer (la lista aparte ya no existe)", async () => {
+    vi.stubGlobal(
+      "fetch",
+      routeFetch({ posts: { items: [post("1")], nextCursor: null } }),
+    );
+    renderSection();
+
+    await screen.findByText("Publicación 1");
+    expect(screen.queryByText(/no se pudieron cargar tus publicaciones/i)).toBeNull();
+  });
+
+  it("test 3: 'Editar' desde el menú de una tarjeta abre el editor cargando ESA publicación exacta, no otra", async () => {
     vi.stubGlobal(
       "fetch",
       routeFetch({
-        adminList: [
-          {
-            id: "post-1",
-            slug: "x",
-            status: "draft",
-            title: "Borrador existente",
-            version: 1,
-            publishedAt: null,
-            updatedAt: "2026-01-01T00:00:00.000Z",
-          },
-        ],
+        posts: { items: [post("1"), post("2")], nextCursor: null },
+        adminDetail: {
+          status: 200,
+          body: adminDetailFor("2", { title: "Publicación 2 (cargada del servidor)" }),
+        },
       }),
     );
-    renderSection(["/cosplay?intent=delete"]);
+    renderSection();
 
-    // Nunca abre el editor directamente ni preselecciona una publicación.
+    await screen.findByText("Publicación 2");
+    fireEvent.click(
+      await screen.findByRole("button", { name: /más acciones para publicación 2/i }),
+    );
+    fireEvent.click(await screen.findByRole("menuitem", { name: /^editar$/i }));
+
+    await screen.findByRole("heading", { name: /editar publicación de cosplay/i });
+    await waitFor(() =>
+      expect(screen.getByLabelText(/título/i, { selector: "input" })).toHaveValue(
+        "Publicación 2 (cargada del servidor)",
+      ),
+    );
+  });
+
+  it("test 4 + 5: 'Eliminar' pide confirmación explícita, y solo al confirmar envía el DELETE con el postId/versión EXACTOS de esa tarjeta", async () => {
+    const fetchMock = routeFetch({
+      posts: { items: [post("1"), post("2")], nextCursor: null },
+      adminDetail: { status: 200, body: adminDetailFor("2", { version: 7 }) },
+      deleteResult: {
+        status: 200,
+        body: { postId: "post-2", deletedAssets: [], allCleaned: true },
+      },
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    renderSection();
+
+    await screen.findByText("Publicación 2");
+    fireEvent.click(
+      await screen.findByRole("button", { name: /más acciones para publicación 2/i }),
+    );
+    fireEvent.click(await screen.findByRole("menuitem", { name: /^eliminar$/i }));
+
+    // Confirmación explícita: el DELETE NUNCA se dispara solo por pulsar "Eliminar" en el menú.
+    const confirmGroup = await screen.findByRole("group", {
+      name: /eliminar esta publicación/i,
+    });
     expect(
-      screen.queryByRole("heading", {
-        name: /(nueva publicación|editar publicación) de cosplay/i,
-      }),
-    ).toBeNull();
-    await screen.findByText("Borrador existente");
+      fetchMock.mock.calls.some((c) => c[0] === "/api/admin/cosplay-post-delete"),
+    ).toBe(false);
+
+    fireEvent.click(
+      within(confirmGroup).getByRole("button", { name: /confirmar eliminación/i }),
+    );
+
+    await waitFor(() =>
+      expect(
+        fetchMock.mock.calls.some((c) => c[0] === "/api/admin/cosplay-post-delete"),
+      ).toBe(true),
+    );
+    const deleteCall = fetchMock.mock.calls.find(
+      (c) => c[0] === "/api/admin/cosplay-post-delete",
+    );
+    const body = JSON.parse((deleteCall?.[1] as { body: string }).body);
+    expect(body).toEqual({ postId: "post-2", expectedVersion: 7 });
+  });
+
+  it("'Cancelar' en la confirmación de borrado no envía nada", async () => {
+    const fetchMock = routeFetch({
+      posts: { items: [post("1")], nextCursor: null },
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    renderSection();
+
+    await screen.findByText("Publicación 1");
+    fireEvent.click(
+      await screen.findByRole("button", { name: /más acciones para publicación 1/i }),
+    );
+    fireEvent.click(await screen.findByRole("menuitem", { name: /^eliminar$/i }));
+    await screen.findByRole("group", { name: /eliminar esta publicación/i });
+
+    fireEvent.click(screen.getByRole("button", { name: /^cancelar$/i }));
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("group", { name: /eliminar esta publicación/i }),
+      ).toBeNull(),
+    );
+    expect(
+      fetchMock.mock.calls.some((c) => c[0] === "/api/admin/cosplay-post-delete"),
+    ).toBe(false);
   });
 });
 
-describe("endurecimiento global de MFA (9G/9I) — entrada a Cosplay (Caso A)", () => {
+describe("endurecimiento global de MFA (9G/9I) — entrada a Cosplay desde el menú de tarjeta", () => {
   beforeEach(() => {
     authFakes.session = { access_token: "at-admin", user: { id: "admin-1" } };
   });
 
-  it("MFA reciente: 'Nueva publicación' abre el editor directamente, sin pasar por /admin/mfa", async () => {
-    vi.stubGlobal("fetch", routeFetch({ mfaRecent: true }));
-    renderSection();
-
-    fireEvent.click(await screen.findByRole("button", { name: /nueva publicación/i }));
-    await screen.findByRole("heading", { name: /nueva publicación de cosplay/i });
-    expect(screen.queryByTestId("mfa")).toBeNull();
-  });
-
-  it("MFA vencido: 'Nueva publicación' NUNCA abre el editor — navega a /admin/mfa?returnTo=/cosplay?intent=create", async () => {
-    vi.stubGlobal("fetch", routeFetch({ mfaRecent: false }));
-    renderSection();
-
-    fireEvent.click(await screen.findByRole("button", { name: /nueva publicación/i }));
-
-    expect(await screen.findByTestId("mfa")).toHaveTextContent(
-      "/admin/mfa?returnTo=%2Fcosplay%3Fintent%3Dcreate",
-    );
-    expect(
-      screen.queryByRole("heading", { name: /nueva publicación de cosplay/i }),
-    ).toBeNull();
-  });
-
-  it("MFA vencido: 'Editar' desde el panel de descubrimiento NUNCA abre el editor — navega a /admin/mfa?returnTo=/cosplay?intent=edit", async () => {
+  it("MFA vencido: 'Editar' NUNCA abre el editor — navega a /admin/mfa?returnTo=/cosplay?intent=edit", async () => {
     vi.stubGlobal(
       "fetch",
       routeFetch({
         mfaRecent: false,
-        adminList: [
-          {
-            id: "post-1",
-            slug: "x",
-            status: "draft",
-            title: "Borrador existente",
-            version: 1,
-            publishedAt: null,
-            updatedAt: "2026-01-01T00:00:00.000Z",
-          },
-        ],
+        posts: { items: [post("1")], nextCursor: null },
       }),
     );
     renderSection();
 
-    fireEvent.click(await screen.findByRole("button", { name: /tus publicaciones/i }));
-    fireEvent.click(await screen.findByRole("button", { name: /^editar$/i }));
+    fireEvent.click(
+      await screen.findByRole("button", { name: /más acciones para publicación 1/i }),
+    );
+    fireEvent.click(await screen.findByRole("menuitem", { name: /^editar$/i }));
 
     expect(await screen.findByTestId("mfa")).toHaveTextContent(
       "/admin/mfa?returnTo=%2Fcosplay%3Fintent%3Dedit",
@@ -320,109 +416,56 @@ describe("endurecimiento global de MFA (9G/9I) — entrada a Cosplay (Caso A)", 
       screen.queryByRole("heading", { name: /editar publicación de cosplay/i }),
     ).toBeNull();
   });
-});
 
-describe("publicar (ajuste UX posterior a 9I-3): cierre + aviso solo tras confirmación real del backend", () => {
-  beforeEach(() => {
-    authFakes.session = { access_token: "at-admin", user: { id: "admin-1" } };
-  });
-
-  it("publicar con éxito: cierra el editor, muestra 'Publicado con éxito' y la publicación nueva aparece SOLA como Última publicación (sin recargar la página)", async () => {
-    const publishedPost = {
-      id: "post-new",
-      slug: "kirito-de-prueba",
-      title: "Kirito de prueba",
-      characterName: null,
-      series: null,
-      event: null,
-      shotOn: null,
-      publishedAt: "2026-01-01T00:00:00.000Z",
-      cover: null,
-      photoCount: 0,
-    };
+  it("test 6: MFA vencido en 'Eliminar' (falla al leer la versión) — navega a MFA, NUNCA muestra confirmación ni borra, y al volver hay que confirmar de nuevo explícitamente", async () => {
     const fetchMock = routeFetch({
-      listAfterPublish: { items: [publishedPost], nextCursor: null },
-    });
-    vi.stubGlobal("fetch", fetchMock);
-    renderSection();
-
-    await screen.findByText("Todavía no hay publicaciones");
-
-    fireEvent.click(await screen.findByRole("button", { name: /nueva publicación/i }));
-    const titleInput = await screen.findByLabelText(/título/i, { selector: "input" });
-    fireEvent.change(titleInput, { target: { value: "Kirito de prueba" } });
-
-    fireEvent.click(screen.getByRole("button", { name: /^publicar$/i }));
-
-    await waitFor(() =>
-      expect(
-        screen.queryByRole("heading", { name: /nueva publicación de cosplay/i }),
-      ).toBeNull(),
-    );
-    expect(screen.getByText("Publicado con éxito")).toBeInTheDocument();
-
-    // La causa real del bug reportado (ver useCosplayList.ts): un refetch a la MISMA URL recibía
-    // la respuesta cacheada por la Edge Network de Vercel (Cache-Control: s-maxage=60) sin la
-    // publicación nueva. El fix agrega ?_r=… SOLO en el refetch post-publicación para forzar un
-    // MISS de esa caché — aquí se verifica que ese refetch realmente ocurre...
-    await waitFor(() =>
-      expect(
-        fetchMock.mock.calls.some(
-          (c) => typeof c[0] === "string" && c[0].includes("_r="),
-        ),
-      ).toBe(true),
-    );
-    // ...y que la publicación recién creada se convierte AUTOMÁTICAMENTE en "Última publicación",
-    // sin recargar la página completa ni que el ADMIN tenga que hacer nada más.
-    await waitFor(() => expect(screen.getByText("Kirito de prueba")).toBeInTheDocument());
-    expect(screen.queryByText("Todavía no hay publicaciones")).toBeNull();
-  });
-
-  it("publicar con error del backend: el editor NO se cierra, conserva lo introducido, muestra el error y NUNCA dispara un refetch de éxito falso", async () => {
-    const fetchMock = routeFetch({
-      saveResult: {
-        status: 422,
-        body: { error: "Solicitud inválida", code: "missing_title" },
-      },
-      listAfterPublish: {
-        items: [
-          {
-            id: "post-new",
-            slug: "kirito-de-prueba",
-            title: "Kirito de prueba",
-            characterName: null,
-            series: null,
-            event: null,
-            shotOn: null,
-            publishedAt: "2026-01-01T00:00:00.000Z",
-            cover: null,
-            photoCount: 0,
-          },
-        ],
-        nextCursor: null,
+      mfaRecent: true,
+      posts: { items: [post("1"), post("2")], nextCursor: null },
+      // La lectura de versión (paso previo a mostrar la confirmación) falla con step_up_required:
+      // simula MFA vencido justo al cruzar la frontera de la acción destructiva.
+      adminDetail: {
+        status: 403,
+        body: { error: "No autorizado", code: "step_up_required" },
       },
     });
     vi.stubGlobal("fetch", fetchMock);
     renderSection();
 
-    fireEvent.click(await screen.findByRole("button", { name: /nueva publicación/i }));
-    const titleInput = await screen.findByLabelText(/título/i, { selector: "input" });
-    fireEvent.change(titleInput, { target: { value: "Kirito de prueba" } });
-
-    fireEvent.click(screen.getByRole("button", { name: /^publicar$/i }));
-
-    await screen.findByRole("alert");
-    expect(
-      screen.getByRole("heading", { name: /nueva publicación de cosplay/i }),
-    ).toBeInTheDocument();
-    expect(screen.getByLabelText(/título/i, { selector: "input" })).toHaveValue(
-      "Kirito de prueba",
+    await screen.findByText("Publicación 2");
+    fireEvent.click(
+      await screen.findByRole("button", { name: /más acciones para publicación 2/i }),
     );
-    expect(screen.queryByText("Publicado con éxito")).toBeNull();
-    // Un fallo de publicación nunca debe invalidar/refrescar el listado público: onPostChanged
-    // (y por tanto el cache-bust) solo se dispara tras un save() realmente exitoso.
+    fireEvent.click(await screen.findByRole("menuitem", { name: /^eliminar$/i }));
+
+    expect(await screen.findByTestId("mfa")).toHaveTextContent(
+      "/admin/mfa?returnTo=%2Fcosplay%3Fintent%3Ddelete",
+    );
+    // Nunca se mostró la confirmación destructiva ni se llegó a llamar al DELETE.
     expect(
-      fetchMock.mock.calls.some((c) => typeof c[0] === "string" && c[0].includes("_r=")),
+      screen.queryByRole("group", { name: /eliminar esta publicación/i }),
+    ).toBeNull();
+    expect(
+      fetchMock.mock.calls.some((c) => c[0] === "/api/admin/cosplay-post-delete"),
+    ).toBe(false);
+
+    // "Volver" a /cosplay?intent=delete (mismo returnTo que ya usa el resto de la app): el
+    // catálogo se vuelve a mostrar tal cual, SIN ninguna publicación preseleccionada ni borrado
+    // reproducido automáticamente — el ADMIN debe abrir el menú de la tarjeta y confirmar de
+    // nuevo desde cero.
+    cleanup();
+    vi.restoreAllMocks();
+    const fetchAfterReturn = routeFetch({
+      posts: { items: [post("1"), post("2")], nextCursor: null },
+    });
+    vi.stubGlobal("fetch", fetchAfterReturn);
+    renderSection(["/cosplay?intent=delete"]);
+
+    await screen.findByText("Publicación 2");
+    expect(
+      screen.queryByRole("group", { name: /eliminar esta publicación/i }),
+    ).toBeNull();
+    expect(
+      fetchAfterReturn.mock.calls.some((c) => c[0] === "/api/admin/cosplay-post-delete"),
     ).toBe(false);
   });
 });

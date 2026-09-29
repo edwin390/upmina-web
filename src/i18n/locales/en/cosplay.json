@@ -33,12 +33,10 @@
     "newPost": "New post",
     "edit": "Edit",
     "delete": "Delete",
-    "panelHeading": "Your posts",
+    "cardMenu": {
+      "open": "More actions for {title}"
+    },
     "loadingPosts": "Loading posts…",
-    "loadPostsError": "Couldn't load your posts.",
-    "noPosts": "No posts or drafts yet.",
-    "statusDraft": "Draft",
-    "statusPublished": "Published",
     "close": "Close",
     "editorTitleCreate": "New Cosplay post",
     "editorTitleEdit": "Edit Cosplay post",

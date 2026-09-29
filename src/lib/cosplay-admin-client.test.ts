@@ -16,7 +16,6 @@ import {
   deleteCosplayPost,
   detachCosplayMedia,
   getCosplayPostAdmin,
-  listCosplayPostsAdmin,
   reorderCosplayImages,
   saveCosplayPost,
 } from "./cosplay-admin-client";
@@ -44,16 +43,6 @@ afterEach(() => {
 });
 
 describe("construcción de URL — api/admin/<action>, nunca ?action=", () => {
-  it("listCosplayPostsAdmin → GET /api/admin/cosplay-post-list-admin", async () => {
-    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(200, { items: [] }));
-    vi.stubGlobal("fetch", fetchMock);
-    await listCosplayPostsAdmin();
-    expect(fetchMock).toHaveBeenCalledWith(
-      "/api/admin/cosplay-post-list-admin",
-      expect.objectContaining({ method: "GET" }),
-    );
-  });
-
   it("getCosplayPostAdmin → GET /api/admin/cosplay-post-get-admin?postId=…", async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       jsonResponse(200, {
@@ -220,7 +209,7 @@ describe("clasificación 9G-3 de rechazos privilegiados (misma semántica que me
         ),
     );
     try {
-      await listCosplayPostsAdmin();
+      await getCosplayPostAdmin("p1");
       expect.unreachable();
     } catch (err) {
       expect(err).toBeInstanceOf(CosplayAdminClientError);

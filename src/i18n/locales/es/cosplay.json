@@ -33,12 +33,10 @@
     "newPost": "Nueva publicación",
     "edit": "Editar",
     "delete": "Eliminar",
-    "panelHeading": "Tus publicaciones",
+    "cardMenu": {
+      "open": "Más acciones para {title}"
+    },
     "loadingPosts": "Cargando publicaciones…",
-    "loadPostsError": "No se pudieron cargar tus publicaciones.",
-    "noPosts": "Todavía no hay publicaciones ni borradores.",
-    "statusDraft": "Borrador",
-    "statusPublished": "Publicado",
     "close": "Cerrar",
     "editorTitleCreate": "Nueva publicación de Cosplay",
     "editorTitleEdit": "Editar publicación de Cosplay",

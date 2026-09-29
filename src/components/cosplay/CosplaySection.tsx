@@ -8,7 +8,6 @@ import PrivilegedOnly from "@/components/auth/PrivilegedOnly";
 import { parsePrivilegedIntent } from "@/lib/privileged-intent";
 import CosplayCard from "./CosplayCard";
 import CosplayHero from "./CosplayHero";
-import CosplayAdminPanel from "./admin/CosplayAdminPanel";
 import CosplayEditorDialog from "./admin/CosplayEditorDialog";
 
 /** Contenido de /cosplay (Fase 9I-1): hero + grid responsive + "Cargar más" (cursor, sin scroll
@@ -30,7 +29,6 @@ export default function CosplaySection() {
   const { enter: enterPrivileged } = usePrivilegedEntry();
   const [searchParams, setSearchParams] = useSearchParams();
   const [editorState, setEditorState] = useState<EditorState>(null);
-  const [adminPanelAutoOpen, setAdminPanelAutoOpen] = useState(false);
   const [publishToast, setPublishToast] = useState(false);
   const publishToastTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(
     undefined,
@@ -51,17 +49,19 @@ export default function CosplaySection() {
     publishToastTimerRef.current = setTimeout(() => setPublishToast(false), 4000);
   };
 
-  // Fase 9I-3 (sección 16): tras un step-up MFA, /admin/mfa navega de vuelta aquí con
+  // Fase 9I-3 (sección 16), ajustado tras reemplazar el panel "Tus publicaciones" por el menú
+  // contextual por tarjeta: tras un step-up MFA, /admin/mfa navega de vuelta aquí con
   // ?intent=create|edit|delete (RETURN_ROUTES ya lo permite desde 9G-2). "create" reabre el
   // editor vacío directamente; "edit"/"delete" NUNCA identifican una publicación concreta (ver
-  // safe-return-to.ts), así que solo abren el panel de descubrimiento para que el ADMIN
-  // re-seleccione y confirme de nuevo — ninguna mutación se reproduce automáticamente. Se
-  // consume UNA sola vez (al montar) y se limpia de la URL para que un refresh no lo repita.
+  // safe-return-to.ts) — ya no hay un panel aparte que reabrir: el catálogo público (con el menú
+  // ADMIN en cada tarjeta) ya está siempre visible, así que el ADMIN solo necesita volver a abrir
+  // el menú "⋯" de la tarjeta correspondiente y confirmar de nuevo. Ninguna mutación se reproduce
+  // automáticamente. Se consume UNA sola vez (al montar) y se limpia de la URL para que un
+  // refresh no lo repita.
   useEffect(() => {
     const intent = parsePrivilegedIntent(searchParams.get("intent"));
     if (intent === null) return;
     if (intent === "create") setEditorState({ mode: "create" });
-    else setAdminPanelAutoOpen(true);
 
     const next = new URLSearchParams(searchParams);
     next.delete("intent");
@@ -142,11 +142,16 @@ export default function CosplaySection() {
 
         {hero && (
           <>
-            <CosplayHero post={hero} />
+            <CosplayHero post={hero} onEdit={openEditEditor} onDeleted={onPostChanged} />
             {rest.length > 0 && (
               <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
                 {rest.map((post) => (
-                  <CosplayCard key={post.id} post={post} />
+                  <CosplayCard
+                    key={post.id}
+                    post={post}
+                    onEdit={openEditEditor}
+                    onDeleted={onPostChanged}
+                  />
                 ))}
               </div>
             )}
@@ -164,10 +169,6 @@ export default function CosplaySection() {
             )}
           </>
         )}
-
-        <PrivilegedOnly capability="cosplay_admin">
-          <CosplayAdminPanel onOpenEdit={openEditEditor} autoOpen={adminPanelAutoOpen} />
-        </PrivilegedOnly>
       </section>
 
       {editorState && (

@@ -2,10 +2,18 @@ import { Link } from "react-router-dom";
 import { useTranslations } from "use-intl";
 import type { CosplayPostSummary } from "@/types";
 import { formatDateOnly, useUpminaLocale } from "@/i18n/useUpminaLocale";
+import PrivilegedOnly from "@/components/auth/PrivilegedOnly";
+import CosplayCardAdminMenu from "./admin/CosplayCardAdminMenu";
 
 interface MetaItem {
   label: string;
   value: string;
+}
+
+interface Props {
+  post: CosplayPostSummary;
+  onEdit: (postId: string) => void;
+  onDeleted: () => void;
 }
 
 /** Fila de metadata opcional: igual patrón que MetaRow en CosplayDetail.tsx (campo ausente = no
@@ -40,8 +48,12 @@ function MetaRow({ label, value }: MetaItem) {
  *  Puramente presentacional, sin lógica propia de "qué es lo destacado" (la decide CosplaySection
  *  con la primera del array, ya ordenado por published_at desde el servidor). El título es
  *  contenido editorial de Mina: se muestra idéntico sin importar el idioma de la UI (corrección
- *  de producto, Fase 9I-3 — ver types/index.ts). */
-export default function CosplayHero({ post }: { post: CosplayPostSummary }) {
+ *  de producto, Fase 9I-3 — ver types/index.ts).
+ *
+ *  Mismo ajuste que CosplayCard (posterior a 9I-3): el <Link> es una capa invisible absolute
+ *  inset-0, el contenido visual queda pointer-events-none, y el menú ADMIN es un hermano por
+ *  encima — nunca un <button> anidado dentro del <a>. */
+export default function CosplayHero({ post, onEdit, onDeleted }: Props) {
   const t = useTranslations("cosplay.list");
   // Mismas etiquetas de metadata que ya usa la página de detalle (cosplay.detail): nunca se
   // duplican como literales nuevos. Solo campos ya disponibles en CosplayPostSummary — la
@@ -63,13 +75,16 @@ export default function CosplayHero({ post }: { post: CosplayPostSummary }) {
     : undefined;
 
   return (
-    <Link
-      to={`/cosplay/${post.slug}`}
-      className="group mb-8 flex flex-col overflow-hidden rounded-xl border border-border-subtle bg-bg-surface transition-colors hover:border-accent-primary/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-secondary sm:flex-row"
-    >
+    <div className="group relative mb-8 flex flex-col overflow-hidden rounded-xl border border-border-subtle bg-bg-surface transition-colors hover:border-accent-primary/60 focus-within:border-accent-secondary sm:flex-row">
+      <Link
+        to={`/cosplay/${post.slug}`}
+        aria-label={post.title}
+        className="absolute inset-0 z-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-secondary"
+      />
+
       {post.cover && (
         <div
-          className="relative w-full shrink-0 overflow-hidden bg-bg-elevated sm:hidden"
+          className="pointer-events-none relative w-full shrink-0 overflow-hidden bg-bg-elevated sm:hidden"
           style={coverAspectRatio}
         >
           <img
@@ -81,7 +96,7 @@ export default function CosplayHero({ post }: { post: CosplayPostSummary }) {
       )}
 
       {post.cover && (
-        <div className="relative hidden shrink-0 items-center justify-center overflow-hidden bg-bg-elevated sm:flex sm:h-[560px] sm:w-[58%]">
+        <div className="pointer-events-none relative hidden shrink-0 items-center justify-center overflow-hidden bg-bg-elevated sm:flex sm:h-[560px] sm:w-[58%]">
           <img
             src={post.cover.url}
             alt=""
@@ -98,7 +113,7 @@ export default function CosplayHero({ post }: { post: CosplayPostSummary }) {
         </div>
       )}
 
-      <div className="flex min-w-0 flex-1 flex-col justify-center gap-3 p-4 sm:p-8">
+      <div className="pointer-events-none relative flex min-w-0 flex-1 flex-col justify-center gap-3 p-4 sm:p-8">
         <span className="inline-block w-fit rounded-full bg-accent-primary/90 px-2.5 py-0.5 text-xs font-semibold uppercase tracking-wide text-text-inverse">
           {t("heroLabel")}
         </span>
@@ -113,6 +128,17 @@ export default function CosplayHero({ post }: { post: CosplayPostSummary }) {
           </dl>
         )}
       </div>
-    </Link>
+
+      <PrivilegedOnly capability="cosplay_admin">
+        <div className="absolute left-2 top-2 z-20">
+          <CosplayCardAdminMenu
+            postId={post.id}
+            postTitle={post.title}
+            onEdit={onEdit}
+            onDeleted={onDeleted}
+          />
+        </div>
+      </PrivilegedOnly>
+    </div>
   );
 }

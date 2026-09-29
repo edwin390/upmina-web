@@ -125,24 +125,6 @@ export interface CosplayAdminPostDetail extends CosplayEditorPost {
   images: CosplayAdminImage[];
 }
 
-export interface CosplayAdminPostSummary {
-  id: string;
-  slug: string;
-  status: "draft" | "published";
-  title: string;
-  version: number;
-  publishedAt: string | null;
-  updatedAt: string;
-}
-
-export async function listCosplayPostsAdmin(): Promise<CosplayAdminPostSummary[]> {
-  const body = await request<{ items: CosplayAdminPostSummary[] }>(
-    "cosplay-post-list-admin",
-    { method: "GET" },
-  );
-  return body.items;
-}
-
 export async function getCosplayPostAdmin(
   postId: string,
 ): Promise<CosplayAdminPostDetail> {

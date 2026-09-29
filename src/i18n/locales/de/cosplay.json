@@ -33,12 +33,10 @@
     "newPost": "Neuer Beitrag",
     "edit": "Bearbeiten",
     "delete": "Löschen",
-    "panelHeading": "Deine Beiträge",
+    "cardMenu": {
+      "open": "Weitere Aktionen für {title}"
+    },
     "loadingPosts": "Beiträge werden geladen…",
-    "loadPostsError": "Deine Beiträge konnten nicht geladen werden.",
-    "noPosts": "Noch keine Beiträge oder Entwürfe.",
-    "statusDraft": "Entwurf",
-    "statusPublished": "Veröffentlicht",
     "close": "Schließen",
     "editorTitleCreate": "Neuer Cosplay-Beitrag",
     "editorTitleEdit": "Cosplay-Beitrag bearbeiten",
