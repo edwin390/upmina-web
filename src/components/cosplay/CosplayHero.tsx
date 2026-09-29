@@ -52,7 +52,14 @@ function MetaRow({ label, value }: MetaItem) {
  *
  *  Mismo ajuste que CosplayCard (posterior a 9I-3): el <Link> es una capa invisible absolute
  *  inset-0, el contenido visual queda pointer-events-none, y el menú ADMIN es un hermano por
- *  encima — nunca un <button> anidado dentro del <a>. */
+ *  encima — nunca un <button> anidado dentro del <a>.
+ *
+ *  Pulido posterior (mismo release, igual que CosplayCard): el trigger "⋯" vive en la esquina
+ *  SUPERIOR DERECHA (antes flotaba en la izquierda). Aquí no hay ninguna insignia existente en esa
+ *  esquina (heroLabel es una píldora en flujo normal dentro del panel de texto, no una insignia
+ *  absoluta), así que no hace falta desplazar nada más. `overflow-hidden` se retiró del
+ *  contenedor exterior (recortaba el menú desplegable contra el borde del hero) y se movió a cada
+ *  sub-imagen, con su propio redondeado de esquina — el recorte de zoom en hover sigue intacto. */
 export default function CosplayHero({ post, onEdit, onDeleted }: Props) {
   const t = useTranslations("cosplay.list");
   // Mismas etiquetas de metadata que ya usa la página de detalle (cosplay.detail): nunca se
@@ -75,7 +82,7 @@ export default function CosplayHero({ post, onEdit, onDeleted }: Props) {
     : undefined;
 
   return (
-    <div className="group relative mb-8 flex flex-col overflow-hidden rounded-xl border border-border-subtle bg-bg-surface transition-colors hover:border-accent-primary/60 focus-within:border-accent-secondary sm:flex-row">
+    <div className="group relative mb-8 flex flex-col rounded-xl border border-border-subtle bg-bg-surface transition-colors hover:border-accent-primary/60 focus-within:border-accent-secondary sm:flex-row">
       <Link
         to={`/cosplay/${post.slug}`}
         aria-label={post.title}
@@ -84,7 +91,7 @@ export default function CosplayHero({ post, onEdit, onDeleted }: Props) {
 
       {post.cover && (
         <div
-          className="pointer-events-none relative w-full shrink-0 overflow-hidden bg-bg-elevated sm:hidden"
+          className="pointer-events-none relative w-full shrink-0 overflow-hidden rounded-t-xl bg-bg-elevated sm:hidden"
           style={coverAspectRatio}
         >
           <img
@@ -96,7 +103,7 @@ export default function CosplayHero({ post, onEdit, onDeleted }: Props) {
       )}
 
       {post.cover && (
-        <div className="pointer-events-none relative hidden shrink-0 items-center justify-center overflow-hidden bg-bg-elevated sm:flex sm:h-[560px] sm:w-[58%]">
+        <div className="pointer-events-none relative hidden shrink-0 items-center justify-center overflow-hidden bg-bg-elevated sm:flex sm:h-[560px] sm:w-[58%] sm:rounded-l-xl">
           <img
             src={post.cover.url}
             alt=""
@@ -130,7 +137,7 @@ export default function CosplayHero({ post, onEdit, onDeleted }: Props) {
       </div>
 
       <PrivilegedOnly capability="cosplay_admin">
-        <div className="absolute left-2 top-2 z-20">
+        <div className="absolute right-2 top-2 z-20">
           <CosplayCardAdminMenu
             postId={post.id}
             postTitle={post.title}

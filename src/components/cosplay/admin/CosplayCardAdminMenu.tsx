@@ -153,7 +153,7 @@ export default function CosplayCardAdminMenu({
         aria-label={t("cardMenu.open", { title: postTitle })}
         disabled={loadingVersion}
         aria-busy={loadingVersion}
-        className="flex h-8 w-8 items-center justify-center rounded-full bg-black/50 text-lg leading-none text-white transition-colors hover:bg-black/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-secondary disabled:pointer-events-none disabled:opacity-50"
+        className="flex h-10 w-10 items-center justify-center rounded-full bg-black/50 text-lg leading-none text-white shadow-sm ring-1 ring-inset ring-white/10 transition-colors hover:bg-black/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-secondary disabled:pointer-events-none disabled:opacity-50"
       >
         <span aria-hidden="true">⋯</span>
       </button>

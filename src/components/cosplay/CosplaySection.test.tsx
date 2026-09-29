@@ -115,7 +115,7 @@ describe("/cosplay — estados", () => {
 
   it("contenido: la primera publicación es el hero, el resto va en la grid", async () => {
     const page: CosplayPostListPage = {
-      items: [post("1"), post("2"), post("3")],
+      items: [post("1"), post("2", { photoCount: 3 }), post("3")],
       nextCursor: null,
     };
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(json(page)));
@@ -130,6 +130,10 @@ describe("/cosplay — estados", () => {
       "href",
       "/cosplay/post-1",
     );
+    // USER: la insignia de recuento de fotos NUNCA se desplaza (eso solo ocurre para ADMIN, ver
+    // CosplaySection.admin.test.tsx) — sin sesión, la tarjeta es pixel-idéntica a antes del menú.
+    expect(screen.getByText("3 fotos")).toHaveClass("top-2");
+    expect(screen.getByText("3 fotos")).not.toHaveClass("top-12");
   });
 
   it("sin siguiente página: no muestra 'Cargar más'", async () => {

@@ -247,6 +247,25 @@ describe("ADMIN (cosplay_admin + MFA reciente) — menú contextual por tarjeta"
     ).toBeInTheDocument();
   });
 
+  it("pulido de posicionamiento: el trigger ADMIN y la insignia de recuento de fotos no se solapan (la insignia baja SOLO para ADMIN, nunca para USER)", async () => {
+    vi.stubGlobal(
+      "fetch",
+      routeFetch({
+        posts: {
+          items: [post("1"), post("2", { photoCount: 3 })],
+          nextCursor: null,
+        },
+      }),
+    );
+    renderSection();
+
+    await screen.findByText("Publicación 2");
+    await screen.findByRole("button", { name: /más acciones para publicación 2/i });
+    // Insignia "3 fotos" desplazada por debajo del trigger (top-12), no en la misma esquina.
+    expect(screen.getByText("3 fotos")).toHaveClass("top-12");
+    expect(screen.getByText("3 fotos")).not.toHaveClass("top-2");
+  });
+
   it("test 7: renderizar el catálogo (incluido el menú ADMIN de cada tarjeta) NUNCA exige MFA reciente — no llama a ningún endpoint que la revalide", async () => {
     const fetchMock = routeFetch({
       mfaRecent: false,
