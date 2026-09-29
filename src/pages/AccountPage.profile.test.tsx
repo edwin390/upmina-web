@@ -216,7 +216,7 @@ describe("perfil existente / ausente / error", () => {
   it("perfil inexistente: muestra el onboarding con la ayuda del username", async () => {
     await renderAbsent();
     expect(screen.getByRole("button", { name: "Crear perfil" })).toBeInTheDocument();
-    expect(screen.getByText(/3–20 caracteres/)).toBeInTheDocument();
+    expect(screen.getByText(/3–24 caracteres/)).toBeInTheDocument();
   });
 
   it("error de lectura NO se interpreta como perfil inexistente", async () => {
@@ -278,18 +278,18 @@ describe("validación del username en cliente", () => {
     await renderAbsent();
     type("edwin-390");
 
-    expect(screen.getByText(/Usa 3–20 caracteres/)).toBeInTheDocument();
+    expect(screen.getByText(/Usa 3–24 caracteres/)).toBeInTheDocument();
     submit();
-    expect(await screen.findByRole("alert")).toHaveTextContent(/3–20 caracteres/);
+    expect(await screen.findByRole("alert")).toHaveTextContent(/3–24 caracteres/);
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it("rechaza longitud 21 y acepta 3 y 20", async () => {
+  it("rechaza longitud 25 y acepta 3 y 24", async () => {
     await renderAbsent();
     const button = screen.getByRole("button", { name: "Crear perfil" });
-    type("a".repeat(21));
+    type("a".repeat(25));
     expect(button).toBeDisabled();
-    type("a".repeat(20));
+    type("a".repeat(24));
     expect(button).toBeEnabled();
     type("abc");
     expect(button).toBeEnabled();

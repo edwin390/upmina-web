@@ -193,13 +193,12 @@ describe("vista", () => {
 });
 
 describe("entrar en edición", () => {
-  it("precarga display_name y bio, muestra username fijo y Guardar/Cancelar", async () => {
+  it("precarga display_name, bio y username (9J-1B: username ya es editable) y muestra Guardar/Cancelar", async () => {
     await enterEdit({ display_name: "Fan", bio: "Línea 1\nLínea 2" });
     expect(nameField().value).toBe("Fan");
     expect(bioField().value).toBe("Línea 1\nLínea 2");
-    expect(screen.getByText("fan_sintetico")).toBeInTheDocument();
-    expect(screen.queryByLabelText(/username/i)).toBeNull();
-    expect(screen.queryByDisplayValue("fan_sintetico")).toBeNull();
+    const usernameField = screen.getByLabelText("Username") as HTMLInputElement;
+    expect(usernameField.value).toBe("fan_sintetico");
     expect(screen.getByRole("button", { name: "Guardar" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Cancelar" })).toBeInTheDocument();
   });
@@ -588,6 +587,7 @@ describe("404: perfil desaparecido", () => {
     absent(); // la relectura ya no encuentra el perfil
     save();
 
+    await waitFor(() => expect(sb.reads).toHaveLength(2));
     expect(await screen.findByLabelText("Username")).toBeInTheDocument();
     expect(sb.reads).toHaveLength(2);
     expect(screen.queryByLabelText("Nombre visible")).toBeNull();
@@ -818,11 +818,21 @@ describe("cambio de cuenta A → B (ProfileSection key={userId})", () => {
 describe("aviso de información pública", () => {
   it("en edición se muestra el aviso, como texto normal y no como alerta", async () => {
     await enterEdit({ display_name: "Fan" });
-    const notice = screen.getByText("Tu nombre visible y tu bio serán públicos.");
+    const notice = screen.getByText(
+      "Tu nombre visible, tu bio y tu username serán públicos.",
+    );
     expect(notice).toBeInTheDocument();
     expect(notice.closest("form")).toBe(form());
     expect(notice.getAttribute("role")).toBeNull();
     expect(screen.queryAllByRole("alert")).toHaveLength(0);
+  });
+
+  it("9J-1B: explica que el username es público, forma la URL /@username y solo puede cambiarse cada 30 días", async () => {
+    await enterEdit({ display_name: "Fan" });
+    const text = form().textContent ?? "";
+    expect(text).toMatch(/público/i);
+    expect(text).toMatch(/@username/);
+    expect(text).toMatch(/30 días/);
   });
 
   it("no aparece en la vista ni afirma que el email o la cuenta sean públicos", async () => {
@@ -831,7 +841,7 @@ describe("aviso de información pública", () => {
     fireEvent.click(screen.getByRole("button", { name: "Editar perfil" }));
     const text = form().textContent ?? "";
     expect(text).not.toMatch(/email|correo|cuenta/i);
-    expect(text).toContain("el username no se puede cambiar");
+    expect(text).toMatch(/@username/);
   });
 });
 

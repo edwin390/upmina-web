@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState, type FormEvent } from "react"
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/lib/auth-context";
 import AdminAuthField from "@/components/admin/AdminAuthField";
+import { isValidUsernameFormat, normalizeUsername } from "@/lib/profile-username";
 
 // Perfil público dentro de /account (Bloque 7C.2). Lee public.profiles con el cliente de
 // Supabase del navegador (SELECT público por diseño) y, si el usuario aún no tiene perfil,
@@ -12,20 +13,33 @@ import AdminAuthField from "@/components/admin/AdminAuthField";
 // admin_roles ni /api/admin/me y no hay MFA. El servidor (POST /api/profile) es la
 // autoridad de reservados, disponibilidad y formato; la validación de aquí es solo UX.
 //
-// Edición (Bloque 7D.3): el perfil existente tiene modo view/edit local. Solo se editan
-// display_name y bio mediante PATCH /api/profile con el Bearer de la sesión y ÚNICAMENTE
-// los campos cuyo valor semántico cambió; username y avatar no son editables. La
-// normalización/validación de aquí es solo UX (contadores en code points): el servidor es
-// la autoridad final. La respuesta 200 reemplaza el estado local (sin segundo SELECT).
+// Edición (Bloque 7D.3; cambio de username en 9J-1B): el perfil existente tiene modo
+// view/edit local. Se editan display_name, bio y (desde 9J-1B) username mediante PATCH
+// /api/profile con el Bearer de la sesión y ÚNICAMENTE los campos cuyo valor semántico
+// cambió; avatar sigue sin ser editable (Storage no está diseñado). La normalización/
+// validación de aquí (isValidUsernameFormat/normalizeUsername, MISMO módulo que usa el
+// backend — src/lib/profile-username.ts) es solo UX: el servidor es la autoridad final del
+// formato, los nombres reservados, la unicidad y el cooldown de 30 días. La respuesta 200
+// reemplaza el estado local (sin segundo SELECT).
 //
-// Nunca se muestran user_id, email público, tokens, claims ni metadata. avatar_path se
-// ignora (Storage aún no está diseñado).
+// i18n (nota deliberada): /account NO está montado bajo CosplayLocaleProvider — el sistema
+// ES/EN/DE de use-intl hoy solo envuelve /cosplay (ver el comentario de LocaleProvider.tsx:
+// "Deliberadamente NO envuelve toda la app"; migrar el resto del sitio es 9L, un checkpoint
+// futuro no realizado). Todo este archivo, incluido antes de 9J-1B, usa strings en español
+// sin pasar por ese sistema porque aquí no hay ningún proveedor de i18n que consumir todavía
+// — introducir uno solo para este checkpoint sería una expansión de alcance de
+// infraestructura no pedida. Las cadenas NUEVAS de este checkpoint siguen exactamente el
+// mismo patrón que ya usaba el resto del archivo, por coherencia con el código que las
+// rodea, en vez de mezclar dos sistemas de texto distintos dentro del mismo componente.
 
 const NAME_INPUT_ID = "account-profile-display-name";
-const USERNAME_PATTERN = /^[a-z0-9_]{3,20}$/;
+const USERNAME_EDIT_INPUT_ID = "account-profile-username-edit";
 
-const USERNAME_HELP = "3–20 caracteres: letras a-z, números y guion bajo (_).";
-const USERNAME_INVALID = "Usa 3–20 caracteres: letras a-z, números y guion bajo (_).";
+const USERNAME_HELP = "3–24 caracteres: minúsculas, números, guion bajo (_) y punto (.).";
+const USERNAME_INVALID =
+  "Usa 3–24 caracteres: minúsculas, números, guion bajo (_) y punto (.).";
+const USERNAME_EDIT_INVALID =
+  "3–24 caracteres: minúsculas, números, guion bajo (_) y punto (.). No puede empezar ni terminar en punto, ni tener puntos seguidos.";
 const READ_ERROR_MESSAGE = "No se pudo cargar tu perfil.";
 const MSG_BAD_REQUEST = "No se pudo procesar la solicitud. Revisa el username.";
 const MSG_TAKEN = "Este username no está disponible.";
@@ -39,6 +53,18 @@ const MSG_EDIT_INVALID = "Revisa el nombre visible y la bio.";
 const MSG_EDIT_GENERIC = "No se pudo guardar tu perfil. Inténtalo de nuevo.";
 const MSG_NAME_TOO_LONG = `El nombre visible admite hasta ${DISPLAY_NAME_MAX} caracteres.`;
 const MSG_BIO_TOO_LONG = `La bio admite hasta ${BIO_MAX} caracteres.`;
+const MSG_USERNAME_RESERVED = "Ese username no está disponible.";
+const MSG_USERNAME_TAKEN = "Ese username ya lo tiene otra cuenta.";
+const USERNAME_PUBLIC_NOTICE =
+  "Tu username es público y formará tu dirección de perfil (/@username). Cambiarlo cambia esa dirección pública. Solo puedes cambiarlo una vez cada 30 días.";
+
+function cooldownMessage(nextChangeAllowedAt: string): string {
+  const parsed = new Date(nextChangeAllowedAt);
+  const when = Number.isNaN(parsed.getTime())
+    ? "más adelante"
+    : parsed.toLocaleDateString();
+  return `Ya cambiaste tu username hace poco. Podrás cambiarlo de nuevo el ${when}.`;
+}
 
 interface PublicProfile {
   username: string;
@@ -83,9 +109,21 @@ function codePoints(value: string | null): number {
   return value === null ? 0 : Array.from(value).length;
 }
 
-function editStatusMessage(status: number): string {
+/** `code`/`nextChangeAllowedAt` vienen del body de error del servidor (nunca inventados aquí):
+ *  ver los códigos estables de handleProfileUpdate en profile-handlers.ts. */
+function editStatusMessage(
+  status: number,
+  code: string | undefined,
+  nextChangeAllowedAt: string | undefined,
+): string {
   if (status === 400) return MSG_EDIT_BAD_REQUEST;
   if (status === 401) return MSG_SESSION;
+  if (code === "invalid_username") return USERNAME_EDIT_INVALID;
+  if (code === "username_reserved") return MSG_USERNAME_RESERVED;
+  if (code === "username_taken") return MSG_USERNAME_TAKEN;
+  if (code === "cooldown_active") {
+    return nextChangeAllowedAt ? cooldownMessage(nextChangeAllowedAt) : MSG_EDIT_GENERIC;
+  }
   if (status === 422) return MSG_EDIT_INVALID;
   return MSG_EDIT_GENERIC;
 }
@@ -116,6 +154,7 @@ export default function ProfileSection() {
   const [mode, setMode] = useState<"view" | "edit">("view");
   const [nameInput, setNameInput] = useState("");
   const [bioInput, setBioInput] = useState("");
+  const [usernameEditInput, setUsernameEditInput] = useState("");
   const [editError, setEditError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
 
@@ -203,10 +242,20 @@ export default function ProfileSection() {
   const bioChanged =
     currentProfile !== null &&
     bioNormalized !== normalizeBioInput(currentProfile.bio ?? "");
-  const canSave = (nameChanged || bioChanged) && !nameTooLong && !bioTooLong;
+  const usernameEditNormalized = normalizeUsername(usernameEditInput);
+  const usernameEditValid = isValidUsernameFormat(usernameEditNormalized);
+  const usernameChanged =
+    currentProfile !== null && usernameEditNormalized !== currentProfile.username;
+  const usernameShowInvalid = usernameChanged && !usernameEditValid;
+  const canSave =
+    (nameChanged || bioChanged || usernameChanged) &&
+    !nameTooLong &&
+    !bioTooLong &&
+    (!usernameChanged || usernameEditValid);
 
   const startEdit = () => {
     if (!currentProfile) return;
+    setUsernameEditInput(currentProfile.username);
     setNameInput(currentProfile.display_name ?? "");
     setBioInput(currentProfile.bio ?? "");
     setEditError(null);
@@ -227,9 +276,11 @@ export default function ProfileSection() {
     if (!saveUserId || !token || !currentProfile || !canSave) return;
 
     // Solo los campos cuyo valor semántico cambió; el objeto se arma campo a campo.
-    const body: { display_name?: string | null; bio?: string | null } = {};
+    const body: { display_name?: string | null; bio?: string | null; username?: string } =
+      {};
     if (nameChanged) body.display_name = nameNormalized;
     if (bioChanged) body.bio = bioNormalized;
+    if (usernameChanged) body.username = usernameEditNormalized;
 
     saveLockRef.current = true;
     setIsSaving(true);
@@ -271,7 +322,19 @@ export default function ProfileSection() {
           setMode("view");
           setReloadKey((key) => key + 1);
         } else {
-          setEditError(editStatusMessage(response.status));
+          let code: string | undefined;
+          let nextChangeAllowedAt: string | undefined;
+          try {
+            const errorPayload = (await response.json()) as {
+              code?: string;
+              nextChangeAllowedAt?: string;
+            } | null;
+            code = errorPayload?.code;
+            nextChangeAllowedAt = errorPayload?.nextChangeAllowedAt;
+          } catch {
+            // sin cuerpo o no es JSON: se cae al mensaje genérico por status.
+          }
+          setEditError(editStatusMessage(response.status, code, nextChangeAllowedAt));
         }
       }
     } catch {
@@ -282,8 +345,8 @@ export default function ProfileSection() {
     }
   };
 
-  const normalized = username.trim().toLowerCase();
-  const isValid = USERNAME_PATTERN.test(normalized);
+  const normalized = normalizeUsername(username);
+  const isValid = isValidUsernameFormat(normalized);
   const showInvalid = username.length > 0 && !isValid;
 
   const handleSubmit = useCallback(
@@ -293,8 +356,8 @@ export default function ProfileSection() {
       const submitUserId = userIdRef.current;
       const token = tokenRef.current;
       if (!submitUserId || !token) return;
-      const candidate = username.trim().toLowerCase();
-      if (!USERNAME_PATTERN.test(candidate)) {
+      const candidate = normalizeUsername(username);
+      if (!isValidUsernameFormat(candidate)) {
         setSubmitError(USERNAME_INVALID);
         return;
       }
@@ -406,16 +469,32 @@ export default function ProfileSection() {
 
       {state.status === "present" && mode === "edit" ? (
         <form onSubmit={(e) => void handleSave(e)} noValidate className="mt-3 min-w-0">
-          <p className="break-all text-sm text-text-secondary">
-            @
-            <span className="font-medium text-text-primary">
-              {state.profile.username}
-            </span>
-            <span className="ml-2 text-xs">(el username no se puede cambiar)</span>
-          </p>
           <p className="mt-2 text-xs text-text-secondary">
-            Tu nombre visible y tu bio serán públicos.
+            Tu nombre visible, tu bio y tu username serán públicos.
           </p>
+
+          <div className="mt-4">
+            <AdminAuthField
+              label="Username"
+              id={USERNAME_EDIT_INPUT_ID}
+              name="username"
+              type="text"
+              autoComplete="off"
+              autoCapitalize="none"
+              spellCheck={false}
+              maxLength={24}
+              errorId="account-profile-username-edit-help"
+              value={usernameEditInput}
+              onChange={(e) => setUsernameEditInput(e.target.value)}
+              disabled={isSaving}
+            />
+            <p
+              id="account-profile-username-edit-help"
+              className={`mt-2 text-xs ${usernameShowInvalid ? "text-accent-live" : "text-text-secondary"}`}
+            >
+              {usernameShowInvalid ? USERNAME_EDIT_INVALID : USERNAME_PUBLIC_NOTICE}
+            </p>
+          </div>
 
           <div className="mt-4">
             <AdminAuthField

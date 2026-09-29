@@ -21,6 +21,12 @@ const fakes = vi.hoisted(() => ({
   result: undefined as { data: unknown; error: unknown } | undefined,
   throws: undefined as unknown,
   gate: undefined as Promise<void> | undefined,
+  // Estado leído por el pre-check de cambio de username (SELECT previo al UPDATE, ver
+  // handleProfileUpdate) — independiente de `result`, que sigue siendo la respuesta del UPDATE
+  // final. `undefined` = usar el valor por defecto (username "edwin390", sin cooldown activo).
+  currentUsernameRow: undefined as
+    { username: string; username_changed_at: string | null } | null | undefined,
+  currentUsernameError: undefined as unknown,
 }));
 
 vi.mock("@supabase/supabase-js", () => ({
@@ -43,6 +49,48 @@ vi.mock("@supabase/supabase-js", () => ({
           upsert: () => {
             fakes.ops.push("upsert");
             throw new Error("upsert inesperado");
+          },
+          // SELECT de nivel superior (no encadenado tras update()): lo usa el pre-check de
+          // cambio de username (lee username + username_changed_at) y el re-lectura no-op
+          // cuando el único cambio pedido era el mismo username canónico (ver
+          // handleProfileUpdate). Nunca se invoca en un PATCH de solo display_name/bio.
+          select: (columns: string) => {
+            fakes.ops.push("select");
+            fakes.selects.push(columns);
+            const chain = {
+              eq: (_col: string, _val: unknown) => chain,
+              maybeSingle: async () => {
+                if (fakes.currentUsernameError !== undefined) {
+                  return { data: null, error: fakes.currentUsernameError };
+                }
+                const row =
+                  fakes.currentUsernameRow === undefined
+                    ? { username: "edwin390", username_changed_at: null }
+                    : fakes.currentUsernameRow;
+                if (row === null) return { data: null, error: null };
+                if (columns.includes("username_changed_at")) {
+                  return {
+                    data: {
+                      username: row.username,
+                      username_changed_at: row.username_changed_at,
+                    },
+                    error: null,
+                  };
+                }
+                return {
+                  data: {
+                    username: row.username,
+                    display_name: null,
+                    bio: null,
+                    avatar_path: null,
+                    created_at: "2026-09-23T00:00:00Z",
+                    updated_at: "2026-09-24T00:00:00Z",
+                  },
+                  error: null,
+                };
+              },
+            };
+            return chain;
           },
           update: (set: Record<string, unknown>) => {
             fakes.ops.push("update");
@@ -95,6 +143,8 @@ beforeEach(() => {
   fakes.result = undefined;
   fakes.throws = undefined;
   fakes.gate = undefined;
+  fakes.currentUsernameRow = undefined;
+  fakes.currentUsernameError = undefined;
   vi.stubEnv("VITE_SUPABASE_URL", "https://proyecto.supabase.co");
   vi.stubEnv("VITE_SUPABASE_ANON_KEY", "anon-key-de-prueba");
   vi.stubEnv("SUPABASE_SERVICE_ROLE_KEY", "service-role-key-de-prueba");
@@ -250,7 +300,6 @@ describe("body", () => {
 describe("mass assignment", () => {
   const extras: [string, unknown][] = [
     ["user_id", BODY_USER_ID],
-    ["username", "otro"],
     ["avatar_path", "avatars/x.png"],
     ["role", "admin"],
     ["email", "a@b.c"],
@@ -568,6 +617,189 @@ describe("no escalación", () => {
     expect(fakes.tables).toEqual(["profiles"]);
     expect(fetchSpy).not.toHaveBeenCalled();
     expect(JSON.stringify(state.body)).not.toMatch(/role|admin/);
+  });
+});
+
+describe("9J-1B — cambio de username: formato/reservados vía el endpoint", () => {
+  it("username inválido → 422 code invalid_username, sin UPDATE", async () => {
+    const state = await call({ username: "ab" });
+    expect(state.status).toBe(422);
+    expect(state.body).toEqual({ error: "Username inválido", code: "invalid_username" });
+    expect(fakes.updates).toHaveLength(0);
+  });
+
+  it("username reservado → 422 code username_reserved, sin UPDATE", async () => {
+    const state = await call({ username: "community" });
+    expect(state.status).toBe(422);
+    expect(state.body).toEqual({
+      error: "Username no disponible",
+      code: "username_reserved",
+    });
+    expect(fakes.updates).toHaveLength(0);
+  });
+
+  it("username se canonicaliza (trim + lowercase) antes de compararlo/guardarlo", async () => {
+    fakes.currentUsernameRow = { username: "edwin390", username_changed_at: null };
+    await call({ username: "  NuevoUser  " });
+    expect(fakes.updates).toEqual([expect.objectContaining({ username: "nuevouser" })]);
+  });
+});
+
+describe("9J-1B — creación NO arranca el cooldown; primer cambio siempre permitido", () => {
+  it("username_changed_at NULL (perfil recién creado, nunca cambiado): el cambio se permite sin comprobar antigüedad", async () => {
+    fakes.currentUsernameRow = { username: "edwin390", username_changed_at: null };
+    const state = await call({ username: "nuevonombre" });
+    expect(state.status).toBe(200);
+    expect(fakes.updates).toEqual([expect.objectContaining({ username: "nuevonombre" })]);
+  });
+
+  it("el cambio exitoso fija username_changed_at a la hora del servidor (ISO), no la que envíe el cliente", async () => {
+    fakes.currentUsernameRow = { username: "edwin390", username_changed_at: null };
+    const before = Date.now();
+    await call({ username: "nuevonombre" });
+    const set = fakes.updates[0] as { username_changed_at: string };
+    const ts = new Date(set.username_changed_at).getTime();
+    expect(ts).toBeGreaterThanOrEqual(before);
+    expect(ts).toBeLessThanOrEqual(Date.now());
+  });
+});
+
+describe("9J-1B — cooldown de 30 días entre cambios", () => {
+  const DAY_MS = 24 * 60 * 60 * 1000;
+
+  it("cambio 29 días después del último cambio → 409 cooldown_active con nextChangeAllowedAt", async () => {
+    const changedAt = new Date(Date.now() - 29 * DAY_MS).toISOString();
+    fakes.currentUsernameRow = { username: "edwin390", username_changed_at: changedAt };
+    const state = await call({ username: "otronombre" });
+    expect(state.status).toBe(409);
+    const body = state.body as {
+      error: string;
+      code: string;
+      nextChangeAllowedAt: string;
+    };
+    expect(body.code).toBe("cooldown_active");
+    // nextChangeAllowedAt debe ser ~1 día en el futuro (30 - 29): ni el username actual ni
+    // ningún dato sensible viaja en el error, solo esta fecha.
+    const remainingMs = new Date(body.nextChangeAllowedAt).getTime() - Date.now();
+    expect(remainingMs).toBeGreaterThan(0.5 * DAY_MS);
+    expect(remainingMs).toBeLessThan(1.5 * DAY_MS);
+    expect(fakes.updates).toHaveLength(0);
+  });
+
+  it("cambio exactamente 30 días después (o más) del último cambio → permitido", async () => {
+    const changedAt = new Date(Date.now() - 30 * DAY_MS - 1000).toISOString();
+    fakes.currentUsernameRow = { username: "edwin390", username_changed_at: changedAt };
+    const state = await call({ username: "otronombre" });
+    expect(state.status).toBe(200);
+    expect(fakes.updates).toEqual([expect.objectContaining({ username: "otronombre" })]);
+  });
+
+  it("cambio 1 día después del último cambio → sigue bloqueado", async () => {
+    const changedAt = new Date(Date.now() - 1 * DAY_MS).toISOString();
+    fakes.currentUsernameRow = { username: "edwin390", username_changed_at: changedAt };
+    const state = await call({ username: "otronombre" });
+    expect(state.status).toBe(409);
+    expect(fakes.updates).toHaveLength(0);
+  });
+});
+
+describe("9J-1B — mismo username canónico: no-op explícito", () => {
+  it("enviar el mismo username (ya canonicalizado) no toca username_changed_at ni consume el cooldown, incluso con cooldown activo", async () => {
+    const changedAt = new Date(Date.now() - 1000).toISOString(); // cooldown recién empezado
+    fakes.currentUsernameRow = { username: "edwin390", username_changed_at: changedAt };
+    const state = await call({ username: "edwin390" });
+    expect(state.status).toBe(200);
+    expect(fakes.updates).toHaveLength(0);
+  });
+
+  it("enviar el mismo username con distinto casing/espacios también es no-op (se canonicaliza antes de comparar)", async () => {
+    fakes.currentUsernameRow = { username: "edwin390", username_changed_at: null };
+    const state = await call({ username: "  Edwin390  " });
+    expect(state.status).toBe(200);
+    expect(fakes.updates).toHaveLength(0);
+  });
+
+  it("mismo username + display_name distinto: solo se actualiza display_name, username_changed_at no se toca", async () => {
+    fakes.currentUsernameRow = { username: "edwin390", username_changed_at: null };
+    const state = await call({ username: "edwin390", display_name: "Nuevo nombre" });
+    expect(state.status).toBe(200);
+    expect(fakes.updates).toEqual([{ display_name: "Nuevo nombre" }]);
+  });
+});
+
+describe("9J-1B — display_name/bio nunca afectan el cooldown de username", () => {
+  it("un PATCH de solo display_name/bio nunca incluye username ni username_changed_at en el UPDATE", async () => {
+    await call({ display_name: "Ana", bio: "hola" });
+    expect(fakes.updates).toEqual([{ display_name: "Ana", bio: "hola" }]);
+    expect(fakes.ops).toEqual(["update"]);
+  });
+});
+
+describe("9J-1B — unicidad: username ya en uso", () => {
+  it("23505 en el UPDATE de username → 409 code username_taken", async () => {
+    fakes.currentUsernameRow = { username: "edwin390", username_changed_at: null };
+    fakes.result = {
+      data: null,
+      error: {
+        code: "23505",
+        message: 'duplicate key value violates unique constraint "profiles_username_key"',
+      },
+    };
+    const state = await call({ username: "yaexiste" });
+    expect(state.status).toBe(409);
+    expect(state.body).toEqual({
+      error: "Username no disponible",
+      code: "username_taken",
+    });
+  });
+
+  it("23505 en un UPDATE que NO incluye username sigue siendo 500 genérico (comportamiento previo intacto)", async () => {
+    fakes.result = { data: null, error: { code: "23505", message: "x" } };
+    const state = await call({ bio: "x" });
+    expect(state.status).toBe(500);
+  });
+});
+
+describe("9J-1B — ownership: solo el propio perfil", () => {
+  it("el pre-check y el UPDATE de username están acotados por el user_id del JWT, nunca por el body", async () => {
+    fakes.currentUsernameRow = { username: "edwin390", username_changed_at: null };
+    await call({ username: "nuevonombre", user_id: BODY_USER_ID });
+    // user_id extra en el body → 400 (mass assignment), cero UPDATE: ni siquiera llega a leer.
+    expect(fakes.updates).toHaveLength(0);
+  });
+
+  it("perfil inexistente para este user_id (pre-check de username) → 404, nunca crea ni asume otro perfil", async () => {
+    fakes.currentUsernameRow = null;
+    const state = await call({ username: "nuevonombre" });
+    expect(state.status).toBe(404);
+    expect(fakes.updates).toHaveLength(0);
+  });
+});
+
+describe("9J-1B — la respuesta pública nunca expone datos sensibles", () => {
+  it("respuesta de un cambio de username exitoso: exactamente las seis claves públicas, sin user_id/role/email", async () => {
+    fakes.currentUsernameRow = { username: "edwin390", username_changed_at: null };
+    const state = await call({ username: "nuevonombre" });
+    expect(state.status).toBe(200);
+    const profile = (state.body as { profile: Record<string, unknown> }).profile;
+    expect(Object.keys(profile).sort()).toEqual([
+      "avatar_path",
+      "bio",
+      "created_at",
+      "display_name",
+      "updated_at",
+      "username",
+    ]);
+    expect(JSON.stringify(state.body)).not.toMatch(/user_id|role|email|JWT|token/i);
+  });
+
+  it("el error de cooldown activo tampoco expone el username actual ni el user_id", async () => {
+    const changedAt = new Date(Date.now() - 1000).toISOString();
+    fakes.currentUsernameRow = { username: "edwin390", username_changed_at: changedAt };
+    const state = await call({ username: "otronombre" });
+    const json = JSON.stringify(state.body);
+    expect(json).not.toContain(JWT_USER_ID);
+    expect(json).not.toContain("edwin390");
   });
 });
 

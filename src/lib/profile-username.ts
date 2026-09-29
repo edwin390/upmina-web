@@ -1,11 +1,24 @@
-// Normalización y validación SERVER-SIDE del username público (Bloque 7C.1). La base de
-// datos sigue siendo la autoridad final (CHECK profiles_username_format, UNIQUE
-// profiles_username_key en supabase/migrations/20260924120000_profiles.sql); esto solo
-// evita viajes inútiles y fija la política de nombres reservados, que NO vive en SQL.
+// Normalización y validación SERVER-SIDE del username público (Bloque 7C.1; formato
+// congelado ampliado en 9J-1B). La base de datos sigue siendo la autoridad final (CHECK
+// profiles_username_format, UNIQUE profiles_username_key —
+// supabase/migrations/20261003120000_community_username_foundation.sql—); esto solo evita
+// viajes inútiles y fija la política de nombres reservados, que NO vive en SQL.
 
-/** Mismo patrón que el CHECK profiles_username_format: minúsculas ASCII, dígitos y
- *  guion bajo, 3–20 caracteres. Se aplica DESPUÉS de normalizar. */
-export const USERNAME_PATTERN = /^[a-z0-9_]{3,20}$/;
+/** Mismo conjunto de caracteres y longitud que el CHECK profiles_username_format:
+ *  minúsculas ASCII, dígitos, guion bajo y punto, 3–24 caracteres. Se aplica DESPUÉS de
+ *  normalizar. Las reglas de punto inicial/final/consecutivo NO caben en este regex (ERE
+ *  de Postgres no tiene lookaround) — se comprueban aparte en isValidUsernameFormat, igual
+ *  que en el CHECK de la base de datos (misma conjunción de condiciones a ambos lados). */
+export const USERNAME_PATTERN = /^[a-z0-9_.]{3,24}$/;
+
+/** Formato completo congelado (9J-1B): USERNAME_PATTERN + sin punto inicial, sin punto
+ *  final, sin puntos consecutivos. Espera un valor YA normalizado (ver normalizeUsername). */
+export function isValidUsernameFormat(username: string): boolean {
+  if (!USERNAME_PATTERN.test(username)) return false;
+  if (username.startsWith(".") || username.endsWith(".")) return false;
+  if (username.includes("..")) return false;
+  return true;
+}
 
 /**
  * Nombres que ningún usuario puede reclamar. Comparación sobre el username ya
@@ -25,6 +38,16 @@ export const RESERVED_USERNAMES: ReadonlySet<string> = new Set([
   "upminaa",
   "root",
   "system",
+  // Añadidos en 9J-1B (fundación de Comunidad): rutas/superficies del producto que un
+  // username no puede suplantar.
+  "community",
+  "account",
+  "api",
+  "login",
+  "signup",
+  "settings",
+  "cosplay",
+  "media",
 ]);
 
 /** trim + lowercase. Sin transliteración Unicode: "edwín" sigue siendo "edwín" (y por
@@ -44,7 +67,7 @@ export type UsernameCheck =
 export function checkUsername(raw: unknown): UsernameCheck {
   if (typeof raw !== "string") return { ok: false, reason: "invalid" };
   const username = normalizeUsername(raw);
-  if (!USERNAME_PATTERN.test(username)) return { ok: false, reason: "invalid" };
+  if (!isValidUsernameFormat(username)) return { ok: false, reason: "invalid" };
   if (isReservedUsername(username)) return { ok: false, reason: "reserved" };
   return { ok: true, username };
 }

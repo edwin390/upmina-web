@@ -284,13 +284,19 @@ describe("normalización y formato del username", () => {
     expect(insertedUsername()).toBe("edwin_390");
   });
 
-  it("acepta límites 3 y 20; rechaza 2 y 21 con 422", async () => {
+  it("acepta límites 3 y 24; rechaza 2 y 25 con 422", async () => {
     expect((await call({ body: { username: "abc" } })).status).toBe(201);
-    expect((await call({ body: { username: "a".repeat(20) } })).status).toBe(201);
+    expect((await call({ body: { username: "a".repeat(24) } })).status).toBe(201);
     fakes.inserts = [];
     expect((await call({ body: { username: "ab" } })).status).toBe(422);
-    expect((await call({ body: { username: "a".repeat(21) } })).status).toBe(422);
+    expect((await call({ body: { username: "a".repeat(25) } })).status).toBe(422);
     expect(fakes.inserts).toHaveLength(0);
+  });
+
+  it("el punto es un carácter válido en posición interior (9J-1B)", async () => {
+    const state = await call({ body: { username: "edwin.390" } });
+    expect(state.status).toBe(201);
+    expect(insertedUsername()).toBe("edwin.390");
   });
 
   const invalid: [string, string][] = [
@@ -298,12 +304,14 @@ describe("normalización y formato del username", () => {
     ["solo espacios", "     "],
     ["espacio interno", "edwin 390"],
     ["guion", "edwin-390"],
-    ["punto", "edwin.390"],
     ["arroba", "edwin@390"],
     ["ñ (sin transliterar)", "edwín390"],
     ["ñ literal", "peña"],
     ["homoglyph cirílico", "еdwin390"],
     ["salto de línea interno", "edwin\n390"],
+    ["punto inicial (9J-1B)", ".edwin390"],
+    ["punto final (9J-1B)", "edwin390."],
+    ["puntos consecutivos (9J-1B)", "edwin..390"],
   ];
 
   it.each(invalid)("%s → 422, sin insertar", async (_name, username) => {
@@ -332,6 +340,15 @@ describe("usernames reservados", () => {
     "upminaa",
     "root",
     "system",
+    // Añadidos en 9J-1B (fundación de Comunidad).
+    "community",
+    "account",
+    "api",
+    "login",
+    "signup",
+    "settings",
+    "cosplay",
+    "media",
   ];
 
   it("la lista inicial contiene exactamente los nombres exigidos", () => {
