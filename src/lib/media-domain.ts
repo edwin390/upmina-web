@@ -197,11 +197,14 @@ export function validateReservationInput(
 /** Código de error de un resultado ya evaluado de validateReservationInput, o null si fue válido.
  *  Tipo de retorno explícito: el llamador no depende de que el compilador conserve el
  *  estrechamiento del discriminante `ok` más allá de esta función (mismo patrón que
- *  instagramProductType en public-snapshot-resources.ts). */
+ *  instagramProductType en public-snapshot-resources.ts). Estrechamiento por existencia de la
+ *  propiedad `error` (no por el valor booleano de `ok`): más robusto frente a la compilación
+ *  aislada por función de Vercel (@vercel/node), que no conservó el estrechamiento por `ok`. */
 export function reservationValidationError(
   result: ReturnType<typeof validateReservationInput>,
 ): ReservationValidationError | null {
-  return result.ok ? null : result.error;
+  if ("error" in result) return result.error;
+  return null;
 }
 
 // ────────────────────────────────────────────────────────────────────────────────────────────
