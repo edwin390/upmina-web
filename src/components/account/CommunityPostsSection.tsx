@@ -100,6 +100,7 @@ export default function CommunityPostsSection({
   const [isSaving, setIsSaving] = useState(false);
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const isMountedRef = useRef(true);
   useEffect(() => {
     isMountedRef.current = true;
@@ -391,21 +392,35 @@ export default function CommunityPostsSection({
           </p>
 
           <div className="mt-4">
-            <label
-              htmlFor="account-community-media"
+            <span
+              id="account-community-media-label"
               className="text-sm text-text-secondary"
             >
               Imágenes (máximo {COMMUNITY_POST_MAX_MEDIA})
-            </label>
+            </span>
+            {/* Input REAL, accesible por teclado (sr-only, nunca display:none/hidden — sigue en
+                el orden de tabulación). El control VISIBLE es el <button> de abajo (mismo patrón
+                que CosplayEditorDialog.tsx: ref + .click() programático), nunca el texto por
+                defecto del navegador ("Seleccionar archivo / Sin archivos seleccionados"). */}
             <input
+              ref={fileInputRef}
               id="account-community-media"
               type="file"
               accept="image/*"
               multiple
               disabled={isSaving || totalMediaCount >= COMMUNITY_POST_MAX_MEDIA}
               onChange={onFilesSelected}
-              className="mt-2 block text-sm text-text-secondary"
+              aria-describedby="account-community-media-label"
+              className="sr-only"
             />
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={isSaving || totalMediaCount >= COMMUNITY_POST_MAX_MEDIA}
+              className={`${SECONDARY_BUTTON_CLASS} mt-2 disabled:pointer-events-none disabled:opacity-50`}
+            >
+              Añadir imágenes
+            </button>
           </div>
 
           {form.existingMedia.length > 0 || upload.items.length > 0 ? (

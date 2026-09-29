@@ -1,39 +1,32 @@
-import { useEffect, useState } from "react";
-import { supabase } from "@/lib/supabase";
-import EditsFeed from "./EditsFeed";
-import UploadEditForm from "./UploadEditForm";
-
+// /comunidad (Fase 9J-1C UX follow-up): cascarón presentacional MÍNIMO hasta que llegue el
+// checkpoint del feed real de Comunidad. Sustituye el prototipo legado (EditsFeed/UploadEditForm,
+// que consultaba una tabla `edits` inexistente — nunca llegó a funcionar) en vez de intentar
+// repararlo o mantenerlo: la creación de contenido de Comunidad vive EXCLUSIVAMENTE en /account
+// (CommunityPostsSection, 9J-1C) — esta página nunca vuelve a tener un formulario de subida.
+//
+// Sin datos inventados: "Recientes"/"Populares" son solo las etiquetas congeladas del producto
+// (nunca "Top semanal", el nombre legado) — no son pestañas funcionales todavía porque no hay
+// ninguna fuente de datos pública que mostrar en este checkpoint (9J-1C no implementa lectura
+// pública de community_posts). El feed real, con datos reales, es un checkpoint futuro.
 export default function CommunitySection() {
-  const [userId, setUserId] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (!supabase) return;
-
-    supabase.auth.getUser().then(({ data }) => {
-      setUserId(data.user?.id ?? null);
-    });
-    const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
-      setUserId(session?.user?.id ?? null);
-    });
-    return () => sub.subscription.unsubscribe();
-  }, []);
-
   return (
     <section className="mx-auto max-w-6xl px-4 py-16">
-      <h2 className="mb-6 font-display text-3xl tracking-wide">COMUNIDAD</h2>
+      <h1 className="mb-6 font-display text-3xl tracking-wide text-text-primary">
+        Comunidad
+      </h1>
 
-      {userId ? (
-        <div className="mb-10 max-w-xl">
-          <h3 className="mb-3 text-lg font-semibold text-text-primary">Sube tu edit</h3>
-          <UploadEditForm authorId={userId} />
-        </div>
-      ) : (
-        <p className="mb-10 text-text-muted">
-          Inicia sesión para subir tus propios edits y votar los de la comunidad.
-        </p>
-      )}
+      <div className="mb-6 flex gap-2">
+        <span className="rounded-md bg-accent-primary px-3 py-1.5 text-sm font-semibold text-text-inverse">
+          Recientes
+        </span>
+        <span className="rounded-md bg-bg-elevated px-3 py-1.5 text-sm text-text-secondary">
+          Populares
+        </span>
+      </div>
 
-      <EditsFeed />
+      <p className="text-text-secondary" role="status" aria-live="polite">
+        Todavía no hay publicaciones que mostrar.
+      </p>
     </section>
   );
 }
