@@ -11,11 +11,20 @@ import { AdminAuthError, STEP_UP_REQUIRED_CODE } from "./admin-auth";
 // importa cómo el handler reacciona a éxito/fallo).
 
 const requireCapabilityMock = vi.fn();
+// 9J-1C: complete/abort ahora autentican SIEMPRE primero (requireAuthenticated) — el domain (y
+// por tanto si aplica cosplay_admin o el gate de Comunidad) solo se conoce tras leer la fila —
+// así que este mock también se controla explícitamente en los tests de autorización. Por defecto
+// (beforeEach) resuelve la MISMA identidad admin que requireCapabilityMock: para un asset
+// domain='cosplay', authorizeForAssetRow vuelve a llamar a requireCapability (el mock de arriba),
+// nunca reimplementa su lógica — así que preservar el comportamiento de Cosplay solo exige que
+// ambos mocks queden sincronizados en cada test, no que se elimine ninguno de los dos.
+const requireAuthenticatedMock = vi.fn();
 vi.mock("./admin-auth.js", async () => {
   const actual = await vi.importActual<typeof import("./admin-auth")>("./admin-auth");
   return {
     ...actual,
     requireCapability: (...args: unknown[]) => requireCapabilityMock(...args),
+    requireAuthenticated: (...args: unknown[]) => requireAuthenticatedMock(...args),
   };
 });
 
@@ -60,11 +69,15 @@ type Row = Record<string, unknown>;
 const mediaDb = {
   media_assets: [] as Row[],
   media_asset_variants: [] as Row[],
+  // 9J-1C: authorizeCommunity (media-handlers.ts) consulta profiles para exigir "perfil de
+  // Comunidad existente antes de reservar" — fake mínimo, solo lo que ese SELECT necesita.
+  profiles: [] as Row[],
 };
 
 function resetMediaDb() {
   mediaDb.media_assets = [];
   mediaDb.media_asset_variants = [];
+  mediaDb.profiles = [];
   mediaAssetsUpdateCalls.length = 0;
 }
 
@@ -142,7 +155,7 @@ class FakeQueryBuilder {
 
 function fakeCreateClient() {
   return {
-    from(tableName: "media_assets" | "media_asset_variants") {
+    from(tableName: "media_assets" | "media_asset_variants" | "profiles") {
       const table = mediaDb[tableName];
       return {
         insert: (payload: Row | Row[]) => new FakeQueryBuilder(table, "insert", payload),
@@ -189,6 +202,11 @@ beforeEach(() => {
     userId: "admin-user-1",
     role: "admin",
     capabilities: ["cosplay_admin"],
+  });
+  requireAuthenticatedMock.mockResolvedValue({
+    userId: "admin-user-1",
+    aal: "aal2",
+    mfaVerifiedAt: Math.floor(Date.now() / 1000),
   });
   vi.stubEnv("VITE_SUPABASE_URL", "https://fake.supabase.co");
   vi.stubEnv("SUPABASE_SERVICE_ROLE_KEY", "fake-service-role-key");
@@ -246,6 +264,20 @@ describe("autorización — los 3 handlers exigen cosplay_admin, nunca confían 
   ])(
     "%s: 403 genérico si falta la capacidad (USER/MODERATOR/DEVELOPER), SIN code",
     async (_name, run) => {
+      // 9J-1C: complete/abort exigen conocer el domain de la fila ANTES de autorizar — un asset
+      // domain='cosplay' real (el usuario SÍ está autenticado, solo le falta cosplay_admin;
+      // requireAuthenticatedMock sigue resuelto por el beforeEach) para que la comprobación de
+      // capacidad (mockeada abajo) sea la que decide, igual que antes de este checkpoint.
+      mediaDb.media_assets.push({
+        id: "x",
+        domain: "cosplay",
+        status: "reserved",
+        source_mime: "image/jpeg",
+        source_bytes: 1000,
+        private_original_key: "staging/cosplay/x/original.jpg",
+        multipart_upload_id: null,
+        processing_attempts: 0,
+      });
       requireCapabilityMock.mockRejectedValue(new AdminAuthError("No autorizado", 403));
       const res = (await run()) as unknown as ReturnType<typeof makeRes>;
       expect(res.status).toHaveBeenCalledWith(403);
@@ -268,7 +300,12 @@ describe("autorización — los 3 handlers exigen cosplay_admin, nunca confían 
     ],
     ["handleMediaAbort", () => handleMediaAbort(makeReq({ assetId: "x" }), makeRes())],
   ])("%s: 401 sin sesión", async (_name, run) => {
+    // 9J-1C: complete/abort autentican con requireAuthenticated ANTES de leer ninguna fila —
+    // sin sesión válida, ninguno de los dos handlers llega a tocar la DB (ni siquiera para
+    // devolver un 404 "honesto"): ambos mocks deben reflejar "no autenticado" para reproducir
+    // fielmente el 401 uniforme que ya daban los tres handlers antes de este checkpoint.
     requireCapabilityMock.mockRejectedValue(new AdminAuthError("No autenticado", 401));
+    requireAuthenticatedMock.mockRejectedValue(new AdminAuthError("No autenticado", 401));
     const res = (await run()) as unknown as ReturnType<typeof makeRes>;
     expect(res.status).toHaveBeenCalledWith(401);
   });
@@ -359,10 +396,10 @@ describe("handleMediaReserve — validación y modos de subida", () => {
     expect(mediaDb.media_assets).toHaveLength(0);
   });
 
-  it("domain no soportado: 400, sin fila creada (community aún no tiene migración)", async () => {
+  it("domain no soportado: 400, sin fila creada (video u otro domain futuro sin migración)", async () => {
     const res = makeRes();
     await handleMediaReserve(
-      makeReq({ domain: "community", sourceMime: "image/jpeg", sourceBytes: 1000 }),
+      makeReq({ domain: "video", sourceMime: "image/jpeg", sourceBytes: 1000 }),
       res,
     );
     expect(res.status).toHaveBeenCalledWith(400);
@@ -652,6 +689,7 @@ describe("handleMediaAbort — limpieza segura, nunca por clave arbitraria del c
     const id = "asset-2";
     mediaDb.media_assets.push({
       id,
+      domain: "cosplay",
       status: "reserved",
       private_original_key: `staging/cosplay/${id}/original.jpg`,
       multipart_upload_id: null,
@@ -674,6 +712,7 @@ describe("handleMediaAbort — limpieza segura, nunca por clave arbitraria del c
     const id = "asset-3";
     mediaDb.media_assets.push({
       id,
+      domain: "cosplay",
       status: "uploaded",
       private_original_key: `staging/cosplay/${id}/original.heic`,
       multipart_upload_id: "upload-xyz",
@@ -690,6 +729,7 @@ describe("handleMediaAbort — limpieza segura, nunca por clave arbitraria del c
     const id = "asset-4";
     mediaDb.media_assets.push({
       id,
+      domain: "cosplay",
       status: "ready",
       private_original_key: null,
       multipart_upload_id: null,
@@ -697,6 +737,110 @@ describe("handleMediaAbort — limpieza segura, nunca por clave arbitraria del c
     const res = makeRes();
     await handleMediaAbort(makeReq({ assetId: id }), res);
     expect(res.status).toHaveBeenCalledWith(409);
+    expect(mediaDb.media_assets).toHaveLength(1);
+  });
+});
+
+describe("domain='community' (9J-1C): autenticado + perfil existente, nunca cosplay_admin/MFA", () => {
+  const COMMUNITY_USER = "community-user-1";
+
+  beforeEach(() => {
+    // Estos tests representan a un usuario NORMAL (sin fila en admin_roles): requireCapability
+    // rechazaría cosplay_admin para él, así que si algún camino de reserva/complete/abort lo
+    // desviara por error hacia authorize() (el gate de Cosplay), fallaría — reforzando que
+    // domain='community' nunca pasa por ahí.
+    requireCapabilityMock.mockRejectedValue(new AdminAuthError("No autorizado", 403));
+    requireAuthenticatedMock.mockResolvedValue({
+      userId: COMMUNITY_USER,
+      aal: "aal1",
+      mfaVerifiedAt: null,
+    });
+  });
+
+  it("reserve: sin perfil de Comunidad → 422 profile_required, sin fila creada", async () => {
+    const res = makeRes();
+    await handleMediaReserve(
+      makeReq({ domain: "community", sourceMime: "image/jpeg", sourceBytes: 1000 }),
+      res,
+    );
+    expect(res.status).toHaveBeenCalledWith(422);
+    expect(res.json).toHaveBeenCalledWith(
+      expect.objectContaining({ code: "profile_required" }),
+    );
+    expect(mediaDb.media_assets).toHaveLength(0);
+  });
+
+  it("reserve: sin sesión → 401 (nunca se llega a consultar profiles)", async () => {
+    requireAuthenticatedMock.mockRejectedValue(new AdminAuthError("No autenticado", 401));
+    const res = makeRes();
+    await handleMediaReserve(
+      makeReq({ domain: "community", sourceMime: "image/jpeg", sourceBytes: 1000 }),
+      res,
+    );
+    expect(res.status).toHaveBeenCalledWith(401);
+    expect(mediaDb.media_assets).toHaveLength(0);
+  });
+
+  it("reserve: CON perfil de Comunidad → 200, fila creada con domain='community' y created_by del JWT, SIN MFA/cosplay_admin", async () => {
+    mediaDb.profiles.push({ user_id: COMMUNITY_USER });
+    const res = makeRes();
+    await handleMediaReserve(
+      makeReq({ domain: "community", sourceMime: "image/jpeg", sourceBytes: 1000 }),
+      res,
+    );
+    expect(res.status).toHaveBeenCalledWith(200);
+    expect(mediaDb.media_assets).toHaveLength(1);
+    expect(mediaDb.media_assets[0]).toMatchObject({
+      domain: "community",
+      kind: "image",
+      created_by: COMMUNITY_USER,
+    });
+  });
+
+  it("complete: un usuario nunca puede completar la reserva de OTRO (404 genérico, igual que inexistente)", async () => {
+    mediaDb.media_assets.push({
+      id: "asset-community-1",
+      domain: "community",
+      status: "reserved",
+      source_mime: "image/jpeg",
+      source_bytes: 1000,
+      private_original_key: "staging/community/asset-community-1/original.jpg",
+      multipart_upload_id: null,
+      processing_attempts: 0,
+      created_by: "otro-usuario",
+    });
+    const res = makeRes();
+    await handleMediaComplete(makeReq({ assetId: "asset-community-1" }), res);
+    expect(res.status).toHaveBeenCalledWith(404);
+  });
+
+  it("abort: el dueño SÍ puede abortar su propia reserva de Comunidad, sin cosplay_admin ni MFA", async () => {
+    mediaDb.media_assets.push({
+      id: "asset-community-2",
+      domain: "community",
+      status: "reserved",
+      private_original_key: "staging/community/asset-community-2/original.jpg",
+      multipart_upload_id: null,
+      created_by: COMMUNITY_USER,
+    });
+    const res = makeRes();
+    await handleMediaAbort(makeReq({ assetId: "asset-community-2" }), res);
+    expect(res.status).toHaveBeenCalledWith(200);
+    expect(mediaDb.media_assets).toHaveLength(0);
+  });
+
+  it("abort: otro usuario no puede abortar una reserva de Comunidad ajena (404, la fila sobrevive)", async () => {
+    mediaDb.media_assets.push({
+      id: "asset-community-3",
+      domain: "community",
+      status: "reserved",
+      private_original_key: "staging/community/asset-community-3/original.jpg",
+      multipart_upload_id: null,
+      created_by: "otro-usuario",
+    });
+    const res = makeRes();
+    await handleMediaAbort(makeReq({ assetId: "asset-community-3" }), res);
+    expect(res.status).toHaveBeenCalledWith(404);
     expect(mediaDb.media_assets).toHaveLength(1);
   });
 });

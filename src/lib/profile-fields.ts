@@ -16,9 +16,10 @@ export const BIO_MAX = 280;
 // C0 (U+0000–U+001F), DEL (U+007F) y C1 (U+0080–U+009F).
 // eslint-disable-next-line no-control-regex -- los controles son justamente lo que se rechaza
 const CONTROL_CHARS = /[\u0000-\u001f\u007f-\u009f]/;
-// Igual, pero permitiendo LF (U+000A): la bio admite varias líneas.
+// Igual, pero permitiendo LF (U+000A): la bio (y, desde 9J-1C, el texto de una publicación de
+// Comunidad — ver community-post-fields.ts) admiten varias líneas.
 // eslint-disable-next-line no-control-regex -- los controles son justamente lo que se rechaza
-const CONTROL_CHARS_EXCEPT_LF = /[\u0000-\u0009\u000b-\u001f\u007f-\u009f]/;
+export const CONTROL_CHARS_EXCEPT_LF = /[\u0000-\u0009\u000b-\u001f\u007f-\u009f]/;
 // Controles bidireccionales e invisibles peligrosos (vector de impersonación visual) que
 // el CHECK [[:cntrl:]] de la DB no cubre: U+200B–U+200F, U+202A–U+202E, U+2066–U+2069,
 // U+FEFF.
@@ -34,7 +35,11 @@ export function codePointLength(value: string): number {
   return Array.from(value).length;
 }
 
-function checkText(
+/** Exportada (9J-1C) para que community-post-fields.ts reutilice EXACTAMENTE el mismo pipeline
+ *  de normalización/seguridad (NFC, controles/invisibles peligrosos, longitud en code points)
+ *  que ya usan display_name/bio, en vez de duplicar las mismas reglas para el texto de una
+ *  publicación de Comunidad. */
+export function checkText(
   raw: string,
   max: number,
   controls: RegExp,

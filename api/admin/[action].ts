@@ -24,6 +24,13 @@ import {
   handleCosplayPostReorder,
   handleCosplayPostSave,
 } from "../../src/lib/cosplay-editor-handlers.js";
+import {
+  handleCommunityPostDelete,
+  handleCommunityPostDetachMedia,
+  handleCommunityPostListOwn,
+  handleCommunityPostReorderMedia,
+  handleCommunityPostSave,
+} from "../../src/lib/community-post-handlers.js";
 
 // Despachador de acciones admin server-side por segmento dinámico `action`. Mismo
 // patrón que api/instagram/[resource].ts y api/tiktok/[resource].ts: un único
@@ -57,6 +64,16 @@ import {
 // Cosplay: crear/guardar/publicar, borrado duro, desadjuntar imagen, reordenar galería y lecturas
 // ADMIN de borradores/publicadas; todas cosplay_admin + MFA reciente), lógica en
 // src/lib/cosplay-editor-handlers.ts.
+// "community-post-save", "community-post-reorder-media", "community-post-detach-media",
+// "community-post-delete" y "community-post-list-own" (Fase 9J-1C — gestión desde /account del
+// PROPIO contenido de Comunidad: crear/editar, reordenar media, desadjuntar, borrado duro y
+// listar las publicaciones propias). A DIFERENCIA de todo lo demás en este archivo, estas 5
+// acciones NO son privilegiadas: exigen solo requireAuthenticated + perfil de Comunidad existente
+// (nunca admin_roles, nunca MFA) — viven en este dispatcher "admin" únicamente porque el plan
+// Hobby de Vercel ya tiene sus 12 funciones Serverless agotadas (api/media/[resource].ts es la
+// función 12/12) y este es el único dispatcher genérico de acciones ya existente cuyo switch no
+// impone ninguna autorización compartida (cada acción autoriza la suya propia — ver el comentario
+// de arriba sobre "access"). Lógica en src/lib/community-post-handlers.ts.
 // La lógica de cada una vive en src/lib/admin-handlers.ts, no aquí, siguiendo el mismo
 // patrón que los otros dos dispatchers.
 export default function handler(req: VercelRequest, res: VercelResponse) {
@@ -95,6 +112,16 @@ export default function handler(req: VercelRequest, res: VercelResponse) {
       return handleCosplayPostListAdmin(req, res);
     case "cosplay-post-get-admin":
       return handleCosplayPostGetAdmin(req, res);
+    case "community-post-save":
+      return handleCommunityPostSave(req, res);
+    case "community-post-reorder-media":
+      return handleCommunityPostReorderMedia(req, res);
+    case "community-post-detach-media":
+      return handleCommunityPostDetachMedia(req, res);
+    case "community-post-delete":
+      return handleCommunityPostDelete(req, res);
+    case "community-post-list-own":
+      return handleCommunityPostListOwn(req, res);
     default:
       return res.status(404).json({ error: "No encontrado" });
   }

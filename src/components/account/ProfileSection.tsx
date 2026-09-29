@@ -3,6 +3,7 @@ import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/lib/auth-context";
 import AdminAuthField from "@/components/admin/AdminAuthField";
 import { isValidUsernameFormat, normalizeUsername } from "@/lib/profile-username";
+import CommunityPostsSection from "@/components/account/CommunityPostsSection";
 
 // Perfil público dentro de /account (Bloque 7C.2). Lee public.profiles con el cliente de
 // Supabase del navegador (SELECT público por diseño) y, si el usuario aún no tiene perfil,
@@ -406,218 +407,222 @@ export default function ProfileSection() {
   );
 
   return (
-    <section
-      aria-labelledby="account-profile-heading"
-      className="mt-6 border-t border-border-subtle pt-6"
-    >
-      <h2
-        id="account-profile-heading"
-        className="font-display text-xl tracking-wide text-text-primary"
+    <>
+      <section
+        aria-labelledby="account-profile-heading"
+        className="mt-6 border-t border-border-subtle pt-6"
       >
-        Tu perfil público
-      </h2>
+        <h2
+          id="account-profile-heading"
+          className="font-display text-xl tracking-wide text-text-primary"
+        >
+          Tu perfil público
+        </h2>
 
-      {state.status === "loading" ? (
-        <p className="mt-3 text-sm text-text-secondary" aria-live="polite">
-          Cargando tu perfil…
-        </p>
-      ) : null}
-
-      {state.status === "error" ? (
-        <div className="mt-3">
-          <p role="alert" className="text-sm text-accent-live">
-            {READ_ERROR_MESSAGE}
+        {state.status === "loading" ? (
+          <p className="mt-3 text-sm text-text-secondary" aria-live="polite">
+            Cargando tu perfil…
           </p>
-          <button
-            type="button"
-            onClick={() => setReloadKey((key) => key + 1)}
-            className={`${SECONDARY_BUTTON_CLASS} mt-3`}
-          >
-            Reintentar
-          </button>
-        </div>
-      ) : null}
+        ) : null}
 
-      {state.status === "present" && mode === "view" ? (
-        <div className="mt-3 min-w-0">
-          {state.profile.display_name ? (
-            <p className="break-words text-lg font-semibold text-text-primary">
-              {state.profile.display_name}
+        {state.status === "error" ? (
+          <div className="mt-3">
+            <p role="alert" className="text-sm text-accent-live">
+              {READ_ERROR_MESSAGE}
             </p>
-          ) : null}
-          <p className="break-all text-sm text-text-secondary">
-            @
-            <span className="font-medium text-text-primary">
-              {state.profile.username}
-            </span>
-          </p>
-          {state.profile.bio ? (
-            <p className="mt-3 whitespace-pre-line break-words text-sm text-text-secondary">
-              {state.profile.bio}
+            <button
+              type="button"
+              onClick={() => setReloadKey((key) => key + 1)}
+              className={`${SECONDARY_BUTTON_CLASS} mt-3`}
+            >
+              Reintentar
+            </button>
+          </div>
+        ) : null}
+
+        {state.status === "present" && mode === "view" ? (
+          <div className="mt-3 min-w-0">
+            {state.profile.display_name ? (
+              <p className="break-words text-lg font-semibold text-text-primary">
+                {state.profile.display_name}
+              </p>
+            ) : null}
+            <p className="break-all text-sm text-text-secondary">
+              @
+              <span className="font-medium text-text-primary">
+                {state.profile.username}
+              </span>
             </p>
-          ) : null}
-          <button
-            type="button"
-            ref={editButtonRef}
-            onClick={startEdit}
-            className={`${SECONDARY_BUTTON_CLASS} mt-4`}
-          >
-            Editar perfil
-          </button>
-        </div>
-      ) : null}
+            {state.profile.bio ? (
+              <p className="mt-3 whitespace-pre-line break-words text-sm text-text-secondary">
+                {state.profile.bio}
+              </p>
+            ) : null}
+            <button
+              type="button"
+              ref={editButtonRef}
+              onClick={startEdit}
+              className={`${SECONDARY_BUTTON_CLASS} mt-4`}
+            >
+              Editar perfil
+            </button>
+          </div>
+        ) : null}
 
-      {state.status === "present" && mode === "edit" ? (
-        <form onSubmit={(e) => void handleSave(e)} noValidate className="mt-3 min-w-0">
-          <p className="mt-2 text-xs text-text-secondary">
-            Tu nombre visible, tu bio y tu username serán públicos.
-          </p>
+        {state.status === "present" && mode === "edit" ? (
+          <form onSubmit={(e) => void handleSave(e)} noValidate className="mt-3 min-w-0">
+            <p className="mt-2 text-xs text-text-secondary">
+              Tu nombre visible, tu bio y tu username serán públicos.
+            </p>
 
-          <div className="mt-4">
+            <div className="mt-4">
+              <AdminAuthField
+                label="Username"
+                id={USERNAME_EDIT_INPUT_ID}
+                name="username"
+                type="text"
+                autoComplete="off"
+                autoCapitalize="none"
+                spellCheck={false}
+                maxLength={24}
+                errorId="account-profile-username-edit-help"
+                value={usernameEditInput}
+                onChange={(e) => setUsernameEditInput(e.target.value)}
+                disabled={isSaving}
+              />
+              <p
+                id="account-profile-username-edit-help"
+                className={`mt-2 text-xs ${usernameShowInvalid ? "text-accent-live" : "text-text-secondary"}`}
+              >
+                {usernameShowInvalid ? USERNAME_EDIT_INVALID : USERNAME_PUBLIC_NOTICE}
+              </p>
+            </div>
+
+            <div className="mt-4">
+              <AdminAuthField
+                label="Nombre visible"
+                id={NAME_INPUT_ID}
+                name="display_name"
+                type="text"
+                autoComplete="off"
+                errorId="account-profile-name-count"
+                value={nameInput}
+                onChange={(e) => setNameInput(e.target.value)}
+                disabled={isSaving}
+              />
+              <p
+                id="account-profile-name-count"
+                className={`mt-2 text-xs ${nameTooLong ? "text-accent-live" : "text-text-secondary"}`}
+              >
+                {nameCount}/{DISPLAY_NAME_MAX}
+              </p>
+              {nameTooLong ? (
+                <p role="alert" className="mt-1 text-sm text-accent-live">
+                  {MSG_NAME_TOO_LONG}
+                </p>
+              ) : null}
+            </div>
+
+            <div className="mt-4">
+              <label
+                htmlFor="account-profile-bio"
+                className="mb-1 block text-sm text-text-secondary"
+              >
+                Bio
+              </label>
+              <textarea
+                id="account-profile-bio"
+                name="bio"
+                rows={4}
+                aria-describedby="account-profile-bio-count"
+                value={bioInput}
+                onChange={(e) => setBioInput(e.target.value)}
+                disabled={isSaving}
+                className="w-full resize-y rounded-md border border-border-subtle bg-bg-base px-3 py-2 text-text-primary outline-none focus:border-accent-secondary focus-visible:ring-2 focus-visible:ring-accent-secondary"
+              />
+              <p
+                id="account-profile-bio-count"
+                className={`mt-2 text-xs ${bioTooLong ? "text-accent-live" : "text-text-secondary"}`}
+              >
+                {bioCount}/{BIO_MAX}
+              </p>
+              {bioTooLong ? (
+                <p role="alert" className="mt-1 text-sm text-accent-live">
+                  {MSG_BIO_TOO_LONG}
+                </p>
+              ) : null}
+            </div>
+
+            {editError ? (
+              <p role="alert" className="mt-4 text-sm text-accent-live">
+                {editError}
+              </p>
+            ) : null}
+
+            <div className="mt-4 flex flex-wrap gap-3">
+              <button
+                type="submit"
+                disabled={isSaving || !canSave}
+                className={PRIMARY_BUTTON_CLASS}
+              >
+                {isSaving ? "Guardando…" : "Guardar"}
+              </button>
+              <button
+                type="button"
+                onClick={cancelEdit}
+                disabled={isSaving}
+                className={SECONDARY_BUTTON_CLASS}
+              >
+                Cancelar
+              </button>
+            </div>
+          </form>
+        ) : null}
+
+        {state.status === "absent" ? (
+          <form onSubmit={(e) => void handleSubmit(e)} noValidate className="mt-3">
+            <p className="mb-4 text-sm text-text-secondary">
+              Elige tu username para crear tu perfil.
+            </p>
             <AdminAuthField
               label="Username"
-              id={USERNAME_EDIT_INPUT_ID}
+              id="account-profile-username"
               name="username"
               type="text"
               autoComplete="off"
               autoCapitalize="none"
               spellCheck={false}
-              maxLength={24}
-              errorId="account-profile-username-edit-help"
-              value={usernameEditInput}
-              onChange={(e) => setUsernameEditInput(e.target.value)}
-              disabled={isSaving}
+              maxLength={40}
+              errorId="account-profile-username-help"
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+              disabled={isSubmitting}
             />
             <p
-              id="account-profile-username-edit-help"
-              className={`mt-2 text-xs ${usernameShowInvalid ? "text-accent-live" : "text-text-secondary"}`}
+              id="account-profile-username-help"
+              className={`mt-2 text-xs ${showInvalid ? "text-accent-live" : "text-text-secondary"}`}
             >
-              {usernameShowInvalid ? USERNAME_EDIT_INVALID : USERNAME_PUBLIC_NOTICE}
+              {showInvalid ? USERNAME_INVALID : USERNAME_HELP}
             </p>
-          </div>
 
-          <div className="mt-4">
-            <AdminAuthField
-              label="Nombre visible"
-              id={NAME_INPUT_ID}
-              name="display_name"
-              type="text"
-              autoComplete="off"
-              errorId="account-profile-name-count"
-              value={nameInput}
-              onChange={(e) => setNameInput(e.target.value)}
-              disabled={isSaving}
-            />
-            <p
-              id="account-profile-name-count"
-              className={`mt-2 text-xs ${nameTooLong ? "text-accent-live" : "text-text-secondary"}`}
-            >
-              {nameCount}/{DISPLAY_NAME_MAX}
-            </p>
-            {nameTooLong ? (
-              <p role="alert" className="mt-1 text-sm text-accent-live">
-                {MSG_NAME_TOO_LONG}
+            {submitError ? (
+              <p role="alert" className="mt-4 text-sm text-accent-live">
+                {submitError}
               </p>
             ) : null}
-          </div>
 
-          <div className="mt-4">
-            <label
-              htmlFor="account-profile-bio"
-              className="mb-1 block text-sm text-text-secondary"
-            >
-              Bio
-            </label>
-            <textarea
-              id="account-profile-bio"
-              name="bio"
-              rows={4}
-              aria-describedby="account-profile-bio-count"
-              value={bioInput}
-              onChange={(e) => setBioInput(e.target.value)}
-              disabled={isSaving}
-              className="w-full resize-y rounded-md border border-border-subtle bg-bg-base px-3 py-2 text-text-primary outline-none focus:border-accent-secondary focus-visible:ring-2 focus-visible:ring-accent-secondary"
-            />
-            <p
-              id="account-profile-bio-count"
-              className={`mt-2 text-xs ${bioTooLong ? "text-accent-live" : "text-text-secondary"}`}
-            >
-              {bioCount}/{BIO_MAX}
-            </p>
-            {bioTooLong ? (
-              <p role="alert" className="mt-1 text-sm text-accent-live">
-                {MSG_BIO_TOO_LONG}
-              </p>
-            ) : null}
-          </div>
-
-          {editError ? (
-            <p role="alert" className="mt-4 text-sm text-accent-live">
-              {editError}
-            </p>
-          ) : null}
-
-          <div className="mt-4 flex flex-wrap gap-3">
             <button
               type="submit"
-              disabled={isSaving || !canSave}
-              className={PRIMARY_BUTTON_CLASS}
+              disabled={isSubmitting || !isValid}
+              className={`${PRIMARY_BUTTON_CLASS} mt-4`}
             >
-              {isSaving ? "Guardando…" : "Guardar"}
+              {isSubmitting ? "Creando perfil…" : "Crear perfil"}
             </button>
-            <button
-              type="button"
-              onClick={cancelEdit}
-              disabled={isSaving}
-              className={SECONDARY_BUTTON_CLASS}
-            >
-              Cancelar
-            </button>
-          </div>
-        </form>
-      ) : null}
+          </form>
+        ) : null}
+      </section>
 
-      {state.status === "absent" ? (
-        <form onSubmit={(e) => void handleSubmit(e)} noValidate className="mt-3">
-          <p className="mb-4 text-sm text-text-secondary">
-            Elige tu username para crear tu perfil.
-          </p>
-          <AdminAuthField
-            label="Username"
-            id="account-profile-username"
-            name="username"
-            type="text"
-            autoComplete="off"
-            autoCapitalize="none"
-            spellCheck={false}
-            maxLength={40}
-            errorId="account-profile-username-help"
-            value={username}
-            onChange={(e) => setUsername(e.target.value)}
-            disabled={isSubmitting}
-          />
-          <p
-            id="account-profile-username-help"
-            className={`mt-2 text-xs ${showInvalid ? "text-accent-live" : "text-text-secondary"}`}
-          >
-            {showInvalid ? USERNAME_INVALID : USERNAME_HELP}
-          </p>
-
-          {submitError ? (
-            <p role="alert" className="mt-4 text-sm text-accent-live">
-              {submitError}
-            </p>
-          ) : null}
-
-          <button
-            type="submit"
-            disabled={isSubmitting || !isValid}
-            className={`${PRIMARY_BUTTON_CLASS} mt-4`}
-          >
-            {isSubmitting ? "Creando perfil…" : "Crear perfil"}
-          </button>
-        </form>
-      ) : null}
-    </section>
+      <CommunityPostsSection profileStatus={state.status} />
+    </>
   );
 }

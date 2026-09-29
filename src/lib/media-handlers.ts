@@ -1,7 +1,13 @@
 import { randomUUID } from "node:crypto";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { AdminAuthError, authErrorBody, requireCapability } from "./admin-auth.js";
+import {
+  AdminAuthError,
+  authErrorBody,
+  requireAuthenticated,
+  requireCapability,
+  type AuthenticatedIdentity,
+} from "./admin-auth.js";
 import {
   canTransition,
   isSourceMimeType,
@@ -46,9 +52,13 @@ import { processImage, ProcessingFailure } from "./media-processing.js";
 const GENERIC_ERROR_BODY = { error: "Error interno" };
 const BAD_REQUEST_BODY = { error: "Solicitud inválida" };
 const NOT_FOUND_BODY = { error: "No encontrado" };
-/** Lista cerrada de dominios soportados HOY. Ampliarla (p. ej. "community") exige antes una
- *  migración que amplíe media_assets_domain_check — nunca se asume aquí. */
-const SUPPORTED_DOMAINS = new Set(["cosplay"]);
+/** Lista cerrada de dominios soportados HOY (ampliada en 9J-1C: la migración
+ *  20261004120000_community_posts_media.sql ya amplió media_assets_domain_check a
+ *  cosplay/community — nunca se asume aquí sin que el CHECK lo respalde primero). Cada domain
+ *  tiene su PROPIA autorización (ver authorizeForDomain/authorizeForAssetRow más abajo): cosplay
+ *  exige cosplay_admin+MFA reciente (sin cambios); community exige solo autenticación normal +
+ *  perfil de Comunidad existente — gestionar contenido propio nunca fue una operación privilegiada. */
+const SUPPORTED_DOMAINS = new Set(["cosplay", "community"]);
 
 interface MediaAssetRow {
   id: string;
@@ -59,6 +69,7 @@ interface MediaAssetRow {
   private_original_key: string | null;
   multipart_upload_id: string | null;
   processing_attempts: number;
+  created_by: string | null;
 }
 
 function parseJsonBody(req: VercelRequest): Record<string, unknown> | null {
@@ -85,15 +96,100 @@ function getServiceRoleClient(): SupabaseClient | null {
   });
 }
 
-/** Autorización (Fase 9I-2, sección 6): autenticado + cosplay_admin ACTUAL + MFA reciente, en ESE
- *  orden (requireCapability ya lo garantiza — ver admin-auth.ts). Se repite en cada handler, en
- *  cada request: ninguna operación de este archivo confía en un estado de autorización previo. */
+/** Autorización de Cosplay (Fase 9I-2, sección 6, SIN CAMBIOS en 9J-1C): autenticado +
+ *  cosplay_admin ACTUAL + MFA reciente, en ESE orden (requireCapability ya lo garantiza — ver
+ *  admin-auth.ts). Se repite en cada handler, en cada request: ninguna operación de este archivo
+ *  confía en un estado de autorización previo. */
 async function authorize(
   req: VercelRequest,
 ): Promise<{ userId: string } | { status: number; body: unknown }> {
   try {
     const identity = await requireCapability(req, "cosplay_admin");
     return { userId: identity.userId };
+  } catch (err) {
+    if (err instanceof AdminAuthError)
+      return { status: err.status, body: authErrorBody(err) };
+    return { status: 500, body: GENERIC_ERROR_BODY };
+  }
+}
+
+/** Autorización de Comunidad (9J-1C): autenticado normal (sin MFA, sin admin_roles — gestionar
+ *  contenido propio nunca fue una operación privilegiada) + perfil de Comunidad EXISTENTE (el
+ *  checkpoint exige: "A user must have an existing Community profile/username before publishing
+ *  Community content" — "reject publishing with a stable machine-readable error"). No basta con
+ *  no lanzar: se necesita el client service_role para consultar profiles, así que se recibe ya
+ *  creado en vez de construir uno nuevo aquí. */
+async function authorizeCommunity(
+  req: VercelRequest,
+  client: SupabaseClient,
+): Promise<{ userId: string } | { status: number; body: unknown }> {
+  let identity: AuthenticatedIdentity;
+  try {
+    identity = await requireAuthenticated(req);
+  } catch (err) {
+    if (err instanceof AdminAuthError)
+      return { status: err.status, body: authErrorBody(err) };
+    return { status: 500, body: GENERIC_ERROR_BODY };
+  }
+
+  const { data, error } = await client
+    .from("profiles")
+    .select("user_id")
+    .eq("user_id", identity.userId)
+    .maybeSingle();
+  if (error) return { status: 500, body: GENERIC_ERROR_BODY };
+  if (!data) {
+    return {
+      status: 422,
+      body: {
+        error: "Configura tu @username antes de publicar",
+        code: "profile_required",
+      },
+    };
+  }
+
+  return { userId: identity.userId };
+}
+
+/** Despacha a authorize()/authorizeCommunity() según `domain` — el ÚNICO punto donde ese
+ *  despacho ocurre; ningún handler decide esto por su cuenta. `domain` ya pasó por
+ *  SUPPORTED_DOMAINS.has() antes de llegar aquí. */
+async function authorizeForDomain(
+  req: VercelRequest,
+  domain: string,
+  client: SupabaseClient,
+): Promise<{ userId: string } | { status: number; body: unknown }> {
+  return domain === "cosplay" ? authorize(req) : authorizeCommunity(req, client);
+}
+
+/** Re-autoriza sobre un media_asset YA LEÍDO (complete/abort: el domain solo se conoce tras leer
+ *  la fila, nunca antes — a diferencia de reserve, donde el cliente lo declara en el body). Para
+ *  domain='cosplay' reutiliza EXACTAMENTE authorize() (requireCapability(req, "cosplay_admin")) —
+ *  la misma función que este archivo ya usaba antes de 9J-1C, sin reimplementar sus pasos:
+ *  preserva el comportamiento de Cosplay EXACTO (rol actual → capacidad → MFA reciente) porque es
+ *  literalmente la misma llamada, solo reordenada a después de leer la fila; el coste es una
+ *  segunda verificación de JWT, aceptable frente a duplicar lógica de autorización sensible. Para
+ *  domain='community', la única autorización real es "¿esta fila es tuya?" (created_by ===
+ *  identity.userId, con la identidad YA verificada por authenticateOnly): un usuario nunca puede
+ *  completar/abortar la reserva de otro, y la respuesta es la MISMA 404 genérica que un asset
+ *  inexistente — nunca revela que el asset SÍ existe pero es ajeno. */
+async function authorizeForAssetRow(
+  req: VercelRequest,
+  identity: AuthenticatedIdentity,
+  row: Pick<MediaAssetRow, "domain" | "created_by">,
+): Promise<{ userId: string } | { status: number; body: unknown }> {
+  if (row.domain === "cosplay") return authorize(req);
+  if (row.created_by !== identity.userId) return { status: 404, body: NOT_FOUND_BODY };
+  return { userId: identity.userId };
+}
+
+/** Solo autenticación (sin decidir autorización todavía: eso exige conocer `domain`, que
+ *  complete/abort solo saben tras leer la fila). */
+async function authenticateOnly(
+  req: VercelRequest,
+): Promise<{ identity: AuthenticatedIdentity } | { status: number; body: unknown }> {
+  try {
+    return { identity: await requireAuthenticated(req) };
   } catch (err) {
     if (err instanceof AdminAuthError)
       return { status: err.status, body: authErrorBody(err) };
@@ -176,9 +272,6 @@ export async function handleMediaReserve(
     return res.status(405).json({ error: "Método no permitido" });
   }
 
-  const auth = await authorize(req);
-  if ("status" in auth) return res.status(auth.status).json(auth.body);
-
   const body = parseJsonBody(req);
   if (!body) return res.status(400).json(BAD_REQUEST_BODY);
 
@@ -186,6 +279,16 @@ export async function handleMediaReserve(
   if (typeof domain !== "string" || !SUPPORTED_DOMAINS.has(domain)) {
     return res.status(400).json(BAD_REQUEST_BODY);
   }
+
+  const client = getServiceRoleClient();
+  if (!client) return res.status(500).json(GENERIC_ERROR_BODY);
+
+  // 9J-1C: `domain` decide QUÉ autorización aplica (cosplay_admin+MFA vs autenticado+perfil), así
+  // que ahora se lee del body ANTES de autorizar — a diferencia del orden previo (autorizar antes
+  // de tocar el body), cuando solo existía un domain posible. Parsear JSON no revela nada; nadie
+  // recibe una respuesta hasta después de esta comprobación.
+  const auth = await authorizeForDomain(req, domain, client);
+  if ("status" in auth) return res.status(auth.status).json(auth.body);
 
   const validated = validateReservationInput({
     sourceMime: body.sourceMime,
@@ -198,9 +301,6 @@ export async function handleMediaReserve(
       .status(400)
       .json({ error: "Solicitud inválida", code: reservationValidationError(validated) });
   }
-
-  const client = getServiceRoleClient();
-  if (!client) return res.status(500).json(GENERIC_ERROR_BODY);
 
   const { sourceMime, sourceBytes, sourceWidth, sourceHeight } = validated.value;
   const assetId = randomUUID();
@@ -316,8 +416,13 @@ export async function handleMediaComplete(
     return res.status(405).json({ error: "Método no permitido" });
   }
 
-  const auth = await authorize(req);
-  if ("status" in auth) return res.status(auth.status).json(auth.body);
+  // 9J-1C: el domain (y por tanto QUÉ autorización aplica) solo se conoce tras leer la fila — a
+  // diferencia de reserve, complete solo recibe assetId. Se autentica primero (identidad
+  // verificada, sin decidir autorización todavía), se lee la fila con service_role, y SOLO
+  // entonces se autoriza contra su domain real (authorizeForAssetRow) — ver el comentario de esa
+  // función para la equivalencia exacta con el authorize() previo de Cosplay.
+  const authn = await authenticateOnly(req);
+  if ("status" in authn) return res.status(authn.status).json(authn.body);
 
   const body = parseJsonBody(req);
   const assetId = body?.assetId;
@@ -331,13 +436,16 @@ export async function handleMediaComplete(
   const { data, error } = await client
     .from("media_assets")
     .select(
-      "id, domain, status, source_mime, source_bytes, private_original_key, multipart_upload_id, processing_attempts",
+      "id, domain, status, source_mime, source_bytes, private_original_key, multipart_upload_id, processing_attempts, created_by",
     )
     .eq("id", assetId)
     .maybeSingle();
   if (error) return res.status(500).json(GENERIC_ERROR_BODY);
   if (!data) return res.status(404).json(NOT_FOUND_BODY);
   const row = data as unknown as MediaAssetRow;
+
+  const auth = await authorizeForAssetRow(req, authn.identity, row);
+  if ("status" in auth) return res.status(auth.status).json(auth.body);
 
   // Idempotencia (sección 20/28): un reintento del MISMO request nunca reprocesa ni duplica.
   if (row.status === "ready")
@@ -537,8 +645,8 @@ export async function handleMediaAbort(
     return res.status(405).json({ error: "Método no permitido" });
   }
 
-  const auth = await authorize(req);
-  if ("status" in auth) return res.status(auth.status).json(auth.body);
+  const authn = await authenticateOnly(req);
+  if ("status" in authn) return res.status(authn.status).json(authn.body);
 
   const body = parseJsonBody(req);
   const assetId = body?.assetId;
@@ -551,15 +659,23 @@ export async function handleMediaAbort(
 
   const { data, error } = await client
     .from("media_assets")
-    .select("id, private_original_key, multipart_upload_id, status")
+    .select("id, domain, private_original_key, multipart_upload_id, status, created_by")
     .eq("id", assetId)
     .maybeSingle();
   if (error) return res.status(500).json(GENERIC_ERROR_BODY);
   if (!data) return res.status(404).json(NOT_FOUND_BODY);
   const row = data as unknown as Pick<
     MediaAssetRow,
-    "id" | "private_original_key" | "multipart_upload_id" | "status"
+    | "id"
+    | "domain"
+    | "private_original_key"
+    | "multipart_upload_id"
+    | "status"
+    | "created_by"
   >;
+
+  const auth = await authorizeForAssetRow(req, authn.identity, row);
+  if ("status" in auth) return res.status(auth.status).json(auth.body);
 
   if (!["reserved", "uploaded", "failed"].includes(row.status)) {
     return res

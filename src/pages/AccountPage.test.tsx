@@ -380,9 +380,22 @@ describe("/account — Panel de administración (9G-3): presentación según GET
   it("mientras el acceso carga no se muestra el enlace (sin destello privilegiado)", async () => {
     authFakes.session = fakeSession();
     let release: (v: unknown) => void = () => undefined;
+    // Distingue por URL: la sección de Comunidad (CommunityPostsSection, 9J-1C) también llama a
+    // fetch en cuanto el perfil está "present" — un stub que capturase CUALQUIER llamada
+    // resolvería la promesa equivocada y este test nunca vería el enlace ADMIN aparecer.
     vi.stubGlobal(
       "fetch",
-      vi.fn(() => new Promise((resolve) => (release = resolve))),
+      vi.fn((input: RequestInfo | URL) => {
+        const url = typeof input === "string" ? input : input.toString();
+        if (url.includes("/api/admin/access")) {
+          return new Promise((resolve) => (release = resolve));
+        }
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: async () => ({ items: [] }),
+        });
+      }),
     );
     renderAccount();
 
