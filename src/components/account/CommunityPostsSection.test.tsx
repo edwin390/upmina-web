@@ -73,8 +73,45 @@ describe("sin perfil: ni formulario ni picker", () => {
   });
 });
 
-describe("selector de imágenes — control estilizado, no el por defecto del navegador", () => {
-  it("el input real solo acepta imágenes (accept=image/*), nunca vídeo, y admite selección múltiple", async () => {
+describe("selector multimedia — copy futuro-compatible, control estilizado, imágenes por ahora", () => {
+  it("muestra la etiqueta 'Multimedia (máximo 10)' (terminología mixta foto+vídeo, no 'Imágenes')", async () => {
+    await renderPresent();
+    expect(screen.getByText("Multimedia (máximo 10)")).toBeInTheDocument();
+    expect(screen.queryByText(/^Imágenes \(máximo/)).toBeNull();
+  });
+
+  it("el botón dice 'Añadir fotos o videos' (describe el control mixto final, sin crear un segundo botón de vídeo)", async () => {
+    await renderPresent();
+    expect(
+      screen.getByRole("button", { name: "Añadir fotos o videos" }),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^Añadir imágenes$/ })).toBeNull();
+    // Ningún botón de vídeo APARTE del único trigger mixto de arriba.
+    const videoButtons = screen
+      .queryAllByRole("button")
+      .filter(
+        (btn) =>
+          /video/i.test(btn.textContent ?? "") &&
+          btn.textContent !== "Añadir fotos o videos",
+      );
+    expect(videoButtons).toHaveLength(0);
+  });
+
+  it("el helper aclara que el vídeo todavía no está disponible, sin fingir que ya funciona", async () => {
+    await renderPresent();
+    expect(
+      screen.getByText(
+        "Por ahora puedes subir fotos. Los videos estarán disponibles pronto.",
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it("solo existe UN input de archivo (ningún segundo selector de vídeo)", async () => {
+    const { container } = await renderPresent();
+    expect(container.querySelectorAll('input[type="file"]')).toHaveLength(1);
+  });
+
+  it("el input real SIGUE restringido a imágenes (accept=image/*): el vídeo no se habilita todavía, pese a la copy nueva", async () => {
     const { container } = await renderPresent();
     const input = container.querySelector('input[type="file"]') as HTMLInputElement;
     expect(input).not.toBeNull();
@@ -82,9 +119,8 @@ describe("selector de imágenes — control estilizado, no el por defecto del na
     expect(input.multiple).toBe(true);
   });
 
-  it("el texto visible es el botón propio ('Añadir imágenes'), no el control nativo del navegador", async () => {
+  it("el texto visible es el botón propio, no el control nativo del navegador", async () => {
     await renderPresent();
-    expect(screen.getByRole("button", { name: "Añadir imágenes" })).toBeInTheDocument();
     // El navegador renderiza "Seleccionar archivo"/"Ningún archivo seleccionado" como texto de
     // caja del propio <input>, no como nodos de texto del DOM — pero el picker estilizado nunca
     // debe depender de (ni mostrar) ese texto por ningún otro medio.
@@ -105,7 +141,7 @@ describe("selector de imágenes — control estilizado, no el por defecto del na
   it("pulsar el botón estilizado abre el selector nativo (dispara click() del input real)", async () => {
     await renderPresent();
     const clickSpy = vi.spyOn(HTMLInputElement.prototype, "click");
-    fireEvent.click(screen.getByRole("button", { name: "Añadir imágenes" }));
+    fireEvent.click(screen.getByRole("button", { name: "Añadir fotos o videos" }));
     expect(clickSpy).toHaveBeenCalledTimes(1);
     clickSpy.mockRestore();
   });
@@ -128,7 +164,7 @@ describe("selector de imágenes — control estilizado, no el por defecto del na
       ],
     }));
     await renderPresent();
-    expect(screen.getByRole("button", { name: "Añadir imágenes" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Añadir fotos o videos" })).toBeDisabled();
   });
 });
 

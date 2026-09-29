@@ -391,17 +391,21 @@ export default function CommunityPostsSection({
             {textCount}/{COMMUNITY_POST_TEXT_MAX}
           </p>
 
-          <div className="mt-4">
+          <div className="mt-6">
             <span
               id="account-community-media-label"
-              className="text-sm text-text-secondary"
+              className="block text-sm text-text-secondary"
             >
-              Imágenes (máximo {COMMUNITY_POST_MAX_MEDIA})
+              Multimedia (máximo {COMMUNITY_POST_MAX_MEDIA})
             </span>
             {/* Input REAL, accesible por teclado (sr-only, nunca display:none/hidden — sigue en
                 el orden de tabulación). El control VISIBLE es el <button> de abajo (mismo patrón
                 que CosplayEditorDialog.tsx: ref + .click() programático), nunca el texto por
-                defecto del navegador ("Seleccionar archivo / Sin archivos seleccionados"). */}
+                defecto del navegador ("Seleccionar archivo / Sin archivos seleccionados"). Copy
+                "Añadir fotos o videos" describe el control MIXTO final congelado (una sola
+                colección de imágenes+vídeo); accept sigue en image/* a propósito — el vídeo real
+                todavía no tiene pipeline de procesado (checkpoint dedicado futuro), así que el
+                helper de abajo aclara la limitación actual sin fingir que ya funciona. */}
             <input
               ref={fileInputRef}
               id="account-community-media"
@@ -410,17 +414,23 @@ export default function CommunityPostsSection({
               multiple
               disabled={isSaving || totalMediaCount >= COMMUNITY_POST_MAX_MEDIA}
               onChange={onFilesSelected}
-              aria-describedby="account-community-media-label"
+              aria-describedby="account-community-media-label account-community-media-helper"
               className="sr-only"
             />
             <button
               type="button"
               onClick={() => fileInputRef.current?.click()}
               disabled={isSaving || totalMediaCount >= COMMUNITY_POST_MAX_MEDIA}
-              className={`${SECONDARY_BUTTON_CLASS} mt-2 disabled:pointer-events-none disabled:opacity-50`}
+              className={`${SECONDARY_BUTTON_CLASS} mt-3 disabled:pointer-events-none disabled:opacity-50`}
             >
-              Añadir imágenes
+              Añadir fotos o videos
             </button>
+            <p
+              id="account-community-media-helper"
+              className="mt-2 text-xs text-text-secondary"
+            >
+              Por ahora puedes subir fotos. Los videos estarán disponibles pronto.
+            </p>
           </div>
 
           {form.existingMedia.length > 0 || upload.items.length > 0 ? (
