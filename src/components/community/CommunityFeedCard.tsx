@@ -53,20 +53,70 @@ function AuthorAvatar({ username }: { username: string }) {
   );
 }
 
+/** Insignia ▶ superpuesta sobre una miniatura de vídeo (Fase 9J-3, sección 16/17 del checkpoint):
+ *  nunca autoplay con sonido en el feed — el indicador deja claro que hace falta interactuar
+ *  (controles nativos) para reproducir. */
+function VideoPlayBadge() {
+  return (
+    <span
+      aria-hidden="true"
+      className="pointer-events-none absolute inset-0 flex items-center justify-center"
+    >
+      <span className="flex h-10 w-10 items-center justify-center rounded-full bg-black/60 text-white">
+        <svg width={16} height={16} viewBox="0 0 24 24" fill="currentColor">
+          <path d="M8 5v14l11-7z" />
+        </svg>
+      </span>
+    </span>
+  );
+}
+
+/** UN solo item de media, imagen o vídeo (Fase 9J-3). Toda esta grilla vive DENTRO del <Link> al
+ *  detalle (ver CommunityFeedCard más abajo), así que el vídeo aquí es SIEMPRE una vista previa no
+ *  interactiva (silenciada, sin controles nativos — mismo criterio que una imagen no es "clicable
+ *  para zoom" en el feed): mezclar controles reales dentro de un enlace clicable sería frágil
+ *  (sección 16 del checkpoint: "prefer a simple click-to-play... over fragile complexity"). La
+ *  reproducción real con controles vive en el detalle (PostDetailPage.tsx), que SÍ es interactivo.
+ *  El clic en cualquier punto de la tarjeta navega al detalle, igual que ya ocurría con imagen. */
+function MediaItemView({
+  item,
+  className,
+}: {
+  item: CommunityFeedPost["media"][number];
+  className: string;
+}) {
+  if (item.kind === "video") {
+    return (
+      <video
+        src={item.url}
+        muted
+        playsInline
+        preload="metadata"
+        style={{ aspectRatio: `${item.width} / ${item.height}` }}
+        className={className}
+      />
+    );
+  }
+  return (
+    <img
+      src={item.url}
+      alt=""
+      loading="lazy"
+      style={{ aspectRatio: `${item.width} / ${item.height}` }}
+      className={className}
+    />
+  );
+}
+
 function MediaGrid({ media }: { media: CommunityFeedPost["media"] }) {
   if (media.length === 0) return null;
 
   if (media.length === 1) {
     const item = media[0]!;
     return (
-      <div className="mt-3 overflow-hidden rounded-lg bg-bg-elevated">
-        <img
-          src={item.url}
-          alt=""
-          loading="lazy"
-          style={{ aspectRatio: `${item.width} / ${item.height}` }}
-          className="w-full object-contain"
-        />
+      <div className="relative mt-3 overflow-hidden rounded-lg bg-bg-elevated">
+        <MediaItemView item={item} className="w-full object-contain" />
+        {item.kind === "video" ? <VideoPlayBadge /> : null}
       </div>
     );
   }
@@ -89,12 +139,8 @@ function MediaGrid({ media }: { media: CommunityFeedPost["media"] }) {
             key={item.id}
             className="relative aspect-square overflow-hidden rounded-md bg-bg-elevated"
           >
-            <img
-              src={item.url}
-              alt=""
-              loading="lazy"
-              className="h-full w-full object-cover"
-            />
+            <MediaItemView item={item} className="h-full w-full object-cover" />
+            {item.kind === "video" && !isLastVisible ? <VideoPlayBadge /> : null}
             {isLastVisible ? (
               <span
                 aria-hidden="true"

@@ -133,9 +133,11 @@ describe("handleCommunityPostDetail", () => {
             position: 0,
             media_assets: {
               status: "ready",
+              kind: "image",
               width: 1200,
               height: 1600,
               storage_key: "community/asset-1/w1200.webp",
+              duration_seconds: null,
             },
           },
           {
@@ -152,6 +154,50 @@ describe("handleCommunityPostDetail", () => {
     const body = state.body as { post: { media: { id: string; url: string }[] } };
     expect(body.post.media).toHaveLength(1);
     expect(body.post.media[0]?.url).toContain("community/asset-1/w1200.webp");
+  });
+
+  it("post mixto (9J-3): imagen+vídeo en el orden definido, kind/durationSeconds expuestos", async () => {
+    communityPostDetailDb.posts = [
+      postRow({
+        community_post_media: [
+          {
+            id: "media-1",
+            position: 0,
+            media_assets: {
+              status: "ready",
+              kind: "image",
+              width: 1200,
+              height: 1600,
+              storage_key: "community/asset-1/w1200.webp",
+              duration_seconds: null,
+            },
+          },
+          {
+            id: "media-video",
+            position: 1,
+            media_assets: {
+              status: "ready",
+              kind: "video",
+              width: 1280,
+              height: 720,
+              storage_key: "community/asset-video/original.mp4",
+              duration_seconds: 15,
+            },
+          },
+        ],
+      }),
+    ];
+    communityPostDetailDb.profiles = [profileRow()];
+    const { res, state } = mockRes();
+    await handleCommunityPostDetail(req("GET", { postId: POST_ID }), res);
+    const body = state.body as {
+      post: { media: { id: string; kind: string; durationSeconds: number | null }[] };
+    };
+    expect(body.post.media.map((m) => ({ id: m.id, kind: m.kind }))).toEqual([
+      { id: "media-1", kind: "image" },
+      { id: "media-video", kind: "video" },
+    ]);
+    expect(body.post.media[1]?.durationSeconds).toBe(15);
   });
 
   it("no expone email, UUID, author_user_id, role ni metadata de MFA/seguridad", async () => {

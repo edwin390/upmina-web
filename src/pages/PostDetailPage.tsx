@@ -4,10 +4,10 @@ import { useCommunityLikedByMe } from "@/hooks/useCommunityLikedByMe";
 import CommunityLikeButton from "@/components/community/CommunityLikeButton";
 import type { CommunityFeedPost } from "@/types";
 
-// /community/post/:postId (Fase 9J-2B.1, con like real en 9J-2C): detalle público de UNA
-// publicación de Comunidad — destino "compartible" de las tarjetas del feed y de la galería de
-// perfil, que antes eran inertes. Solo lectura salvo el like: sin comentarios, sin reacciones
-// múltiples, sin botón de reporte, sin vídeo. La identidad del autor enlaza a /@username (nunca al
+// /community/post/:postId (Fase 9J-2B.1, con like real en 9J-2C, con vídeo real en 9J-3): detalle
+// público de UNA publicación de Comunidad — destino "compartible" de las tarjetas del feed y de la
+// galería de perfil, que antes eran inertes. Solo lectura salvo el like: sin comentarios, sin
+// reacciones múltiples, sin botón de reporte. La identidad del autor enlaza a /@username (nunca al
 // revés: el enlace de autor NUNCA abre esta página, ver CommunityFeedCard.tsx/ProfilePage.tsx).
 
 function formatDate(iso: string): string {
@@ -31,20 +31,37 @@ function AuthorAvatarPlaceholder({ username }: { username: string }) {
   );
 }
 
+/** A diferencia del feed (miniaturas no interactivas dentro de un <Link>, ver
+ *  CommunityFeedCard.tsx), el detalle SÍ es el lugar real de reproducción: controles nativos,
+ *  silenciado por defecto (nunca autoplay con sonido), playsInline — el usuario decide reproducir. */
 function PostMedia({ media }: { media: CommunityFeedPost["media"] }) {
   if (media.length === 0) return null;
   return (
     <div className="mt-4 flex flex-col gap-3">
-      {media.map((item) => (
-        <div key={item.id} className="overflow-hidden rounded-lg bg-bg-elevated">
-          <img
-            src={item.url}
-            alt=""
-            style={{ aspectRatio: `${item.width} / ${item.height}` }}
-            className="w-full object-contain"
-          />
-        </div>
-      ))}
+      {media.map((item) =>
+        item.kind === "video" ? (
+          <div key={item.id} className="overflow-hidden rounded-lg bg-black">
+            <video
+              src={item.url}
+              controls
+              muted
+              playsInline
+              preload="metadata"
+              style={{ aspectRatio: `${item.width} / ${item.height}` }}
+              className="w-full"
+            />
+          </div>
+        ) : (
+          <div key={item.id} className="overflow-hidden rounded-lg bg-bg-elevated">
+            <img
+              src={item.url}
+              alt=""
+              style={{ aspectRatio: `${item.width} / ${item.height}` }}
+              className="w-full object-contain"
+            />
+          </div>
+        ),
+      )}
     </div>
   );
 }

@@ -104,8 +104,12 @@ export interface CommunityPostMedia {
 
 export interface CommunityOwnPostMedia extends CommunityPostMedia {
   assetStatus: string | null;
+  /** Discriminador de tipo (Fase 9J-3): "image" o "video". */
+  kind: "image" | "video";
   width: number | null;
   height: number | null;
+  /** SOLO kind="video". null para imagen, o si el navegador de origen no pudo leerla. */
+  durationSeconds: number | null;
   /** null mientras el asset no esté 'ready' (aún procesándose). */
   url: string | null;
 }

@@ -52,9 +52,11 @@ function readyMediaRow(overrides: Record<string, unknown> = {}) {
     position: 0,
     media_assets: {
       status: "ready",
+      kind: "image",
       width: 1200,
       height: 1600,
       storage_key: "community/asset-1/w1200.webp",
+      duration_seconds: null,
     },
     ...overrides,
   };
@@ -151,6 +153,68 @@ describe("handleCommunityFeed", () => {
     expect(media.kind).toBe("image");
     expect(media.url).toContain("community/asset-1/w1200.webp");
     expect(JSON.stringify(body)).not.toContain("private");
+  });
+
+  it("publicación con vídeo (9J-3): kind='video', durationSeconds expuesta, sin storage_key crudo", async () => {
+    communityFeedDb.posts = [
+      postRow({
+        community_post_media: [
+          readyMediaRow({
+            id: "media-video",
+            media_assets: {
+              status: "ready",
+              kind: "video",
+              width: 1280,
+              height: 720,
+              storage_key: "community/asset-video/original.mp4",
+              duration_seconds: 9.5,
+            },
+          }),
+        ],
+      }),
+    ];
+    const { res, state } = mockRes();
+    await handleCommunityFeed(req("GET"), res);
+    const body = state.body as {
+      items: { media: { kind: string; url: string; durationSeconds: number | null }[] }[];
+    };
+    const media = body.items[0]!.media[0]!;
+    expect(media.kind).toBe("video");
+    expect(media.url).toContain("community/asset-video/original.mp4");
+    expect(media.durationSeconds).toBe(9.5);
+    expect(JSON.stringify(body)).not.toContain("staging/");
+    expect(JSON.stringify(body)).not.toContain("private_original_key");
+  });
+
+  it("mezcla imagen+vídeo (9J-3): conserva el ORDEN definido por position, nunca reordena por kind", async () => {
+    communityFeedDb.posts = [
+      postRow({
+        community_post_media: [
+          readyMediaRow({ id: "media-1", position: 0 }),
+          readyMediaRow({
+            id: "media-2",
+            position: 1,
+            media_assets: {
+              status: "ready",
+              kind: "video",
+              width: 1280,
+              height: 720,
+              storage_key: "community/asset-video/original.mp4",
+              duration_seconds: null,
+            },
+          }),
+          readyMediaRow({ id: "media-3", position: 2 }),
+        ],
+      }),
+    ];
+    const { res, state } = mockRes();
+    await handleCommunityFeed(req("GET"), res);
+    const body = state.body as { items: { media: { id: string; kind: string }[] }[] };
+    expect(body.items[0]?.media.map((m) => ({ id: m.id, kind: m.kind }))).toEqual([
+      { id: "media-1", kind: "image" },
+      { id: "media-2", kind: "video" },
+      { id: "media-3", kind: "image" },
+    ]);
   });
 
   it("varias imágenes conservan su position", async () => {

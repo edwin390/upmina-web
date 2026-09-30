@@ -151,3 +151,83 @@ describe("/community/post/:postId — like real (Fase 9J-2C)", () => {
     expect(screen.getByRole("button", { name: /me gusta/i })).toBeInTheDocument();
   });
 });
+
+describe("/community/post/:postId — media de vídeo (Fase 9J-3)", () => {
+  it("post solo-vídeo: <video> con controls, muted, playsInline (a diferencia del feed, aquí SÍ es interactivo)", async () => {
+    stubDetail({
+      post: post({
+        text: null,
+        media: [
+          {
+            id: "m1",
+            position: 0,
+            kind: "video",
+            url: "https://example.test/m1.mp4",
+            width: 1280,
+            height: 720,
+            durationSeconds: 12,
+          },
+        ],
+      }),
+    });
+    const { container } = renderDetail();
+    await waitFor(() => expect(container.querySelectorAll("video")).toHaveLength(1));
+    const video = container.querySelector("video")!;
+    expect(video).toHaveAttribute("src", "https://example.test/m1.mp4");
+    expect(video).toHaveAttribute("controls");
+    expect(video).toHaveProperty("muted", true);
+    expect(video).toHaveProperty("playsInline", true);
+  });
+
+  it("post mixto: preserva el orden imagen→vídeo definido por position", async () => {
+    stubDetail({
+      post: post({
+        text: null,
+        media: [
+          {
+            id: "m1",
+            position: 0,
+            kind: "image",
+            url: "https://example.test/m1.webp",
+            width: 800,
+            height: 800,
+          },
+          {
+            id: "m2",
+            position: 1,
+            kind: "video",
+            url: "https://example.test/m2.mp4",
+            width: 800,
+            height: 800,
+          },
+        ],
+      }),
+    });
+    const { container } = renderDetail();
+    await waitFor(() => expect(container.querySelectorAll("video")).toHaveLength(1));
+    const mediaEls = Array.from(container.querySelectorAll("img, video"));
+    expect(mediaEls.map((el) => el.tagName)).toEqual(["IMG", "VIDEO"]);
+  });
+
+  it("los likes siguen intactos junto a un post con vídeo (regresión 9J-2C)", async () => {
+    stubDetail({
+      post: post({
+        likeCount: 3,
+        media: [
+          {
+            id: "m1",
+            position: 0,
+            kind: "video",
+            url: "https://example.test/m1.mp4",
+            width: 1280,
+            height: 720,
+          },
+        ],
+      }),
+    });
+    renderDetail();
+    expect(
+      await screen.findByRole("button", { name: /me gusta \(3\)/i }),
+    ).toBeInTheDocument();
+  });
+});

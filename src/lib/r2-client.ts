@@ -310,6 +310,35 @@ export async function deletePrivateObject(key: string): Promise<void> {
   await client.send(new DeleteObjectCommand({ Bucket: privateBucket, Key: key }));
 }
 
+/** Copia un objeto PRIVADO (objects/) directamente al bucket PÚBLICO, servidor-a-servidor dentro
+ *  de R2 — los bytes nunca pasan por la función de Vercel (Fase 9J-3, sección 25 del checkpoint:
+ *  "prefer direct public R2 delivery... do not build a proxy through Vercel unless absolutely
+ *  necessary"). Usado SOLO para vídeo: a diferencia de una imagen (que SIEMPRE se decodifica y
+ *  recomprime a WebP vía putPublicVariant, con los bytes en memoria del proceso), el vídeo
+ *  original se sirve tal cual — cargar hasta 100 MB en la función solo para volver a subirlos
+ *  sería un desperdicio de tiempo de ejecución y memoria sin ningún beneficio. `contentType` se
+ *  fija explícitamente (MetadataDirective: "REPLACE") para que el objeto público sirva el MIME
+ *  real del vídeo en vez de heredar el que R2 infiera del objeto privado. */
+export async function copyPrivateObjectToPublic(
+  sourceKey: string,
+  destinationKey: string,
+  contentType: string,
+): Promise<void> {
+  const { client, privateBucket, publicBucket } = getActiveR2Config();
+  await client.send(
+    new CopyObjectCommand({
+      Bucket: publicBucket,
+      Key: destinationKey,
+      CopySource: `${privateBucket}/${encodeURIComponent(sourceKey)}`,
+      ContentType: contentType,
+      MetadataDirective: "REPLACE",
+      // Igual que putPublicVariant: inmutable a propósito, la clave incluye el assetId así que un
+      // objeto publicado nunca se sobrescribe con bytes distintos.
+      CacheControl: "public, max-age=31536000, immutable",
+    }),
+  );
+}
+
 // ---------- público: variantes canónicas ----------
 
 export async function putPublicVariant(

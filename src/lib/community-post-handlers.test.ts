@@ -270,6 +270,7 @@ describe("handleCommunityPostSave", () => {
     ["post_not_found", 404, "not_found"],
     ["version_conflict", 409, "community_version_conflict"],
     ["too_many_media", 400, "too_many_media"],
+    ["too_many_videos", 400, "too_many_videos"],
     ["duplicate_asset_id", 400, "duplicate_asset_id"],
     ["invalid_positions", 400, "invalid_positions"],
     ["media_missing_existing", 400, "media_missing_existing"],
@@ -526,6 +527,72 @@ describe("handleCommunityPostListOwn", () => {
       text: "hola",
       likeCount: 3,
       media: [{ id: MEDIA_ID, assetId: ASSET_ID, position: 0, assetStatus: "ready" }],
+    });
+  });
+
+  it("media de vídeo (9J-3): kind='video' y durationSeconds se propagan; kind ausente en el fixture se trata como imagen", async () => {
+    vi.stubEnv("R2_DEV_ACCESS_KEY_ID", "test-access-key-id");
+    vi.stubEnv("R2_DEV_SECRET_ACCESS_KEY", "test-secret-access-key");
+    vi.stubEnv("R2_DEV_ENDPOINT", "https://test-account.r2.cloudflarestorage.com");
+    vi.stubEnv("R2_DEV_PRIVATE_BUCKET", "upmina-media-dev-private");
+    vi.stubEnv("R2_DEV_PUBLIC_BUCKET", "upmina-media-dev-public");
+    vi.stubEnv("R2_DEV_PUBLIC_BASE_URL", "https://pub-test.r2.dev");
+    const { resetR2DevConfigCache } = await import("./r2-client");
+    resetR2DevConfigCache();
+
+    fake.ownListResult = {
+      data: [
+        {
+          id: POST_ID,
+          text: null,
+          status: "published",
+          version: 1,
+          created_at: "2026-01-01T00:00:00Z",
+          updated_at: "2026-01-01T00:00:00Z",
+          like_count: 0,
+          community_post_media: [
+            {
+              id: "media-video",
+              asset_id: "asset-video",
+              position: 0,
+              media_assets: {
+                id: "asset-video",
+                status: "ready",
+                kind: "video",
+                width: 1280,
+                height: 720,
+                storage_key: "community/asset-video/original.mp4",
+                duration_seconds: 12.4,
+              },
+            },
+            {
+              id: MEDIA_ID,
+              asset_id: ASSET_ID,
+              position: 1,
+              media_assets: {
+                id: ASSET_ID,
+                status: "ready",
+                width: 800,
+                height: 600,
+                storage_key: "community/x/w960.webp",
+              },
+            },
+          ],
+        },
+      ],
+      error: null,
+    };
+    const state = await call(handleCommunityPostListOwn, req({ method: "GET" }));
+    const body = state.body as {
+      items: { media: { kind: string; durationSeconds: number | null }[] }[];
+    };
+    expect(body.items[0]?.media[0]).toMatchObject({
+      kind: "video",
+      durationSeconds: 12.4,
+    });
+    expect(body.items[0]?.media[1]).toMatchObject({
+      kind: "image",
+      durationSeconds: null,
     });
   });
 

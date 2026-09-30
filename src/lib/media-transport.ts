@@ -88,6 +88,55 @@ export async function preShrinkImage(file: Blob): Promise<PreShrinkResult> {
   }
 }
 
+/** Lee width/height/duración de un vídeo con un <video> oculto apuntando a un blob: URL local —
+ *  nunca sube ni transcodifica nada, solo lee metadata que el navegador ya decodificó (Fase 9J-3,
+ *  sección 10 del checkpoint: metadata de UX, nunca boundary de seguridad). null si el navegador
+ *  no puede leerla (el servidor exige estas dimensiones para reservar un vídeo — ver
+ *  media-domain.ts — así que un null aquí termina en un error de reserva claro, nunca en datos
+ *  inventados). Vive aquí (no en useMediaUpload.ts) por el mismo motivo que preShrinkImage: es
+ *  lectura de DOM/navegador pura, mockeable en tests igual que el resto de este módulo. */
+export function readVideoMetadata(
+  file: File,
+): Promise<{ width: number; height: number; durationSeconds: number | null } | null> {
+  if (typeof document === "undefined" || typeof document.createElement !== "function") {
+    return Promise.resolve(null);
+  }
+  return new Promise((resolve) => {
+    const url = URL.createObjectURL(file);
+    const video = document.createElement("video");
+    video.preload = "metadata";
+    video.muted = true;
+    let settled = false;
+    function cleanup() {
+      video.removeAttribute("src");
+      video.load();
+      URL.revokeObjectURL(url);
+    }
+    video.onloadedmetadata = () => {
+      if (settled) return;
+      settled = true;
+      const { videoWidth, videoHeight, duration } = video;
+      cleanup();
+      if (videoWidth > 0 && videoHeight > 0) {
+        resolve({
+          width: videoWidth,
+          height: videoHeight,
+          durationSeconds: Number.isFinite(duration) && duration > 0 ? duration : null,
+        });
+      } else {
+        resolve(null);
+      }
+    };
+    video.onerror = () => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      resolve(null);
+    };
+    video.src = url;
+  });
+}
+
 export interface PreparedUpload {
   blob: Blob;
   mime: string;

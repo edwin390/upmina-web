@@ -92,10 +92,14 @@ export type ReserveResponse =
 
 export function reserveMediaUpload(input: {
   domain: string;
+  /** "image" (por defecto si se omite) o "video" (Fase 9J-3, solo domain="community"). */
+  kind?: "image" | "video";
   sourceMime: string;
   sourceBytes: number;
   sourceWidth?: number;
   sourceHeight?: number;
+  /** SOLO vídeo, opcional, nunca boundary de seguridad — ver media-domain.ts. */
+  sourceDurationSeconds?: number;
 }): Promise<ReserveResponse> {
   return postJson<ReserveResponse>("reserve", input);
 }
@@ -108,8 +112,20 @@ export interface MediaVariantResult {
   url: string;
 }
 
+/** Resultado 'ready' de un vídeo (Fase 9J-3): un único objeto público, sin variantes — a
+ *  diferencia de imagen (hasta 4 tamaños WebP). */
+export interface MediaVideoResult {
+  kind: "video";
+  url: string;
+  width: number;
+  height: number;
+  bytes: number;
+  durationSeconds: number | null;
+}
+
 export type CompleteResponse =
-  | { assetId: string; status: "ready"; variants: MediaVariantResult[] }
+  | { assetId: string; status: "ready"; kind: "image"; variants: MediaVariantResult[] }
+  | ({ assetId: string; status: "ready" } & MediaVideoResult)
   | { assetId: string; status: "processing" | "verifying" }
   | { assetId: string; status: "failed"; failureCode: string };
 

@@ -1,15 +1,19 @@
 import { describe, expect, it } from "vitest";
 import {
   canTransition,
+  isMediaKind,
   isSourceMimeType,
+  isVideoMimeType,
   MAX_SOURCE_BYTES,
   MAX_SOURCE_MEGAPIXELS,
+  MAX_VIDEO_SOURCE_BYTES,
   MULTIPART_PART_SIZE_BYTES,
   MULTIPART_THRESHOLD_BYTES,
   multipartPartCount,
   NO_CLIENT_PRESHRINK_MIME_TYPES,
   privateObjectKey,
   publicVariantKey,
+  publicVideoKey,
   qualityForOutputWidth,
   reservationValidationError,
   stagingKey,
@@ -150,10 +154,12 @@ describe("validateReservationInput", () => {
     expect(result).toEqual({
       ok: true,
       value: {
+        kind: "image",
         sourceMime: "image/jpeg",
         sourceBytes: 1000,
         sourceWidth: null,
         sourceHeight: null,
+        sourceDurationSeconds: null,
       },
     });
   });
@@ -340,5 +346,235 @@ describe("canTransition — máquina de estados servidor-autoritativa", () => {
     ] as const) {
       expect(canTransition(status, status)).toBe(false);
     }
+  });
+});
+
+// ────────────────────────────────────────────────────────────────────────────────────────────
+// Vídeo (Fase 9J-3): MP4/MOV/WebM, techo de 100 MB, dimensiones obligatorias (nunca decodificado
+// server-side), kind='video' solo válido junto a esa lista de mimes — nunca se afloja la lista de
+// imagen (SOURCE_MIME_TYPES) ni sus límites existentes.
+
+describe("isVideoMimeType", () => {
+  it("acepta exactamente MP4/MOV(quicktime)/WebM", () => {
+    expect(isVideoMimeType("video/mp4")).toBe(true);
+    expect(isVideoMimeType("video/quicktime")).toBe(true);
+    expect(isVideoMimeType("video/webm")).toBe(true);
+  });
+
+  it("rechaza otros contenedores de vídeo y cualquier tipo fuera de la lista cerrada", () => {
+    expect(isVideoMimeType("video/x-matroska")).toBe(false);
+    expect(isVideoMimeType("video/ogg")).toBe(false);
+    expect(isVideoMimeType("video/avi")).toBe(false);
+    expect(isVideoMimeType("image/jpeg")).toBe(false);
+    expect(isVideoMimeType(undefined)).toBe(false);
+  });
+});
+
+describe("isMediaKind", () => {
+  it("acepta exactamente image/video", () => {
+    expect(isMediaKind("image")).toBe(true);
+    expect(isMediaKind("video")).toBe(true);
+  });
+
+  it("rechaza cualquier otro valor", () => {
+    expect(isMediaKind("audio")).toBe(false);
+    expect(isMediaKind("")).toBe(false);
+    expect(isMediaKind(undefined)).toBe(false);
+  });
+});
+
+describe("publicVideoKey", () => {
+  it("usa la extensión correcta por contenedor, sin sufijo de ancho (a diferencia de una imagen)", () => {
+    expect(publicVideoKey("community", "asset-1", "video/mp4")).toBe(
+      "community/asset-1/original.mp4",
+    );
+    expect(publicVideoKey("community", "asset-1", "video/quicktime")).toBe(
+      "community/asset-1/original.mov",
+    );
+    expect(publicVideoKey("community", "asset-1", "video/webm")).toBe(
+      "community/asset-1/original.webm",
+    );
+  });
+});
+
+describe("validateReservationInput — vídeo (Fase 9J-3)", () => {
+  it("acepta MP4/MOV/WebM con dimensiones declaradas", () => {
+    for (const sourceMime of ["video/mp4", "video/quicktime", "video/webm"] as const) {
+      const result = validateReservationInput({
+        kind: "video",
+        sourceMime,
+        sourceBytes: 5_000_000,
+        sourceWidth: 1280,
+        sourceHeight: 720,
+      });
+      expect(result.ok).toBe(true);
+    }
+  });
+
+  it("acepta duración opcional cuando el navegador pudo leerla", () => {
+    const result = validateReservationInput({
+      kind: "video",
+      sourceMime: "video/mp4",
+      sourceBytes: 5_000_000,
+      sourceWidth: 1280,
+      sourceHeight: 720,
+      sourceDurationSeconds: 12.5,
+    });
+    expect(result).toEqual({
+      ok: true,
+      value: {
+        kind: "video",
+        sourceMime: "video/mp4",
+        sourceBytes: 5_000_000,
+        sourceWidth: 1280,
+        sourceHeight: 720,
+        sourceDurationSeconds: 12.5,
+      },
+    });
+  });
+
+  it("rechaza un contenedor de vídeo no soportado (invalid_mime)", () => {
+    const result = validateReservationInput({
+      kind: "video",
+      sourceMime: "video/x-matroska",
+      sourceBytes: 5_000_000,
+      sourceWidth: 1280,
+      sourceHeight: 720,
+    });
+    expect(result.ok).toBe(false);
+    expect(reservationValidationError(result)).toBe("invalid_mime");
+  });
+
+  it("rechaza un vídeo que excede 100 MB (too_large), incluso justo por encima del techo", () => {
+    const result = validateReservationInput({
+      kind: "video",
+      sourceMime: "video/mp4",
+      sourceBytes: MAX_VIDEO_SOURCE_BYTES + 1,
+      sourceWidth: 1280,
+      sourceHeight: 720,
+    });
+    expect(result.ok).toBe(false);
+    expect(reservationValidationError(result)).toBe("too_large");
+  });
+
+  it("acepta un vídeo exactamente en el techo de 100 MB", () => {
+    const result = validateReservationInput({
+      kind: "video",
+      sourceMime: "video/mp4",
+      sourceBytes: MAX_VIDEO_SOURCE_BYTES,
+      sourceWidth: 1280,
+      sourceHeight: 720,
+    });
+    expect(result.ok).toBe(true);
+  });
+
+  it("un vídeo de 70 MB (por encima del techo de IMAGEN pero por debajo del de vídeo) se acepta — los techos son independientes por kind", () => {
+    expect(70 * 1024 * 1024).toBeGreaterThan(MAX_SOURCE_BYTES);
+    const result = validateReservationInput({
+      kind: "video",
+      sourceMime: "video/mp4",
+      sourceBytes: 70 * 1024 * 1024,
+      sourceWidth: 1280,
+      sourceHeight: 720,
+    });
+    expect(result.ok).toBe(true);
+  });
+
+  it("rechaza un vídeo SIN dimensiones (invalid_dimensions) — nunca se decodifica server-side, así que son obligatorias", () => {
+    const result = validateReservationInput({
+      kind: "video",
+      sourceMime: "video/mp4",
+      sourceBytes: 5_000_000,
+    });
+    expect(result.ok).toBe(false);
+    expect(reservationValidationError(result)).toBe("invalid_dimensions");
+  });
+
+  it("rechaza kind desconocido (invalid_kind)", () => {
+    const result = validateReservationInput({
+      kind: "audio",
+      sourceMime: "video/mp4",
+      sourceBytes: 5_000_000,
+    });
+    expect(result.ok).toBe(false);
+    expect(reservationValidationError(result)).toBe("invalid_kind");
+  });
+
+  it("nunca aplica el techo de megapíxeles de imagen a un vídeo (dimensiones grandes válidas)", () => {
+    const result = validateReservationInput({
+      kind: "video",
+      sourceMime: "video/mp4",
+      sourceBytes: 5_000_000,
+      sourceWidth: 15000,
+      sourceHeight: 15000,
+    });
+    expect(result.ok).toBe(true);
+  });
+
+  it("rechaza duración inválida (invalid_duration): cero, negativa o no numérica", () => {
+    for (const sourceDurationSeconds of [0, -1, Number.NaN]) {
+      const result = validateReservationInput({
+        kind: "video",
+        sourceMime: "video/mp4",
+        sourceBytes: 5_000_000,
+        sourceWidth: 1280,
+        sourceHeight: 720,
+        sourceDurationSeconds,
+      });
+      expect(result.ok).toBe(false);
+      expect(reservationValidationError(result)).toBe("invalid_duration");
+    }
+  });
+});
+
+describe("validateReservationInput — imagen sin cambios (regresión, Fase 9J-3)", () => {
+  it("kind ausente se trata como imagen (compatibilidad hacia atrás con Cosplay)", () => {
+    const result = validateReservationInput({
+      sourceMime: "image/jpeg",
+      sourceBytes: 1000,
+    });
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.value.kind).toBe("image");
+  });
+
+  it("una imagen sigue exigiendo el techo de 60 MB, no el de vídeo (100 MB)", () => {
+    const result = validateReservationInput({
+      kind: "image",
+      sourceMime: "image/jpeg",
+      sourceBytes: MAX_SOURCE_BYTES + 1,
+    });
+    expect(result.ok).toBe(false);
+    expect(reservationValidationError(result)).toBe("too_large");
+  });
+
+  it("un mime de vídeo sigue siendo inválido para kind='image'", () => {
+    const result = validateReservationInput({
+      kind: "image",
+      sourceMime: "video/mp4",
+      sourceBytes: 1000,
+    });
+    expect(result.ok).toBe(false);
+    expect(reservationValidationError(result)).toBe("invalid_mime");
+  });
+
+  it("una imagen SIGUE sin exigir dimensiones (a diferencia de vídeo)", () => {
+    const result = validateReservationInput({
+      kind: "image",
+      sourceMime: "image/jpeg",
+      sourceBytes: 1000,
+    });
+    expect(result.ok).toBe(true);
+  });
+
+  it("el techo de megapíxeles de imagen sigue aplicando solo a kind='image'", () => {
+    const result = validateReservationInput({
+      kind: "image",
+      sourceMime: "image/jpeg",
+      sourceBytes: 1000,
+      sourceWidth: 20000,
+      sourceHeight: 20000,
+    });
+    expect(result.ok).toBe(false);
+    expect(reservationValidationError(result)).toBe("too_many_pixels");
   });
 });

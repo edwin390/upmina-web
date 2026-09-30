@@ -313,6 +313,87 @@ describe("/@username — galería", () => {
     expect(await screen.findByText("+3")).toBeInTheDocument();
   });
 
+  it("publicación cuyo primer/único media es vídeo: tile de vídeo (<video>) con indicador, sin autoplay (Fase 9J-3)", async () => {
+    stubProfile(
+      profilePage({
+        posts: {
+          items: [
+            post("p1", {
+              text: null,
+              media: [
+                mediaItem({
+                  id: "m1",
+                  kind: "video",
+                  url: "https://example.test/media-1.mp4",
+                }),
+              ],
+            }),
+          ],
+          nextCursor: null,
+        },
+      }),
+    );
+    const { container } = renderProfile();
+    await waitFor(() => expect(container.querySelectorAll("video")).toHaveLength(1));
+    const video = container.querySelector("video")!;
+    expect(video).toHaveAttribute("src", "https://example.test/media-1.mp4");
+    expect(video).not.toHaveAttribute("autoplay");
+    expect(video).toHaveProperty("muted", true);
+    // Indicador sutil de vídeo (nunca un botón de reproducción interactivo en la galería).
+    expect(container.querySelectorAll("svg").length).toBeGreaterThan(0);
+    expect(container.querySelectorAll("img")).toHaveLength(0);
+  });
+
+  it("publicación mixta que EMPIEZA con imagen: sigue usando esa imagen como cover, nunca reordena para preferir el vídeo", async () => {
+    stubProfile(
+      profilePage({
+        posts: {
+          items: [
+            post("p1", {
+              text: null,
+              media: [
+                mediaItem({ id: "m1", url: "https://example.test/cover.webp" }),
+                mediaItem({
+                  id: "m2",
+                  position: 1,
+                  kind: "video",
+                  url: "https://example.test/media-2.mp4",
+                }),
+              ],
+            }),
+          ],
+          nextCursor: null,
+        },
+      }),
+    );
+    const { container } = renderProfile();
+    await waitFor(() => expect(container.querySelectorAll("img")).toHaveLength(1));
+    expect(container.querySelector("img")).toHaveAttribute(
+      "src",
+      "https://example.test/cover.webp",
+    );
+    expect(container.querySelectorAll("video")).toHaveLength(0);
+  });
+
+  it("clicar un tile de vídeo sigue abriendo el detalle de la publicación", async () => {
+    stubProfile(
+      profilePage({
+        posts: {
+          items: [
+            post("p1", {
+              text: null,
+              media: [mediaItem({ id: "m1", kind: "video" })],
+            }),
+          ],
+          nextCursor: null,
+        },
+      }),
+    );
+    renderProfile();
+    const tile = await screen.findByRole("link", { name: /1 video/ });
+    expect(tile).toHaveAttribute("href", "/community/post/p1");
+  });
+
   it("publicación de solo texto: tile de texto estilizado, nunca en blanco", async () => {
     stubProfile(
       profilePage({
@@ -513,14 +594,19 @@ describe("/@username — Nueva publicación (dueño)", () => {
     expect(communityClientMocks.listOwnCommunityPosts).toHaveBeenCalledTimes(2);
   });
 
-  it("no habilita vídeo: accept sigue en image/*", async () => {
+  it("el picker admite imagen Y video (Fase 9J-3), un único control mixto", async () => {
     ownProfileFakes.profile = { username: "edwin1", displayName: null, bio: null };
     stubProfile(profilePage());
     renderProfile();
     await screen.findByText("Todavía no hay publicaciones");
     fireEvent.click(screen.getByRole("button", { name: "Nueva publicación" }));
     const input = document.querySelector('input[type="file"]') as HTMLInputElement;
-    expect(input.accept).toBe("image/*");
+    expect(input.accept).toContain("image/*");
+    expect(input.accept).toContain("video/mp4");
+    expect(input.accept).toContain("video/quicktime");
+    expect(input.accept).toContain("video/webm");
+    // Un único picker: nunca dos inputs/botones separados "Añadir imágenes"/"Añadir video".
+    expect(document.querySelectorAll('input[type="file"]')).toHaveLength(1);
   });
 
   it("nunca se muestra el formulario completo permanentemente bajo el encabezado", async () => {

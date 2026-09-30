@@ -10,21 +10,24 @@ import {
 } from "./admin-auth.js";
 import {
   canTransition,
-  isSourceMimeType,
+  isAnySourceMimeType,
   MULTIPART_PART_SIZE_BYTES,
   multipartPartCount,
   privateObjectKey,
   publicVariantKey,
+  publicVideoKey,
   reservationValidationError,
   stagingKey,
   usesMultipart,
   validateReservationInput,
   type MediaAssetStatus,
+  type MediaKind,
 } from "./media-domain.js";
 import {
   abortPrivateMultipartUpload,
   completePrivateMultipartUpload,
   copyPrivateObject,
+  copyPrivateObjectToPublic,
   createPrivateMultipartUpload,
   deletePrivateObject,
   deletePublicVariants,
@@ -63,14 +66,23 @@ const SUPPORTED_DOMAINS = new Set(["cosplay", "community"]);
 interface MediaAssetRow {
   id: string;
   domain: string;
+  kind: MediaKind;
   status: MediaAssetStatus;
   source_mime: string | null;
   source_bytes: number | null;
+  source_width: number | null;
+  source_height: number | null;
+  duration_seconds: number | null;
   private_original_key: string | null;
   multipart_upload_id: string | null;
   processing_attempts: number;
   created_by: string | null;
 }
+
+/** SOLO domain='community' puede reservar kind='video' (Fase 9J-3, sección 8 del checkpoint:
+ *  "Cosplay remains image-only... Do not allow domain spoofing to bypass validation"). Cosplay
+ *  nunca admite vídeo, sin excepción. */
+const SUPPORTED_VIDEO_DOMAINS = new Set(["community"]);
 
 function parseJsonBody(req: VercelRequest): Record<string, unknown> | null {
   const raw = req.body;
@@ -290,11 +302,21 @@ export async function handleMediaReserve(
   const auth = await authorizeForDomain(req, domain, client);
   if ("status" in auth) return res.status(auth.status).json(auth.body);
 
+  // kind ausente => "image" (validateReservationInput lo trata así) — Cosplay y el flujo de
+  // imagen de Comunidad no necesitan enviarlo. kind='video' SOLO se acepta para domain='community'
+  // (9J-3, sección 8): un domain spoofing intentando reservar vídeo para 'cosplay' se rechaza AQUÍ,
+  // antes de validar mime/bytes, nunca aflojando media_assets_kind_check ni la autorización.
+  if (body.kind === "video" && !SUPPORTED_VIDEO_DOMAINS.has(domain)) {
+    return res.status(400).json({ error: "Solicitud inválida", code: "invalid_kind" });
+  }
+
   const validated = validateReservationInput({
+    kind: body.kind,
     sourceMime: body.sourceMime,
     sourceBytes: body.sourceBytes,
     sourceWidth: body.sourceWidth,
     sourceHeight: body.sourceHeight,
+    sourceDurationSeconds: body.sourceDurationSeconds,
   });
   if (!validated.ok) {
     return res
@@ -302,21 +324,29 @@ export async function handleMediaReserve(
       .json({ error: "Solicitud inválida", code: reservationValidationError(validated) });
   }
 
-  const { sourceMime, sourceBytes, sourceWidth, sourceHeight } = validated.value;
+  const {
+    kind,
+    sourceMime,
+    sourceBytes,
+    sourceWidth,
+    sourceHeight,
+    sourceDurationSeconds,
+  } = validated.value;
   const assetId = randomUUID();
   const staging = stagingKey(domain, assetId, sourceMime);
 
   const { error: insertError } = await client.from("media_assets").insert({
     id: assetId,
     domain,
-    kind: "image",
+    kind,
     status: "reserved",
     source_mime: sourceMime,
     source_bytes: sourceBytes,
     source_width: sourceWidth,
     source_height: sourceHeight,
+    duration_seconds: sourceDurationSeconds,
     private_original_key: staging,
-    pipeline_version: "img-v1",
+    pipeline_version: kind === "video" ? "video-v1" : "img-v1",
     created_by: auth.userId,
   });
   if (insertError) return res.status(500).json(GENERIC_ERROR_BODY);
@@ -369,20 +399,62 @@ export async function handleMediaReserve(
 // ────────────────────────────────────────────────────────────────────────────────────────────
 // POST /api/media/complete
 
+type ReadyResponseBody =
+  | {
+      assetId: string;
+      status: "ready";
+      kind: "image";
+      variants: {
+        variant: number;
+        width: number;
+        height: number;
+        bytes: number;
+        url: string;
+      }[];
+    }
+  | {
+      assetId: string;
+      status: "ready";
+      kind: "video";
+      url: string;
+      width: number;
+      height: number;
+      bytes: number;
+      durationSeconds: number | null;
+    };
+
+/** Reintento idempotente de un asset YA ready (sección 20/28): para imagen relee las variantes
+ *  WebP (media_asset_variants); para vídeo (Fase 9J-3, SIN variantes: un único objeto público)
+ *  relee directamente la fila ya canónica de media_assets. */
 async function readyResponseBody(
   client: SupabaseClient,
-  row: Pick<MediaAssetRow, "id">,
-): Promise<{
-  assetId: string;
-  status: "ready";
-  variants: {
-    variant: number;
-    width: number;
-    height: number;
-    bytes: number;
-    url: string;
-  }[];
-}> {
+  row: { id: string; kind: MediaKind },
+): Promise<ReadyResponseBody> {
+  if (row.kind === "video") {
+    const { data } = await client
+      .from("media_assets")
+      .select("storage_key, width, height, bytes, duration_seconds")
+      .eq("id", row.id)
+      .maybeSingle();
+    const asset = data as {
+      storage_key: string;
+      width: number;
+      height: number;
+      bytes: number;
+      duration_seconds: number | null;
+    };
+    return {
+      assetId: row.id,
+      status: "ready",
+      kind: "video",
+      url: publicVariantUrl(asset.storage_key),
+      width: asset.width,
+      height: asset.height,
+      bytes: asset.bytes,
+      durationSeconds: asset.duration_seconds,
+    };
+  }
+
   const { data } = await client
     .from("media_asset_variants")
     .select("variant, width, height, bytes, storage_key")
@@ -397,6 +469,7 @@ async function readyResponseBody(
   return {
     assetId: row.id,
     status: "ready",
+    kind: "image",
     variants: rows.map((v) => ({
       variant: v.variant,
       width: v.width,
@@ -436,7 +509,7 @@ export async function handleMediaComplete(
   const { data, error } = await client
     .from("media_assets")
     .select(
-      "id, domain, status, source_mime, source_bytes, private_original_key, multipart_upload_id, processing_attempts, created_by",
+      "id, domain, kind, status, source_mime, source_bytes, source_width, source_height, duration_seconds, private_original_key, multipart_upload_id, processing_attempts, created_by",
     )
     .eq("id", assetId)
     .maybeSingle();
@@ -460,8 +533,11 @@ export async function handleMediaComplete(
     !row.source_mime ||
     !row.source_bytes ||
     !row.private_original_key ||
-    !isSourceMimeType(row.source_mime)
+    !isAnySourceMimeType(row.source_mime)
   ) {
+    return res.status(500).json(GENERIC_ERROR_BODY);
+  }
+  if (row.kind === "video" && (!row.source_width || !row.source_height)) {
     return res.status(500).json(GENERIC_ERROR_BODY);
   }
 
@@ -522,7 +598,67 @@ export async function handleMediaComplete(
       await deletePrivateObject(row.private_original_key).catch(() => undefined);
     }
 
-    // 4) Procesar.
+    // 4) Procesar — DIVERGE por kind a partir de aquí (Fase 9J-3): un vídeo nunca se decodifica ni
+    //    recomprime (sección 6 del checkpoint: sin FFmpeg/HLS/transcodificación), así que su
+    //    "procesado" es únicamente una copia servidor-a-servidor de private→public en R2 (los
+    //    bytes NUNCA entran en la memoria de esta función — ver copyPrivateObjectToPublic).
+    if (row.kind === "video") {
+      await setStatus(client, assetId, currentStatus, "processing", {
+        processing_attempts: row.processing_attempts + 1,
+      });
+      currentStatus = "processing";
+
+      const publicKey = publicVideoKey(
+        row.domain,
+        assetId,
+        row.source_mime as Parameters<typeof publicVideoKey>[2],
+      );
+      try {
+        await copyPrivateObjectToPublic(permanentKey, publicKey, row.source_mime);
+      } catch {
+        await markFailed(client, assetId, currentStatus, "processing_failed");
+        return res
+          .status(200)
+          .json({ assetId, status: "failed", failureCode: "processing_failed" });
+      }
+
+      const { error: readyError } = await client
+        .from("media_assets")
+        .update({
+          status: "ready",
+          failure_code: null,
+          mime: row.source_mime,
+          width: row.source_width,
+          height: row.source_height,
+          bytes: row.source_bytes,
+          storage_key: publicKey,
+          private_original_key: null,
+        })
+        .eq("id", assetId);
+      if (readyError) {
+        await deletePublicVariants([publicKey]).catch(() => undefined);
+        await markFailed(client, assetId, currentStatus, "processing_failed");
+        return res
+          .status(200)
+          .json({ assetId, status: "failed", failureCode: "processing_failed" });
+      }
+
+      // El original privado solo se borra DESPUÉS de confirmar ready (mismo criterio que imagen:
+      // sección 26, nunca antes de que el objeto público esté verificado).
+      await deletePrivateObject(permanentKey).catch(() => undefined);
+
+      return res.status(200).json({
+        assetId,
+        status: "ready",
+        kind: "video",
+        url: publicVariantUrl(publicKey),
+        width: row.source_width,
+        height: row.source_height,
+        bytes: row.source_bytes,
+        durationSeconds: row.duration_seconds,
+      });
+    }
+
     await setStatus(client, assetId, currentStatus, "processing", {
       processing_attempts: row.processing_attempts + 1,
     });
@@ -611,6 +747,7 @@ export async function handleMediaComplete(
     return res.status(200).json({
       assetId,
       status: "ready",
+      kind: "image",
       variants: uploaded.map((u) => ({
         variant: u.variant,
         width: u.width,

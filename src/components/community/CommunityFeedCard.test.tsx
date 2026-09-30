@@ -88,3 +88,98 @@ describe("CommunityFeedCard — abrir el detalle de la publicación", () => {
     expect(container.querySelectorAll("a")).toHaveLength(3);
   });
 });
+
+describe("CommunityFeedCard — media de vídeo (Fase 9J-3)", () => {
+  it("publicación solo-imagen: sin cambios, sigue renderizando <img>, nunca <video>", () => {
+    const { container } = renderCard(
+      post({
+        media: [
+          {
+            id: "m1",
+            position: 0,
+            kind: "image",
+            url: "https://example.test/m1.webp",
+            width: 1200,
+            height: 1600,
+            durationSeconds: null,
+          },
+        ],
+      }),
+    );
+    expect(container.querySelectorAll("img")).toHaveLength(1);
+    expect(container.querySelectorAll("video")).toHaveLength(0);
+  });
+
+  it("post solo-vídeo: renderiza <video> silenciado, playsInline, sin controles en el feed (la reproducción real vive en el detalle)", () => {
+    const { container } = renderCard(
+      post({
+        media: [
+          {
+            id: "m1",
+            position: 0,
+            kind: "video",
+            url: "https://example.test/m1.mp4",
+            width: 1280,
+            height: 720,
+            durationSeconds: 10,
+          },
+        ],
+      }),
+    );
+    const video = container.querySelector("video");
+    expect(video).not.toBeNull();
+    expect(video).toHaveProperty("muted", true);
+    expect(video).toHaveProperty("playsInline", true);
+    expect(video).not.toHaveAttribute("controls");
+    expect(video).toHaveAttribute("src", "https://example.test/m1.mp4");
+  });
+
+  it("post mixto: renderiza imagen Y vídeo, respetando el orden por position (no muestra solo el primero)", () => {
+    const { container } = renderCard(
+      post({
+        media: [
+          {
+            id: "m1",
+            position: 0,
+            kind: "image",
+            url: "https://example.test/m1.webp",
+            width: 800,
+            height: 800,
+            durationSeconds: null,
+          },
+          {
+            id: "m2",
+            position: 1,
+            kind: "video",
+            url: "https://example.test/m2.mp4",
+            width: 800,
+            height: 800,
+            durationSeconds: 4,
+          },
+        ],
+      }),
+    );
+    expect(container.querySelectorAll("img")).toHaveLength(1);
+    expect(container.querySelectorAll("video")).toHaveLength(1);
+  });
+
+  it("el clic sobre la grilla de media sigue navegando al detalle (video no añade un enlace propio)", () => {
+    renderCard(
+      post({
+        media: [
+          {
+            id: "m1",
+            position: 0,
+            kind: "video",
+            url: "https://example.test/m1.mp4",
+            width: 1280,
+            height: 720,
+            durationSeconds: null,
+          },
+        ],
+      }),
+    );
+    // Sigue habiendo exactamente 3 enlaces (avatar/identidad/contenido) — el <video> nunca crea uno.
+    expect(screen.getAllByRole("link")).toHaveLength(3);
+  });
+});

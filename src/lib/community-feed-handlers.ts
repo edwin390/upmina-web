@@ -38,7 +38,7 @@ import { publicVariantUrl } from "./r2-client.js";
 const GENERIC_ERROR_BODY = { error: "Error interno" };
 
 const POSTS_SELECT =
-  "id, author_user_id, text, created_at, like_count, community_post_media(id, position, media_assets(status, storage_key, width, height))";
+  "id, author_user_id, text, created_at, like_count, community_post_media(id, position, media_assets(status, kind, storage_key, width, height, duration_seconds))";
 
 interface RawPostWithMedia extends RawFeedPostRow {
   author_user_id: string;

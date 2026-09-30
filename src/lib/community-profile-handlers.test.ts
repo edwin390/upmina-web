@@ -53,9 +53,11 @@ function readyMediaRow(overrides: Record<string, unknown> = {}) {
     position: 0,
     media_assets: {
       status: "ready",
+      kind: "image",
       width: 1200,
       height: 1600,
       storage_key: "community/asset-1/w1200.webp",
+      duration_seconds: null,
     },
     ...overrides,
   };
@@ -244,6 +246,36 @@ describe("handleCommunityProfile", () => {
     };
     expect(body.posts.items[0]?.media).toHaveLength(1);
     expect(body.posts.items[0]?.media[0]?.url).toContain("community/asset-1/w1200.webp");
+  });
+
+  it("post con vídeo (9J-3): kind='video' expuesto en la galería del perfil público", async () => {
+    communityProfileDb.profiles = [profileRow()];
+    communityProfileDb.posts = [
+      postRow({
+        community_post_media: [
+          readyMediaRow({
+            id: "media-video",
+            media_assets: {
+              status: "ready",
+              kind: "video",
+              width: 1280,
+              height: 720,
+              storage_key: "community/asset-video/original.mp4",
+              duration_seconds: 6,
+            },
+          }),
+        ],
+      }),
+    ];
+    const { res, state } = mockRes();
+    await handleCommunityProfile(req("GET", { username: "edwin1" }), res);
+    const body = state.body as {
+      posts: { items: { media: { kind: string; durationSeconds: number | null }[] }[] };
+    };
+    expect(body.posts.items[0]?.media[0]).toMatchObject({
+      kind: "video",
+      durationSeconds: 6,
+    });
   });
 
   it("paginación determinista: 25 publicadas → primera página de 20 con nextCursor, segunda con las 5 restantes", async () => {

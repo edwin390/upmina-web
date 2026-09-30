@@ -33,7 +33,7 @@ interface GalleryTileData {
   id: string;
   text: string | null;
   createdAt: string;
-  media: { id: string; url: string }[];
+  media: { id: string; url: string; kind: "image" | "video" }[];
   likeCount: number;
 }
 
@@ -41,7 +41,7 @@ function toVisitorTile(post: {
   id: string;
   text: string | null;
   createdAt: string;
-  media: { id: string; url: string }[];
+  media: { id: string; url: string; kind: "image" | "video" }[];
   likeCount: number;
 }): GalleryTileData {
   return {
@@ -53,9 +53,9 @@ function toVisitorTile(post: {
   };
 }
 
-/** Solo la media ya lista (con URL resuelta) cuenta para la miniatura/el indicador — una imagen
- *  todavía procesándose no debe aparecer en la galería, mismo criterio "solo ready" que el resto
- *  de superficies públicas de Comunidad. */
+/** Solo la media ya lista (con URL resuelta) cuenta para la miniatura/el indicador — una imagen o
+ *  vídeo todavía procesándose no debe aparecer en la galería, mismo criterio "solo ready" que el
+ *  resto de superficies públicas de Comunidad. */
 function toOwnerTile(post: CommunityOwnPost): GalleryTileData {
   return {
     id: post.id,
@@ -63,7 +63,7 @@ function toOwnerTile(post: CommunityOwnPost): GalleryTileData {
     createdAt: post.createdAt,
     media: post.media
       .filter((m): m is typeof m & { url: string } => m.url !== null)
-      .map((m) => ({ id: m.id, url: m.url })),
+      .map((m) => ({ id: m.id, url: m.url, kind: m.kind })),
     likeCount: post.likeCount,
   };
 }
@@ -88,6 +88,22 @@ function ProfileAvatarPlaceholder({ username }: { username: string }) {
   );
 }
 
+/** Indicador sutil de que la miniatura es un vídeo (Fase 9J-3, sección 19 del checkpoint): "a
+ *  subtle video/play indicator", nunca autoplay en la galería. Esquina opuesta a MultiMediaBadge
+ *  para no solaparse cuando ambos aplican (portada de vídeo con más media detrás). */
+function VideoTileIndicator() {
+  return (
+    <span
+      aria-hidden="true"
+      className="absolute left-1.5 top-1.5 flex h-6 w-6 items-center justify-center rounded-full bg-black/60 text-white"
+    >
+      <svg width={11} height={11} viewBox="0 0 24 24" fill="currentColor">
+        <path d="M8 5v14l11-7z" />
+      </svg>
+    </span>
+  );
+}
+
 function MultiMediaBadge({ count }: { count: number }) {
   if (count <= 1) return null;
   return (
@@ -106,9 +122,13 @@ function postTileLabel(tile: GalleryTileData): string {
     ? ""
     : new Intl.DateTimeFormat("es", { dateStyle: "medium" }).format(when);
   if (tile.media.length > 0) {
-    const mediaLabel =
-      tile.media.length === 1 ? "1 imagen" : `${tile.media.length} imágenes`;
-    return `Publicación con ${mediaLabel}${dateLabel ? `, ${dateLabel}` : ""}`;
+    const videoCount = tile.media.filter((m) => m.kind === "video").length;
+    const imageCount = tile.media.length - videoCount;
+    const parts: string[] = [];
+    if (imageCount > 0)
+      parts.push(imageCount === 1 ? "1 imagen" : `${imageCount} imágenes`);
+    if (videoCount > 0) parts.push(videoCount === 1 ? "1 video" : `${videoCount} videos`);
+    return `Publicación con ${parts.join(" y ")}${dateLabel ? `, ${dateLabel}` : ""}`;
   }
   const preview = (tile.text ?? "").trim();
   return `Publicación de texto${dateLabel ? ` del ${dateLabel}` : ""}: ${preview}`;
@@ -140,12 +160,26 @@ function PostTile({ tile, ownerPost, onEdit, onDeleted }: PostTileProps) {
         <div className="pointer-events-none relative flex h-full w-full items-center justify-center">
           {cover ? (
             <>
-              <img
-                src={cover.url}
-                alt=""
-                loading="lazy"
-                className="h-full w-full object-cover transition-transform group-hover:scale-105"
-              />
+              {cover.kind === "video" ? (
+                <>
+                  <video
+                    src={cover.url}
+                    muted
+                    playsInline
+                    preload="metadata"
+                    aria-hidden="true"
+                    className="h-full w-full object-cover transition-transform group-hover:scale-105"
+                  />
+                  <VideoTileIndicator />
+                </>
+              ) : (
+                <img
+                  src={cover.url}
+                  alt=""
+                  loading="lazy"
+                  className="h-full w-full object-cover transition-transform group-hover:scale-105"
+                />
+              )}
               <MultiMediaBadge count={tile.media.length} />
             </>
           ) : (

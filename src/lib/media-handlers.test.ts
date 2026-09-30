@@ -45,6 +45,7 @@ const r2Mocks = {
   headPrivateObject: vi.fn(async () => ({ bytes: 1000, contentType: "image/jpeg" })),
   getPrivateObjectBytes: vi.fn(async () => Buffer.from("fake-bytes")),
   copyPrivateObject: vi.fn(async () => undefined),
+  copyPrivateObjectToPublic: vi.fn(async () => undefined),
   deletePrivateObject: vi.fn(async () => undefined),
   putPublicVariant: vi.fn(async () => undefined),
   deletePublicVariants: vi.fn(async () => undefined),
@@ -842,5 +843,228 @@ describe("domain='community' (9J-1C): autenticado + perfil existente, nunca cosp
     await handleMediaAbort(makeReq({ assetId: "asset-community-3" }), res);
     expect(res.status).toHaveBeenCalledWith(404);
     expect(mediaDb.media_assets).toHaveLength(1);
+  });
+});
+
+// ────────────────────────────────────────────────────────────────────────────────────────────
+// Vídeo (Fase 9J-3): SOLO domain='community', SIN transcodificación — "procesar" un vídeo es
+// copiar private→public en R2 (copyPrivateObjectToPublic), nunca processImage.
+
+describe("kind='video' (9J-3): solo domain='community', sin processImage", () => {
+  const COMMUNITY_USER = "community-video-user";
+
+  beforeEach(() => {
+    requireCapabilityMock.mockRejectedValue(new AdminAuthError("No autorizado", 403));
+    requireAuthenticatedMock.mockResolvedValue({
+      userId: COMMUNITY_USER,
+      aal: "aal1",
+      mfaVerifiedAt: null,
+    });
+    mediaDb.profiles.push({ user_id: COMMUNITY_USER });
+  });
+
+  it("reserve: domain='cosplay' + kind='video' se rechaza ANTES de validar mime/bytes (invalid_kind, domain spoofing)", async () => {
+    requireCapabilityMock.mockResolvedValue({
+      userId: "admin-user-1",
+      role: "admin",
+      capabilities: ["cosplay_admin"],
+    });
+    const res = makeRes();
+    await handleMediaReserve(
+      makeReq({
+        domain: "cosplay",
+        kind: "video",
+        sourceMime: "video/mp4",
+        sourceBytes: 5_000_000,
+        sourceWidth: 1280,
+        sourceHeight: 720,
+      }),
+      res,
+    );
+    expect(res.status).toHaveBeenCalledWith(400);
+    expect(res.json).toHaveBeenCalledWith(
+      expect.objectContaining({ code: "invalid_kind" }),
+    );
+    expect(mediaDb.media_assets).toHaveLength(0);
+  });
+
+  it("reserve: domain='community' + kind='video' con MP4/dimensiones válidas → 200, fila kind='video'", async () => {
+    const res = makeRes();
+    await handleMediaReserve(
+      makeReq({
+        domain: "community",
+        kind: "video",
+        sourceMime: "video/mp4",
+        sourceBytes: 5_000_000,
+        sourceWidth: 1280,
+        sourceHeight: 720,
+        sourceDurationSeconds: 8.2,
+      }),
+      res,
+    );
+    expect(res.status).toHaveBeenCalledWith(200);
+    expect(mediaDb.media_assets).toHaveLength(1);
+    expect(mediaDb.media_assets[0]).toMatchObject({
+      domain: "community",
+      kind: "video",
+      source_mime: "video/mp4",
+      duration_seconds: 8.2,
+      pipeline_version: "video-v1",
+    });
+  });
+
+  it("reserve: vídeo de >100 MB se rechaza (too_large), sin fila creada", async () => {
+    const res = makeRes();
+    await handleMediaReserve(
+      makeReq({
+        domain: "community",
+        kind: "video",
+        sourceMime: "video/mp4",
+        sourceBytes: 100 * 1024 * 1024 + 1,
+        sourceWidth: 1280,
+        sourceHeight: 720,
+      }),
+      res,
+    );
+    expect(res.status).toHaveBeenCalledWith(400);
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ code: "too_large" }));
+    expect(mediaDb.media_assets).toHaveLength(0);
+  });
+
+  it("reserve: vídeo sin dimensiones se rechaza (invalid_dimensions) — el servidor nunca las decodifica", async () => {
+    const res = makeRes();
+    await handleMediaReserve(
+      makeReq({
+        domain: "community",
+        kind: "video",
+        sourceMime: "video/mp4",
+        sourceBytes: 5_000_000,
+      }),
+      res,
+    );
+    expect(res.status).toHaveBeenCalledWith(400);
+    expect(res.json).toHaveBeenCalledWith(
+      expect.objectContaining({ code: "invalid_dimensions" }),
+    );
+  });
+
+  it("complete: un vídeo listo copia private→public (copyPrivateObjectToPublic), NUNCA llama a processImage, y termina 'ready' con storage_key/mime/dimensiones del ORIGINAL", async () => {
+    mediaDb.media_assets.push({
+      id: "asset-video-1",
+      domain: "community",
+      kind: "video",
+      status: "reserved",
+      source_mime: "video/mp4",
+      source_bytes: 5_000_000,
+      source_width: 1280,
+      source_height: 720,
+      duration_seconds: 8.2,
+      private_original_key: "staging/community/asset-video-1/original.mp4",
+      multipart_upload_id: null,
+      processing_attempts: 0,
+      created_by: COMMUNITY_USER,
+    });
+    r2Mocks.headPrivateObject.mockResolvedValue({
+      bytes: 5_000_000,
+      contentType: "video/mp4",
+    });
+
+    const res = makeRes();
+    await handleMediaComplete(makeReq({ assetId: "asset-video-1" }), res);
+
+    expect(res.status).toHaveBeenCalledWith(200);
+    expect(res.json).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: "ready",
+        kind: "video",
+        width: 1280,
+        height: 720,
+        bytes: 5_000_000,
+        durationSeconds: 8.2,
+      }),
+    );
+    expect(processImageMock).not.toHaveBeenCalled();
+    expect(r2Mocks.copyPrivateObjectToPublic).toHaveBeenCalledTimes(1);
+    expect(r2Mocks.copyPrivateObjectToPublic).toHaveBeenCalledWith(
+      expect.stringContaining("objects/community/asset-video-1/original.mp4"),
+      "community/asset-video-1/original.mp4",
+      "video/mp4",
+    );
+    expect(r2Mocks.putPublicVariant).not.toHaveBeenCalled();
+
+    const finalRow = mediaDb.media_assets.find((r) => r.id === "asset-video-1");
+    expect(finalRow).toMatchObject({
+      status: "ready",
+      mime: "video/mp4",
+      width: 1280,
+      height: 720,
+      bytes: 5_000_000,
+      storage_key: "community/asset-video-1/original.mp4",
+      private_original_key: null,
+    });
+    // media_asset_variants es EXCLUSIVO de imagen (4 tamaños WebP): un vídeo nunca genera filas ahí.
+    expect(mediaDb.media_asset_variants).toHaveLength(0);
+  });
+
+  it("complete: si copyPrivateObjectToPublic falla, el asset termina 'failed' con processing_failed (nunca 'ready' a medias)", async () => {
+    mediaDb.media_assets.push({
+      id: "asset-video-2",
+      domain: "community",
+      kind: "video",
+      status: "reserved",
+      source_mime: "video/webm",
+      source_bytes: 2_000_000,
+      source_width: 640,
+      source_height: 360,
+      duration_seconds: null,
+      private_original_key: "staging/community/asset-video-2/original.webm",
+      multipart_upload_id: null,
+      processing_attempts: 0,
+      created_by: COMMUNITY_USER,
+    });
+    r2Mocks.headPrivateObject.mockResolvedValue({
+      bytes: 2_000_000,
+      contentType: "video/webm",
+    });
+    r2Mocks.copyPrivateObjectToPublic.mockRejectedValueOnce(new Error("R2 caído"));
+
+    const res = makeRes();
+    await handleMediaComplete(makeReq({ assetId: "asset-video-2" }), res);
+
+    expect(res.status).toHaveBeenCalledWith(200);
+    expect(res.json).toHaveBeenCalledWith(
+      expect.objectContaining({ status: "failed", failureCode: "processing_failed" }),
+    );
+    const finalRow = mediaDb.media_assets.find((r) => r.id === "asset-video-2");
+    expect(finalRow?.status).toBe("failed");
+    expect(finalRow?.failure_code).toBe("processing_failed");
+  });
+
+  it("complete: reintento idempotente de un vídeo YA ready relee media_assets directamente (sin variantes)", async () => {
+    mediaDb.media_assets.push({
+      id: "asset-video-3",
+      domain: "community",
+      kind: "video",
+      status: "ready",
+      mime: "video/mp4",
+      width: 1920,
+      height: 1080,
+      bytes: 9_000_000,
+      duration_seconds: 30,
+      storage_key: "community/asset-video-3/original.mp4",
+      created_by: COMMUNITY_USER,
+    });
+    const res = makeRes();
+    await handleMediaComplete(makeReq({ assetId: "asset-video-3" }), res);
+    expect(res.status).toHaveBeenCalledWith(200);
+    expect(res.json).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: "ready",
+        kind: "video",
+        width: 1920,
+        height: 1080,
+        durationSeconds: 30,
+      }),
+    );
   });
 });

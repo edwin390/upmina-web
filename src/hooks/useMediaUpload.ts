@@ -6,8 +6,13 @@ import {
   reserveMediaUpload,
   uploadWithProgress,
   type MediaVariantResult,
+  type MediaVideoResult,
 } from "@/lib/media-client";
-import { prepareUploadBlob } from "@/lib/media-transport";
+import {
+  prepareUploadBlob,
+  readVideoMetadata,
+  type PreparedUpload,
+} from "@/lib/media-transport";
 import { isMobileUploadDevice } from "@/lib/media-device";
 import type { PrivilegedFailure } from "@/lib/privileged-response";
 
@@ -19,11 +24,18 @@ import type { PrivilegedFailure } from "@/lib/privileged-response";
 export type MediaItemStatus =
   "queued" | "preparing" | "uploading" | "uploaded" | "processing" | "ready" | "failed";
 
+/** "image" o "video" (Fase 9J-3), detectado del MIME real del archivo (file.type) — nunca de la
+ *  extensión del nombre ni de lo que el picker "accept" sugiera. Un archivo cuyo MIME no empieza
+ *  por "image/" ni "video/" nunca entra en la cola (ver detectMediaKind: se rechaza ANTES de
+ *  reservar nada, con errorCode "unsupported_type"). */
+export type MediaKind = "image" | "video";
+
 export interface MediaQueueItem {
   localId: string;
   /** Solo para mostrarse en ESTE navegador — nunca viaja al servidor ni entra en ninguna clave
    *  de objeto (esas las genera el servidor, ver media-domain.ts stagingKey/publicVariantKey). */
   fileName: string;
+  kind: MediaKind;
   sourceBytes: number;
   status: MediaItemStatus;
   transportStrategy: "original" | "pre-shrink" | null;
@@ -34,6 +46,8 @@ export interface MediaQueueItem {
   totalUploadBytes: number;
   assetId: string | null;
   variants: MediaVariantResult[] | null;
+  /** Resultado 'ready' de vídeo (Fase 9J-3): null para imagen, o mientras no esté listo. */
+  video: MediaVideoResult | null;
   errorCode: string | null;
   errorMessage: string | null;
   /** Clasificación 9G-3 (ver privileged-response.ts) del rechazo, si lo hubo. Solo
@@ -94,6 +108,16 @@ function readImageDimensions(
     .catch(() => null);
 }
 
+/** "image" o "video" según el MIME REAL del archivo (file.type) — nunca la extensión del nombre.
+ *  null = ni uno ni otro (rechazado antes de reservar nada). El servidor sigue siendo la
+ *  autoridad final sobre qué mime concreto es válido (media-domain.ts validateReservationInput);
+ *  esto solo decide QUÉ RAMA de preparación seguir en el navegador. */
+function detectMediaKind(file: File): MediaKind | null {
+  if (file.type.startsWith("image/")) return "image";
+  if (file.type.startsWith("video/")) return "video";
+  return null;
+}
+
 function failureFromError(err: unknown): { code: string | null; message: string } {
   if (err instanceof MediaClientError) {
     return { code: err.code ?? null, message: err.message };
@@ -130,12 +154,42 @@ export function useMediaUpload({ domain, concurrency }: UseMediaUploadOptions) {
       if (!entry || entry.aborted) return;
       const { file } = entry;
 
+      const kind = detectMediaKind(file);
+      if (!kind) {
+        patch(localId, {
+          status: "failed",
+          errorCode: "unsupported_type",
+          errorMessage: "Tipo de archivo no compatible",
+        });
+        return;
+      }
+
       try {
         patch(localId, { status: "preparing" });
-        const dimensions = await prepLimiter(() => readImageDimensions(file));
-        if (entry.aborted) return;
 
-        const prepared = await prepLimiter(() => prepareUploadBlob(file, dimensions));
+        // Vídeo (Fase 9J-3): nunca pasa por el pre-shrink de imagen (createImageBitmap no puede
+        // decodificar un vídeo) — sus dimensiones/duración se leen con un <video> oculto, y el
+        // "prepared" se construye directamente con strategy "original" (el vídeo se sube TAL CUAL,
+        // sin transcodificación, ver media-handlers.ts).
+        let prepared: PreparedUpload;
+        let durationSeconds: number | null = null;
+        if (kind === "video") {
+          const meta = await prepLimiter(() => readVideoMetadata(file));
+          if (entry.aborted) return;
+          durationSeconds = meta?.durationSeconds ?? null;
+          prepared = {
+            blob: file,
+            mime: file.type,
+            bytes: file.size,
+            strategy: "original",
+            width: meta?.width ?? null,
+            height: meta?.height ?? null,
+          };
+        } else {
+          const dimensions = await prepLimiter(() => readImageDimensions(file));
+          if (entry.aborted) return;
+          prepared = await prepLimiter(() => prepareUploadBlob(file, dimensions));
+        }
         if (entry.aborted) return;
 
         const percentSaved =
@@ -158,10 +212,12 @@ export function useMediaUpload({ domain, concurrency }: UseMediaUploadOptions) {
 
           const reservation = await reserveMediaUpload({
             domain,
+            kind,
             sourceMime: prepared.mime,
             sourceBytes: prepared.bytes,
             sourceWidth: prepared.width ?? undefined,
             sourceHeight: prepared.height ?? undefined,
+            sourceDurationSeconds: durationSeconds ?? undefined,
           });
           if (entry.aborted) {
             await abortMediaUpload(reservation.assetId).catch(() => undefined);
@@ -224,7 +280,19 @@ export function useMediaUpload({ domain, concurrency }: UseMediaUploadOptions) {
         id: string,
         result: Awaited<ReturnType<typeof completeMediaUpload>>,
       ) {
-        if (result.status === "ready") {
+        if (result.status === "ready" && result.kind === "video") {
+          patch(id, {
+            status: "ready",
+            video: {
+              kind: "video",
+              url: result.url,
+              width: result.width,
+              height: result.height,
+              bytes: result.bytes,
+              durationSeconds: result.durationSeconds,
+            },
+          });
+        } else if (result.status === "ready") {
           patch(id, { status: "ready", variants: result.variants });
         } else if (result.status === "failed") {
           patch(id, {
@@ -252,6 +320,7 @@ export function useMediaUpload({ domain, concurrency }: UseMediaUploadOptions) {
         return {
           localId,
           fileName: file.name,
+          kind: detectMediaKind(file) ?? "image",
           sourceBytes: file.size,
           status: "queued",
           transportStrategy: null,
@@ -261,6 +330,7 @@ export function useMediaUpload({ domain, concurrency }: UseMediaUploadOptions) {
           totalUploadBytes: file.size,
           assetId: null,
           variants: null,
+          video: null,
           errorCode: null,
           errorMessage: null,
           privilegedFailure: null,

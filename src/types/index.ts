@@ -274,11 +274,13 @@ export interface CommunityFeedAuthor {
 export interface CommunityFeedMediaItem {
   id: string;
   position: number;
-  /** Discriminador preparado para un futuro item de vídeo (checkpoint aparte): hoy solo "image". */
-  kind: "image";
+  /** Discriminador de tipo (Fase 9J-3): "image" o "video". */
+  kind: "image" | "video";
   url: string;
   width: number;
   height: number;
+  /** SOLO kind="video", y solo si el navegador de origen pudo leerla. null para imagen siempre. */
+  durationSeconds: number | null;
 }
 
 export interface CommunityFeedPost {

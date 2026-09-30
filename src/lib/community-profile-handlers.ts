@@ -34,7 +34,7 @@ const NOT_FOUND_BODY = { error: "Perfil no encontrado" };
 const BAD_REQUEST_BODY = { error: "Username inválido" };
 
 const POSTS_SELECT =
-  "id, text, created_at, like_count, community_post_media(id, position, media_assets(status, storage_key, width, height))";
+  "id, text, created_at, like_count, community_post_media(id, position, media_assets(status, kind, storage_key, width, height, duration_seconds))";
 
 interface RawPostRow extends RawFeedPostRow {
   community_post_media?: RawFeedMediaRow[];

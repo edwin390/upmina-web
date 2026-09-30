@@ -37,6 +37,7 @@ const RPC_ERROR_MAP: Readonly<Record<string, { status: number; code: string }>> 
   media_not_found: { status: 404, code: "not_found" },
   version_conflict: { status: 409, code: "community_version_conflict" },
   too_many_media: { status: 400, code: "too_many_media" },
+  too_many_videos: { status: 400, code: "too_many_videos" },
   duplicate_asset_id: { status: 400, code: "duplicate_asset_id" },
   invalid_positions: { status: 400, code: "invalid_positions" },
   media_missing_existing: { status: 400, code: "media_missing_existing" },
@@ -443,14 +444,16 @@ export async function handleCommunityPostDelete(
 // simple no necesita atomicidad multi-tabla (mismo criterio que cosplay-post-list-admin).
 
 const OWN_SELECT_WITH_MEDIA =
-  "id, text, status, version, created_at, updated_at, like_count, community_post_media(id, asset_id, position, media_assets(id, status, width, height, storage_key))";
+  "id, text, status, version, created_at, updated_at, like_count, community_post_media(id, asset_id, position, media_assets(id, status, kind, width, height, storage_key, duration_seconds))";
 
 interface OwnMediaAssetRow {
   id: string;
   status: string;
+  kind: string;
   width: number | null;
   height: number | null;
   storage_key: string | null;
+  duration_seconds: number | null;
 }
 
 interface OwnMediaRow {
@@ -469,8 +472,10 @@ function mapOwnMediaRow(row: OwnMediaRow) {
   return {
     ...mapMediaRowNeutral(row),
     assetStatus: asset?.status ?? null,
+    kind: asset?.kind === "video" ? ("video" as const) : ("image" as const),
     width: asset?.width ?? null,
     height: asset?.height ?? null,
+    durationSeconds: asset?.kind === "video" ? (asset.duration_seconds ?? null) : null,
     url:
       asset && asset.status === "ready" && asset.storage_key
         ? publicVariantUrl(asset.storage_key)

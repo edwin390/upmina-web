@@ -23,6 +23,10 @@ vi.mock("@/lib/media-client", async () => {
   };
 });
 
+const readVideoMetadataMock = vi.fn(
+  async () =>
+    null as { width: number; height: number; durationSeconds: number | null } | null,
+);
 vi.mock("@/lib/media-transport", () => ({
   prepareUploadBlob: vi.fn(async (file: File) => ({
     blob: file,
@@ -32,6 +36,8 @@ vi.mock("@/lib/media-transport", () => ({
     width: null,
     height: null,
   })),
+  readVideoMetadata: (...args: unknown[]) =>
+    (readVideoMetadataMock as unknown as (...a: unknown[]) => unknown)(...args),
 }));
 
 function fakeFile(name: string, bytes: number, mime = "image/jpeg"): File {
@@ -312,5 +318,140 @@ describe("useMediaUpload — fallo, reintento, quitar de la cola", () => {
 
     expect(result.current.items).toHaveLength(0);
     await waitFor(() => expect(abortMediaUploadMock).toHaveBeenCalledWith("asset-6"));
+  });
+});
+
+describe("useMediaUpload — vídeo (Fase 9J-3)", () => {
+  it("un archivo video/* se detecta como kind='video' de inmediato (antes de leer metadata)", async () => {
+    readVideoMetadataMock.mockResolvedValueOnce({
+      width: 1280,
+      height: 720,
+      durationSeconds: null,
+    });
+    reserveMediaUploadMock.mockResolvedValue({
+      assetId: "asset-kind-1",
+      mode: "single",
+      uploadUrl: "https://r2.test/put",
+      expiresInSeconds: 900,
+    });
+    uploadWithProgressMock.mockResolvedValue({ etag: '"e"' });
+    completeMediaUploadMock.mockResolvedValue({
+      assetId: "asset-kind-1",
+      status: "ready",
+      kind: "video",
+      url: "https://pub.test/x.mp4",
+      width: 1280,
+      height: 720,
+      bytes: 5_000_000,
+      durationSeconds: null,
+    });
+    const { result } = renderHook(() => useMediaUpload({ domain: "community" }));
+    act(() => {
+      result.current.addFiles([fakeFile("clip.mp4", 5_000_000, "video/mp4")]);
+    });
+    expect(result.current.items[0]!.kind).toBe("video");
+    await waitFor(() => expect(result.current.items[0]!.status).toBe("ready"));
+  });
+
+  it("un archivo image/* se detecta como kind='image' (regresión)", async () => {
+    reserveMediaUploadMock.mockResolvedValue({
+      assetId: "asset-kind-2",
+      mode: "single",
+      uploadUrl: "https://r2.test/put",
+      expiresInSeconds: 900,
+    });
+    uploadWithProgressMock.mockResolvedValue({ etag: '"e"' });
+    completeMediaUploadMock.mockResolvedValue({
+      assetId: "asset-kind-2",
+      status: "ready",
+      variants: [],
+    });
+    const { result } = renderHook(() => useMediaUpload({ domain: "community" }));
+    act(() => {
+      result.current.addFiles([fakeFile("foto.jpg", 1000, "image/jpeg")]);
+    });
+    expect(result.current.items[0]!.kind).toBe("image");
+    await waitFor(() => expect(result.current.items[0]!.status).toBe("ready"));
+  });
+
+  it("un mime que no es ni imagen ni vídeo se rechaza de inmediato (unsupported_type), sin reservar nada", async () => {
+    const { result } = renderHook(() => useMediaUpload({ domain: "community" }));
+    act(() => {
+      result.current.addFiles([fakeFile("doc.pdf", 1000, "application/pdf")]);
+    });
+    await waitFor(() => expect(result.current.items[0]!.status).toBe("failed"));
+    expect(result.current.items[0]!.errorCode).toBe("unsupported_type");
+    expect(reserveMediaUploadMock).not.toHaveBeenCalled();
+  });
+
+  it("vídeo: usa readVideoMetadata (nunca prepareUploadBlob/createImageBitmap) y envía kind+dimensiones+duración a reserveMediaUpload", async () => {
+    readVideoMetadataMock.mockResolvedValueOnce({
+      width: 1280,
+      height: 720,
+      durationSeconds: 8.4,
+    });
+    reserveMediaUploadMock.mockResolvedValue({
+      assetId: "asset-video-1",
+      mode: "single",
+      uploadUrl: "https://r2.test/put",
+      expiresInSeconds: 900,
+    });
+    uploadWithProgressMock.mockResolvedValue({ etag: '"e"' });
+    completeMediaUploadMock.mockResolvedValue({
+      assetId: "asset-video-1",
+      status: "ready",
+      kind: "video",
+      url: "https://pub.test/asset-video-1/original.mp4",
+      width: 1280,
+      height: 720,
+      bytes: 5_000_000,
+      durationSeconds: 8.4,
+    });
+
+    const { result } = renderHook(() => useMediaUpload({ domain: "community" }));
+    act(() => {
+      result.current.addFiles([fakeFile("clip.mp4", 5_000_000, "video/mp4")]);
+    });
+
+    await waitFor(() => expect(result.current.items[0]!.status).toBe("ready"));
+    expect(reserveMediaUploadMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        domain: "community",
+        kind: "video",
+        sourceMime: "video/mp4",
+        sourceBytes: 5_000_000,
+        sourceWidth: 1280,
+        sourceHeight: 720,
+        sourceDurationSeconds: 8.4,
+      }),
+    );
+    expect(result.current.items[0]!.video).toEqual({
+      kind: "video",
+      url: "https://pub.test/asset-video-1/original.mp4",
+      width: 1280,
+      height: 720,
+      bytes: 5_000_000,
+      durationSeconds: 8.4,
+    });
+    expect(result.current.items[0]!.variants).toBeNull();
+  });
+
+  it("vídeo cuya metadata el navegador no pudo leer: se reserva igualmente (sin width/height), el SERVIDOR decide si lo rechaza", async () => {
+    readVideoMetadataMock.mockResolvedValueOnce(null);
+    reserveMediaUploadMock.mockResolvedValue({
+      assetId: "asset-video-2",
+      mode: "single",
+      uploadUrl: "https://r2.test/put",
+      expiresInSeconds: 900,
+    });
+    const { result } = renderHook(() => useMediaUpload({ domain: "community" }));
+    act(() => {
+      result.current.addFiles([fakeFile("clip.mov", 2_000_000, "video/quicktime")]);
+    });
+    await waitFor(() => expect(reserveMediaUploadMock).toHaveBeenCalled());
+    const args = reserveMediaUploadMock.mock.calls[0]![0] as Record<string, unknown>;
+    expect(args.sourceWidth).toBeUndefined();
+    expect(args.sourceHeight).toBeUndefined();
+    expect(args.sourceDurationSeconds).toBeUndefined();
   });
 });

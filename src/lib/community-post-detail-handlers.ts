@@ -26,7 +26,7 @@ const NOT_FOUND_BODY = { error: "No encontrado" };
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const POST_SELECT =
-  "id, author_user_id, text, created_at, like_count, community_post_media(id, position, media_assets(status, storage_key, width, height))";
+  "id, author_user_id, text, created_at, like_count, community_post_media(id, position, media_assets(status, kind, storage_key, width, height, duration_seconds))";
 
 interface RawPostRow {
   id: string;

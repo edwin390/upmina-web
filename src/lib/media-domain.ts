@@ -24,13 +24,47 @@ export function isSourceMimeType(value: unknown): value is SourceMimeType {
   );
 }
 
-const EXTENSION_FOR_MIME: Record<SourceMimeType, string> = {
+// ────────────────────────────────────────────────────────────────────────────────────────────
+// Vídeo (Fase 9J-3): lista CERRADA de contenedores soportados — igual que SOURCE_MIME_TYPES, un
+// mime fuera de aquí se rechaza en la reserva. SOLO domain='community' puede usar kind='video'
+// (ver media-handlers.ts authorizeForDomain/SUPPORTED_VIDEO_DOMAINS); Cosplay sigue siendo
+// exclusivamente imagen — esta lista no cambia esa regla por sí sola, es la capa de MIME.
+// "video/quicktime" es el mime real que los navegadores/SO declaran para archivos .mov.
+
+export const VIDEO_MIME_TYPES = ["video/mp4", "video/quicktime", "video/webm"] as const;
+export type VideoMimeType = (typeof VIDEO_MIME_TYPES)[number];
+
+export function isVideoMimeType(value: unknown): value is VideoMimeType {
+  return (
+    typeof value === "string" && (VIDEO_MIME_TYPES as readonly string[]).includes(value)
+  );
+}
+
+export const MEDIA_KINDS = ["image", "video"] as const;
+export type MediaKind = (typeof MEDIA_KINDS)[number];
+
+export function isMediaKind(value: unknown): value is MediaKind {
+  return typeof value === "string" && (MEDIA_KINDS as readonly string[]).includes(value);
+}
+
+/** Unión de todo mime de ORIGEN aceptado (imagen o vídeo) — usada por stagingKey/privateObjectKey,
+ *  que son agnósticas de kind (solo necesitan la extensión correcta para la clave de R2). */
+export type AnySourceMimeType = SourceMimeType | VideoMimeType;
+
+export function isAnySourceMimeType(value: unknown): value is AnySourceMimeType {
+  return isSourceMimeType(value) || isVideoMimeType(value);
+}
+
+const EXTENSION_FOR_MIME: Record<AnySourceMimeType, string> = {
   "image/jpeg": "jpg",
   "image/png": "png",
   "image/webp": "webp",
   "image/heic": "heic",
   "image/heif": "heif",
   "image/avif": "avif",
+  "video/mp4": "mp4",
+  "video/quicktime": "mov",
+  "video/webm": "webm",
 };
 
 /** Formatos que el spike de transporte (Fase 9I) decidió NUNCA reducir en el navegador: HEIC/HEIF
@@ -45,10 +79,20 @@ export const NO_CLIENT_PRESHRINK_MIME_TYPES: ReadonlySet<SourceMimeType> = new S
 // Límites V1 (Fase 9I-2, sección 11). Coinciden EXACTAMENTE con los CHECK de
 // 20261001120000_cosplay_media_pipeline.sql — si uno cambia, el otro debe cambiar con él.
 
-/** 60 MiB (60 * 1024 * 1024), el techo del ORIGINAL sin normalizar. */
+/** 60 MiB (60 * 1024 * 1024), el techo del ORIGINAL sin normalizar (imagen). */
 export const MAX_SOURCE_BYTES = 60 * 1024 * 1024;
 export const MAX_SOURCE_MEGAPIXELS = 100_000_000;
 export const MAX_GALLERY_COUNT = 30;
+
+/** 100 MiB (100 * 1024 * 1024): techo del vídeo original (Fase 9J-3, sección 3 del checkpoint —
+ *  "Maximum video file size: 100 MB"). Sin transcodificación: el vídeo se sirve TAL CUAL hasta
+ *  este tamaño, nunca comprimido server-side. Coincide con media_assets_source_bytes_check /
+ *  media_assets_bytes_check de la migración 20261006120000. */
+export const MAX_VIDEO_SOURCE_BYTES = 100 * 1024 * 1024;
+
+/** Máximo 1 vídeo por publicación de Comunidad (Fase 9J-3, sección 2 del checkpoint), dentro del
+ *  máximo existente de 10 media totales (sin cambios, ver community_post_save). */
+export const MAX_COMMUNITY_VIDEOS_PER_POST = 1;
 
 // ────────────────────────────────────────────────────────────────────────────────────────────
 // Transporte: umbral de multipart y tamaño de parte (Fase 9I-2, secciones 16/17).
@@ -105,7 +149,7 @@ export function targetWidthsForLongEdge(longEdge: number): number[] {
 export function stagingKey(
   domain: string,
   assetId: string,
-  mime: SourceMimeType,
+  mime: AnySourceMimeType,
 ): string {
   return `staging/${domain}/${assetId}/original.${EXTENSION_FOR_MIME[mime]}`;
 }
@@ -113,7 +157,7 @@ export function stagingKey(
 export function privateObjectKey(
   domain: string,
   assetId: string,
-  mime: SourceMimeType,
+  mime: AnySourceMimeType,
 ): string {
   return `objects/${domain}/${assetId}/original.${EXTENSION_FOR_MIME[mime]}`;
 }
@@ -122,49 +166,91 @@ export function publicVariantKey(domain: string, assetId: string, width: number)
   return `${domain}/${assetId}/w${width}.webp`;
 }
 
+/** Clave pública del vídeo original (Fase 9J-3): sin variantes de ancho — a diferencia de
+ *  publicVariantKey (4 tamaños WebP por imagen), un vídeo tiene UN solo objeto público, con la
+ *  MISMA extensión que su mime de origen (nunca .webp). */
+export function publicVideoKey(
+  domain: string,
+  assetId: string,
+  mime: VideoMimeType,
+): string {
+  return `${domain}/${assetId}/original.${EXTENSION_FOR_MIME[mime]}`;
+}
+
 // ────────────────────────────────────────────────────────────────────────────────────────────
 // Validación de la reserva (Fase 9I-2, sección 10/11): lo único que el cliente puede declarar.
 // Nunca se confía en una clave de objeto, propiedad del asset o URL pública que el cliente envíe
 // (esas nunca son parte de este tipo de entrada).
 
 export interface ReservationInput {
+  /** "image" (por defecto si se omite, para no romper a Cosplay — que nunca envía kind) o
+   *  "video" (Fase 9J-3, solo domain='community'). */
+  kind?: unknown;
   sourceMime: unknown;
   sourceBytes: unknown;
   sourceWidth?: unknown;
   sourceHeight?: unknown;
+  /** SOLO vídeo, opcional, nunca boundary de seguridad (sección 10 del checkpoint 9J-3) — ver
+   *  media_assets.duration_seconds. */
+  sourceDurationSeconds?: unknown;
 }
 
 export interface ValidReservation {
-  sourceMime: SourceMimeType;
+  kind: MediaKind;
+  sourceMime: AnySourceMimeType;
   sourceBytes: number;
   sourceWidth: number | null;
   sourceHeight: number | null;
+  sourceDurationSeconds: number | null;
 }
 
 export type ReservationValidationError =
+  | "invalid_kind"
   | "invalid_mime"
   | "invalid_bytes"
   | "too_large"
   | "invalid_dimensions"
-  | "too_many_pixels";
+  | "too_many_pixels"
+  | "invalid_duration";
 
+/** Valida la reserva de un asset de imagen O vídeo (Fase 9J-3 amplió esta función, antes
+ *  solo-imagen, en vez de crear una segunda función paralela — un mismo punto de validación para
+ *  ambos kind, cada uno con su propia lista de mimes/techo de bytes). `kind` ausente se trata como
+ *  "image" (compatibilidad hacia atrás: Cosplay y el flujo de imagen de Comunidad nunca lo
+ *  enviaban antes de 9J-3). Las dimensiones son OPCIONALES para imagen (sin cambio de
+ *  comportamiento) pero OBLIGATORIAS para vídeo: el servidor nunca decodifica el vídeo (sección 6
+ *  del checkpoint: sin FFmpeg/transcodificación), así que width/height solo pueden venir del
+ *  navegador de origen en el momento de la reserva — sin ellas, un vídeo 'ready' no podría cumplir
+ *  el invariante existente "campos canónicos juntos o ninguno" (media_assets_canonical_fields_together). */
 export function validateReservationInput(
   input: ReservationInput,
 ):
   | { ok: true; value: ValidReservation }
   | { ok: false; error: ReservationValidationError } {
-  if (!isSourceMimeType(input.sourceMime)) return { ok: false, error: "invalid_mime" };
+  const kind: MediaKind =
+    input.kind === undefined || input.kind === null ? "image" : (input.kind as MediaKind);
+  if (!isMediaKind(kind)) return { ok: false, error: "invalid_kind" };
+
+  if (kind === "video") {
+    if (!isVideoMimeType(input.sourceMime)) return { ok: false, error: "invalid_mime" };
+  } else if (!isSourceMimeType(input.sourceMime)) {
+    return { ok: false, error: "invalid_mime" };
+  }
 
   const bytes = input.sourceBytes;
   if (typeof bytes !== "number" || !Number.isFinite(bytes) || bytes <= 0) {
     return { ok: false, error: "invalid_bytes" };
   }
-  if (bytes > MAX_SOURCE_BYTES) return { ok: false, error: "too_large" };
+  const maxBytes = kind === "video" ? MAX_VIDEO_SOURCE_BYTES : MAX_SOURCE_BYTES;
+  if (bytes > maxBytes) return { ok: false, error: "too_large" };
 
   let sourceWidth: number | null = null;
   let sourceHeight: number | null = null;
   const hasWidth = input.sourceWidth !== undefined && input.sourceWidth !== null;
   const hasHeight = input.sourceHeight !== undefined && input.sourceHeight !== null;
+  if (kind === "video" && (!hasWidth || !hasHeight)) {
+    return { ok: false, error: "invalid_dimensions" };
+  }
   if (hasWidth || hasHeight) {
     if (
       typeof input.sourceWidth !== "number" ||
@@ -176,20 +262,39 @@ export function validateReservationInput(
     ) {
       return { ok: false, error: "invalid_dimensions" };
     }
-    if (input.sourceWidth * input.sourceHeight > MAX_SOURCE_MEGAPIXELS) {
+    if (
+      kind === "image" &&
+      input.sourceWidth * input.sourceHeight > MAX_SOURCE_MEGAPIXELS
+    ) {
       return { ok: false, error: "too_many_pixels" };
     }
     sourceWidth = input.sourceWidth;
     sourceHeight = input.sourceHeight;
   }
 
+  let sourceDurationSeconds: number | null = null;
+  const hasDuration =
+    input.sourceDurationSeconds !== undefined && input.sourceDurationSeconds !== null;
+  if (hasDuration) {
+    if (
+      typeof input.sourceDurationSeconds !== "number" ||
+      !Number.isFinite(input.sourceDurationSeconds) ||
+      input.sourceDurationSeconds <= 0
+    ) {
+      return { ok: false, error: "invalid_duration" };
+    }
+    sourceDurationSeconds = input.sourceDurationSeconds;
+  }
+
   return {
     ok: true,
     value: {
-      sourceMime: input.sourceMime,
+      kind,
+      sourceMime: input.sourceMime as AnySourceMimeType,
       sourceBytes: bytes,
       sourceWidth,
       sourceHeight,
+      sourceDurationSeconds,
     },
   };
 }

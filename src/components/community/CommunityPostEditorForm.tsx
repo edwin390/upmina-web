@@ -20,8 +20,21 @@ import {
 
 const COMMUNITY_POST_TEXT_MAX = 2000;
 const COMMUNITY_POST_MAX_MEDIA = 10;
+const COMMUNITY_POST_MAX_VIDEOS = 1;
+/** Mismo mime/formato aceptado que el servidor (media-domain.ts VIDEO_MIME_TYPES) — el picker es
+ *  UNO SOLO ("Añadir fotos o videos"), nunca dos controles separados (Fase 9J-3, sección 2). */
+const MEDIA_PICKER_ACCEPT = "image/*,video/mp4,video/quicktime,video/webm";
+/** Mismo techo que media-domain.ts MAX_VIDEO_SOURCE_BYTES — duplicado a propósito (constante
+ *  literal, no import cruzado navegador↔servidor) para el rechazo temprano en el picker. */
+const MAX_VIDEO_BYTES_CLIENT = 100 * 1024 * 1024;
 
-type LocalMedia = { assetId: string; url: string | null; ready: boolean; key: string };
+type LocalMedia = {
+  assetId: string;
+  url: string | null;
+  ready: boolean;
+  key: string;
+  kind: "image" | "video";
+};
 
 interface FormState {
   postId: string | null;
@@ -44,6 +57,7 @@ function initialFormState(initialPost: CommunityOwnPost | null): FormState {
       url: m.url,
       ready: m.assetStatus === "ready",
       key: m.id,
+      kind: m.kind,
     })),
   };
 }
@@ -63,7 +77,9 @@ function errorMessage(err: unknown): string {
     if (err.code === "community_version_conflict")
       return "Esta publicación cambió mientras editabas. Vuelve a intentarlo.";
     if (err.code === "too_many_media")
-      return `Máximo ${COMMUNITY_POST_MAX_MEDIA} imágenes.`;
+      return `Máximo ${COMMUNITY_POST_MAX_MEDIA} fotos o videos.`;
+    if (err.code === "too_many_videos")
+      return `Máximo ${COMMUNITY_POST_MAX_VIDEOS} video por publicación.`;
     if (err.code === "invalid_text")
       return `Máximo ${COMMUNITY_POST_TEXT_MAX} caracteres.`;
     return err.message || "No se pudo completar la operación.";
@@ -93,6 +109,7 @@ export default function CommunityPostEditorForm({
 }: CommunityPostEditorFormProps) {
   const [form, setForm] = useState<FormState>(() => initialFormState(initialPost));
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [pickerError, setPickerError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const isMountedRef = useRef(true);
@@ -106,16 +123,24 @@ export default function CommunityPostEditorForm({
   const upload = useMediaUpload({ domain: "community" });
 
   const existingAssetIds = new Set(form.existingMedia.map((m) => m.assetId));
-  const readyNewMedia: LocalMedia[] = upload.items
+  const readyNewMedia: (LocalMedia & { durationSeconds: number | null })[] = upload.items
     .filter((item) => item.status === "ready" && item.assetId)
     .map((item) => ({
       assetId: item.assetId as string,
-      url: item.variants?.[item.variants.length - 1]?.url ?? null,
+      url:
+        item.kind === "video"
+          ? (item.video?.url ?? null)
+          : (item.variants?.[item.variants.length - 1]?.url ?? null),
       ready: true,
       key: item.localId,
+      kind: item.kind,
+      durationSeconds: item.video?.durationSeconds ?? null,
     }));
-  const totalMediaCount =
-    form.existingMedia.length + upload.items.filter((i) => i.status !== "failed").length;
+  const activeNewItems = upload.items.filter((i) => i.status !== "failed");
+  const totalMediaCount = form.existingMedia.length + activeNewItems.length;
+  const totalVideoCount =
+    form.existingMedia.filter((m) => m.kind === "video").length +
+    activeNewItems.filter((i) => i.kind === "video").length;
 
   function cancelForm() {
     for (const item of upload.items) upload.remove(item.localId);
@@ -129,10 +154,40 @@ export default function CommunityPostEditorForm({
     }));
   }
 
+  /** Valida la selección COMPLETA antes de encolar nada (sección 13 del checkpoint: "reject/
+   *  communicate ... cleanly" — nunca añade parcialmente y descarta el resto en silencio). El
+   *  servidor (community_post_save, too_many_videos/too_many_media) sigue siendo la autoridad
+   *  real; esto es solo UX para no hacer subir un archivo que el guardado rechazaría igual. */
   function onFilesSelected(e: ChangeEvent<HTMLInputElement>) {
     if (!e.target.files || e.target.files.length === 0) return;
-    upload.addFiles(e.target.files);
+    const files = Array.from(e.target.files);
     e.target.value = "";
+
+    const incomingVideoCount = files.filter((f) => f.type.startsWith("video/")).length;
+
+    if (totalMediaCount + files.length > COMMUNITY_POST_MAX_MEDIA) {
+      setPickerError(
+        `Máximo ${COMMUNITY_POST_MAX_MEDIA} fotos o videos por publicación.`,
+      );
+      return;
+    }
+    if (totalVideoCount + incomingVideoCount > COMMUNITY_POST_MAX_VIDEOS) {
+      setPickerError(`Máximo ${COMMUNITY_POST_MAX_VIDEOS} video por publicación.`);
+      return;
+    }
+    // Rechazo temprano en el navegador (sección 7 del checkpoint: "the browser should also reject
+    // obvious invalid selections early for UX") — el servidor (media-domain.ts
+    // MAX_VIDEO_SOURCE_BYTES) sigue siendo quien realmente lo hace cumplir.
+    const oversizedVideo = files.find(
+      (f) => f.type.startsWith("video/") && f.size > MAX_VIDEO_BYTES_CLIENT,
+    );
+    if (oversizedVideo) {
+      setPickerError("Los videos no pueden superar 100 MB.");
+      return;
+    }
+
+    setPickerError(null);
+    upload.addFiles(files);
   }
 
   async function handleSave(e: FormEvent) {
@@ -193,21 +248,21 @@ export default function CommunityPostEditorForm({
           id="account-community-media-label"
           className="block text-sm text-text-secondary"
         >
-          Multimedia (máximo {COMMUNITY_POST_MAX_MEDIA})
+          Multimedia (máximo {COMMUNITY_POST_MAX_MEDIA}, hasta {COMMUNITY_POST_MAX_VIDEOS}{" "}
+          video)
         </span>
         {/* Input REAL, accesible por teclado (sr-only, nunca display:none/hidden — sigue en el
             orden de tabulación). El control VISIBLE es el <button> de abajo (mismo patrón que
             CosplayEditorDialog.tsx: ref + .click() programático), nunca el texto por defecto del
-            navegador ("Seleccionar archivo / Sin archivos seleccionados"). Copy "Añadir fotos o
-            videos" describe el control MIXTO final congelado (una sola colección de
-            imágenes+vídeo); accept sigue en image/* a propósito — el vídeo real todavía no tiene
-            pipeline de procesado (checkpoint dedicado futuro), así que el helper de abajo aclara
-            la limitación actual sin fingir que ya funciona. */}
+            navegador ("Seleccionar archivo / Sin archivos seleccionados"). UN SOLO picker mixto
+            (Fase 9J-3, sección 2 del checkpoint): accept admite imagen Y los 3 contenedores de
+            vídeo soportados server-side (media-domain.ts VIDEO_MIME_TYPES) — nunca dos controles
+            separados "Añadir imágenes"/"Añadir video". */}
         <input
           ref={fileInputRef}
           id="account-community-media"
           type="file"
-          accept="image/*"
+          accept={MEDIA_PICKER_ACCEPT}
           multiple
           disabled={isSaving || totalMediaCount >= COMMUNITY_POST_MAX_MEDIA}
           onChange={onFilesSelected}
@@ -226,8 +281,14 @@ export default function CommunityPostEditorForm({
           id="account-community-media-helper"
           className="mt-2 text-xs text-text-secondary"
         >
-          Por ahora puedes subir fotos. Los videos estarán disponibles pronto.
+          Fotos y videos (MP4, MOV o WebM, hasta 100 MB, máximo{" "}
+          {COMMUNITY_POST_MAX_VIDEOS} video por publicación).
         </p>
+        {pickerError ? (
+          <p role="alert" className="mt-2 text-xs text-accent-live">
+            {pickerError}
+          </p>
+        ) : null}
       </div>
 
       {form.existingMedia.length > 0 || upload.items.length > 0 ? (
@@ -235,7 +296,18 @@ export default function CommunityPostEditorForm({
           {form.existingMedia.map((m) => (
             <li key={m.key} className="relative">
               {m.url ? (
-                <img src={m.url} alt="" className="h-20 w-20 rounded object-cover" />
+                m.kind === "video" ? (
+                  <video
+                    src={m.url}
+                    muted
+                    playsInline
+                    preload="metadata"
+                    aria-label="Video adjunto"
+                    className="h-20 w-20 rounded bg-black object-cover"
+                  />
+                ) : (
+                  <img src={m.url} alt="" className="h-20 w-20 rounded object-cover" />
+                )
               ) : (
                 <div className="flex h-20 w-20 items-center justify-center rounded border border-border-subtle text-xs text-text-secondary">
                   Procesando…
@@ -245,7 +317,7 @@ export default function CommunityPostEditorForm({
                 type="button"
                 onClick={() => removeExistingMedia(m.assetId)}
                 disabled={isSaving}
-                aria-label="Quitar imagen"
+                aria-label={m.kind === "video" ? "Quitar video" : "Quitar imagen"}
                 className="absolute -right-2 -top-2 flex h-6 w-6 items-center justify-center rounded-full border border-border-subtle bg-bg-surface text-xs text-text-primary"
               >
                 ×
@@ -254,7 +326,16 @@ export default function CommunityPostEditorForm({
           ))}
           {upload.items.map((item) => (
             <li key={item.localId} className="relative">
-              {item.status === "ready" && item.variants ? (
+              {item.status === "ready" && item.kind === "video" && item.video ? (
+                <video
+                  src={item.video.url}
+                  muted
+                  playsInline
+                  preload="metadata"
+                  aria-label="Video adjunto"
+                  className="h-20 w-20 rounded bg-black object-cover"
+                />
+              ) : item.status === "ready" && item.variants ? (
                 <img
                   src={item.variants[item.variants.length - 1]?.url}
                   alt=""
@@ -264,14 +345,14 @@ export default function CommunityPostEditorForm({
                 <div className="flex h-20 w-20 flex-col items-center justify-center rounded border border-border-subtle p-1 text-center text-[10px] text-text-secondary">
                   {item.status === "failed"
                     ? (item.errorMessage ?? "Error")
-                    : item.status}
+                    : `${item.kind === "video" ? "Video" : "Imagen"}: ${item.status}`}
                 </div>
               )}
               <button
                 type="button"
                 onClick={() => upload.remove(item.localId)}
                 disabled={isSaving}
-                aria-label="Quitar imagen"
+                aria-label={item.kind === "video" ? "Quitar video" : "Quitar imagen"}
                 className="absolute -right-2 -top-2 flex h-6 w-6 items-center justify-center rounded-full border border-border-subtle bg-bg-surface text-xs text-text-primary"
               >
                 ×

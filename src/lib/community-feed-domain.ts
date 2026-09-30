@@ -29,9 +29,11 @@ export type {
 
 interface RawFeedMediaAsset {
   status: string;
+  kind: string;
   storage_key: string | null;
   width: number | null;
   height: number | null;
+  duration_seconds: number | null;
 }
 
 export interface RawFeedMediaRow {
@@ -47,14 +49,16 @@ export function mapFeedMediaRow(
   const asset = row.media_assets;
   if (!asset || asset.status !== "ready") return null;
   if (!asset.storage_key || !asset.width || !asset.height) return null;
+  if (asset.kind !== "image" && asset.kind !== "video") return null;
 
   return {
     id: row.id,
     position: row.position,
-    kind: "image",
+    kind: asset.kind,
     url: buildUrl(asset.storage_key),
     width: asset.width,
     height: asset.height,
+    durationSeconds: asset.kind === "video" ? asset.duration_seconds : null,
   };
 }
 
