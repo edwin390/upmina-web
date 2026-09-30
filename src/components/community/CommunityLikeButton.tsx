@@ -70,11 +70,22 @@ export default function CommunityLikeButton({
     };
   }, []);
 
+  // Una vez que ESTA instancia confirmó su propio like/unlike contra el backend, su estado local
+  // pasa a ser la verdad para el resto de su vida útil: `likedByMe`/`likeCount` (props) vienen de
+  // consultas por lote (useCommunityLikedByMe) y del feed (useCommunityFeed) que NUNCA se
+  // invalidan tras un like — si esa consulta por lote seguía en vuelo desde antes del clic y
+  // resuelve DESPUÉS de que el propio clic ya confirmó el estado real, sin este flag su valor
+  // (correcto pero más viejo que nuestra propia mutación) pisaría el toggle que el usuario acaba
+  // de completar, dando la sensación de que el clic "no funcionó". Se reinicia solo al desmontar
+  // (navegar fuera y volver monta una instancia nueva, que sincroniza con props frescos).
+  const hasLocalMutationRef = useRef(false);
+
   // Resincroniza con la verdad del servidor cuando llega (p. ej. useCommunityLikedByMe resuelve
   // después del primer render, o un refetch trae datos nuevos) — nunca mientras una mutación
-  // propia sigue en vuelo, para no pisar el optimismo del clic que el usuario acaba de hacer.
+  // propia sigue en vuelo (para no pisar el optimismo del clic recién hecho) ni después de que
+  // esta instancia ya confirmó su propio estado contra el backend.
   useEffect(() => {
-    if (isPending) return;
+    if (isPending || hasLocalMutationRef.current) return;
     setLiked(likedByMe);
     setCount(likeCount);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -100,6 +111,7 @@ export default function CommunityLikeButton({
     setCommunityPostLike({ postId, liked: next })
       .then((result) => {
         if (!isMountedRef.current) return;
+        hasLocalMutationRef.current = true;
         setLiked(result.likedByMe);
         setCount(result.likeCount);
       })
@@ -117,11 +129,13 @@ export default function CommunityLikeButton({
     <button
       type="button"
       onClick={handleClick}
+      disabled={isPending}
       aria-pressed={liked}
+      aria-busy={isPending}
       aria-label={liked ? `Quitar me gusta (${count})` : `Me gusta (${count})`}
       className={
         className ??
-        `inline-flex min-h-11 items-center gap-1.5 rounded-md px-2 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-secondary ${
+        `inline-flex min-h-11 items-center gap-1.5 rounded-md px-2 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-secondary disabled:cursor-wait disabled:opacity-70 ${
           liked ? "text-accent-live" : "text-text-secondary hover:text-text-primary"
         }`
       }

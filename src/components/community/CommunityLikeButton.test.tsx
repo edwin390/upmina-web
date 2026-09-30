@@ -167,6 +167,99 @@ describe("CommunityLikeButton — usuario autenticado", () => {
     expect(clientFakes.calls).toHaveLength(1);
   });
 
+  it("el botón se deshabilita (aria-busy) mientras la mutación sigue en vuelo, y se reactiva al resolver", async () => {
+    let resolveFn!: (v: {
+      postId: string;
+      likeCount: number;
+      likedByMe: boolean;
+    }) => void;
+    clientFakes.setLikeImpl = () => new Promise((resolve) => (resolveFn = resolve));
+    renderButton({ postId: "post-1", likeCount: 0, likedByMe: false });
+
+    const button = screen.getByRole("button");
+    fireEvent.click(button);
+    expect(button).toBeDisabled();
+    expect(button).toHaveAttribute("aria-busy", "true");
+
+    await act(async () => resolveFn({ postId: "post-1", likeCount: 1, likedByMe: true }));
+    expect(button).not.toBeDisabled();
+    expect(button).toHaveAttribute("aria-busy", "false");
+  });
+
+  it("dar like: tras confirmar el clic, un dato obsoleto/tardío de liked-by-me (props) no revierte el toggle", async () => {
+    clientFakes.setLikeImpl = async () => ({
+      postId: "post-1",
+      likeCount: 1,
+      likedByMe: true,
+    });
+    const { rerender } = renderButton({
+      postId: "post-1",
+      likeCount: 0,
+      likedByMe: false,
+    });
+
+    fireEvent.click(screen.getByRole("button"));
+    await waitFor(() =>
+      expect(screen.getByRole("button")).toHaveAttribute("aria-pressed", "true"),
+    );
+    expect(screen.getByRole("button")).toHaveTextContent("1");
+
+    // Simula la consulta por lote useCommunityLikedByMe resolviendo TARDE, con datos capturados
+    // ANTES del clic (todavía "no le dio like"): el padre re-renderiza con los mismos props
+    // obsoletos que tenía al montar.
+    rerender(
+      <MemoryRouter initialEntries={["/community"]}>
+        <Routes>
+          <Route
+            path="/community"
+            element={
+              <CommunityLikeButton postId="post-1" likeCount={0} likedByMe={false} />
+            }
+          />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    expect(screen.getByRole("button")).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button")).toHaveTextContent("1");
+  });
+
+  it("quitar el like: tras confirmar el clic, un dato obsoleto/tardío (props) no revierte el toggle", async () => {
+    clientFakes.setLikeImpl = async () => ({
+      postId: "post-1",
+      likeCount: 4,
+      likedByMe: false,
+    });
+    const { rerender } = renderButton({
+      postId: "post-1",
+      likeCount: 5,
+      likedByMe: true,
+    });
+
+    fireEvent.click(screen.getByRole("button"));
+    await waitFor(() =>
+      expect(screen.getByRole("button")).toHaveAttribute("aria-pressed", "false"),
+    );
+    expect(screen.getByRole("button")).toHaveTextContent("4");
+
+    // Props obsoletos (todavía "liked=true, count=5") llegan tras el clic ya confirmado.
+    rerender(
+      <MemoryRouter initialEntries={["/community"]}>
+        <Routes>
+          <Route
+            path="/community"
+            element={
+              <CommunityLikeButton postId="post-1" likeCount={5} likedByMe={true} />
+            }
+          />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    expect(screen.getByRole("button")).toHaveAttribute("aria-pressed", "false");
+    expect(screen.getByRole("button")).toHaveTextContent("4");
+  });
+
   it("el clic detiene su propagación por defecto (no abre un contenedor ancestro)", async () => {
     const onAncestorClick = vi.fn();
     render(
