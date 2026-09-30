@@ -176,7 +176,13 @@ describe("/@username (Fase 9J-2B)", () => {
         const u = String(input);
         if (u.includes("community-profile")) {
           return json({
-            profile: { username: "edwin1", displayName: null, bio: null, postCount: 0 },
+            profile: {
+              username: "edwin1",
+              displayName: null,
+              bio: null,
+              postCount: 0,
+              totalLikes: 0,
+            },
             posts: { items: [], nextCursor: null },
           });
         }

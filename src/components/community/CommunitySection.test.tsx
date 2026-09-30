@@ -1,14 +1,19 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
 import CommunitySection from "./CommunitySection";
 
-// /community (Fase 9J-2A): feed público REAL — reemplaza el cascarón de 9J-1C UX follow-up (que
-// no tenía ninguna fuente de datos pública todavía). Confirma: estados de carga/vacío/error, que
-// texto-solo/imagen-solo/varias-imágenes se presentan, que la identidad del autor (@username,
-// displayName opcional) se muestra sin inventar nombres, que "Populares" sigue sin fabricar datos,
-// y que /community sigue sin ningún control de creación (eso vive exclusivamente en /account).
+// /community (Fase 9J-2A, con "Populares" activada en 9J-2C): feed público REAL — reemplaza el
+// cascarón de 9J-1C UX follow-up (que no tenía ninguna fuente de datos pública todavía). Confirma:
+// estados de carga/vacío/error, que texto-solo/imagen-solo/varias-imágenes se presentan, que la
+// identidad del autor (@username, displayName opcional) se muestra sin inventar nombres, que
+// cambiar de pestaña consulta el modo correcto, y que /community sigue sin ningún control de
+// creación (eso vive exclusivamente en /@username).
+
+vi.mock("@/lib/auth-context", () => ({
+  useAuth: () => ({ session: null, user: null, loading: false, signOut: vi.fn() }),
+}));
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), {
@@ -35,6 +40,7 @@ function post(id: string, overrides: Record<string, unknown> = {}) {
     createdAt: "2026-03-02T10:00:00.000Z",
     author: { username: "mina", displayName: "Mina" },
     media: [],
+    likeCount: 0,
     ...overrides,
   };
 }
@@ -210,15 +216,58 @@ describe("/community — sin controles de creación", () => {
   });
 });
 
-describe("/community — pestañas", () => {
-  it("'Recientes' y 'Populares' siguen visibles; Populares no fabrica ranking ni es interactivo", async () => {
+describe("/community — pestañas (Fase 9J-2C: Populares activada)", () => {
+  it("'Recientes' y 'Populares' son botones interactivos; Recientes empieza activa", async () => {
     stubFeed({ items: [], nextCursor: null });
     renderSection();
     await screen.findByText("Todavía no hay publicaciones");
-    expect(screen.getByText("Recientes")).toBeInTheDocument();
-    const popular = screen.getByText("Populares");
-    expect(popular).toHaveAttribute("aria-disabled", "true");
-    expect(popular.closest("button")).toBeNull();
-    expect(screen.queryByText(/top semanal/i)).toBeNull();
+    const recent = screen.getByRole("button", { name: "Recientes" });
+    const popular = screen.getByRole("button", { name: "Populares" });
+    expect(recent).toHaveAttribute("aria-current", "true");
+    expect(popular).not.toHaveAttribute("aria-current");
+  });
+
+  it("pide mode=recent por defecto", async () => {
+    const fetchMock = stubFeed({ items: [], nextCursor: null });
+    renderSection();
+    await screen.findByText("Todavía no hay publicaciones");
+    expect(fetchMock).toHaveBeenCalledWith("/api/content/community-feed?mode=recent");
+  });
+
+  it("clic en 'Populares' pide mode=popular y la marca activa", async () => {
+    const fetchMock = stubFeed({ items: [], nextCursor: null });
+    renderSection();
+    await screen.findByText("Todavía no hay publicaciones");
+
+    fireEvent.click(screen.getByRole("button", { name: "Populares" }));
+
+    await waitFor(() =>
+      expect(fetchMock).toHaveBeenCalledWith("/api/content/community-feed?mode=popular"),
+    );
+    expect(screen.getByRole("button", { name: "Populares" })).toHaveAttribute(
+      "aria-current",
+      "true",
+    );
+    expect(screen.getByRole("button", { name: "Recientes" })).not.toHaveAttribute(
+      "aria-current",
+    );
+  });
+
+  it("Populares renderiza publicaciones reales devueltas por el servidor, nunca datos fabricados en el cliente", async () => {
+    const fetchMock = vi.fn(async (url: string) => {
+      if (String(url).includes("mode=popular")) {
+        return json({
+          items: [post("pop-1", { text: "popular real" })],
+          nextCursor: null,
+        });
+      }
+      return json({ items: [], nextCursor: null });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    renderSection();
+    await screen.findByText("Todavía no hay publicaciones");
+
+    fireEvent.click(screen.getByRole("button", { name: "Populares" }));
+    expect(await screen.findByText("popular real")).toBeInTheDocument();
   });
 });

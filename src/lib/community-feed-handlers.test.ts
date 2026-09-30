@@ -67,9 +67,14 @@ function postRow(overrides: Record<string, unknown> = {}) {
     text: "hola comunidad",
     status: "published",
     created_at: "2026-03-02T10:00:00.000Z",
+    like_count: 0,
     community_post_media: [],
     ...overrides,
   };
+}
+
+function daysAgoIso(days: number): string {
+  return new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
 }
 
 beforeEach(() => {
@@ -290,5 +295,120 @@ describe("handleCommunityFeed", () => {
     const { res, state } = mockRes();
     await handleCommunityFeed(req("GET"), res);
     expect(state.status).toBe(500);
+  });
+
+  it("expone likeCount real (Fase 9J-2C)", async () => {
+    communityFeedDb.posts = [postRow({ like_count: 7 })];
+    const { res, state } = mockRes();
+    await handleCommunityFeed(req("GET"), res);
+    const body = state.body as { items: { likeCount: number }[] };
+    expect(body.items[0]?.likeCount).toBe(7);
+  });
+});
+
+describe("handleCommunityFeed — Populares (Fase 9J-2C)", () => {
+  it("mode=popular está habilitado (nunca aria-disabled/501, responde 200)", async () => {
+    const { res, state } = mockRes();
+    await handleCommunityFeed(req("GET", { mode: "popular" }), res);
+    expect(state.status).toBe(200);
+  });
+
+  it("solo publicaciones de los últimos 7 días son elegibles", async () => {
+    communityFeedDb.posts = [
+      postRow({ id: "reciente", created_at: daysAgoIso(1), like_count: 1 }),
+      postRow({ id: "vieja", created_at: daysAgoIso(8), like_count: 100 }),
+    ];
+    const { res, state } = mockRes();
+    await handleCommunityFeed(req("GET", { mode: "popular" }), res);
+    const body = state.body as { items: { id: string }[] };
+    expect(body.items.map((i) => i.id)).toEqual(["reciente"]);
+  });
+
+  it("mayor recuento de likes primero", async () => {
+    communityFeedDb.posts = [
+      postRow({ id: "pocos-likes", created_at: daysAgoIso(1), like_count: 2 }),
+      postRow({ id: "muchos-likes", created_at: daysAgoIso(2), like_count: 9 }),
+    ];
+    const { res, state } = mockRes();
+    await handleCommunityFeed(req("GET", { mode: "popular" }), res);
+    const body = state.body as { items: { id: string }[] };
+    expect(body.items.map((i) => i.id)).toEqual(["muchos-likes", "pocos-likes"]);
+  });
+
+  it("empate de likes: desempata por created_at DESC", async () => {
+    communityFeedDb.posts = [
+      postRow({ id: "mas-vieja", created_at: daysAgoIso(3), like_count: 5 }),
+      postRow({ id: "mas-nueva", created_at: daysAgoIso(1), like_count: 5 }),
+    ];
+    const { res, state } = mockRes();
+    await handleCommunityFeed(req("GET", { mode: "popular" }), res);
+    const body = state.body as { items: { id: string }[] };
+    expect(body.items.map((i) => i.id)).toEqual(["mas-nueva", "mas-vieja"]);
+  });
+
+  it("empate final de likes y created_at: desempata por id DESC", async () => {
+    const sameCreatedAt = daysAgoIso(1);
+    communityFeedDb.posts = [
+      postRow({ id: "aaa", created_at: sameCreatedAt, like_count: 3 }),
+      postRow({ id: "zzz", created_at: sameCreatedAt, like_count: 3 }),
+    ];
+    const { res, state } = mockRes();
+    await handleCommunityFeed(req("GET", { mode: "popular" }), res);
+    const body = state.body as { items: { id: string }[] };
+    expect(body.items.map((i) => i.id)).toEqual(["zzz", "aaa"]);
+  });
+
+  it("sin likes todavía: publicaciones elegibles con 0 likes igual aparecen (nunca un tab vacío por diseño)", async () => {
+    communityFeedDb.posts = [
+      postRow({ id: "sin-likes", created_at: daysAgoIso(1), like_count: 0 }),
+    ];
+    const { res, state } = mockRes();
+    await handleCommunityFeed(req("GET", { mode: "popular" }), res);
+    const body = state.body as { items: { id: string }[] };
+    expect(body.items.map((i) => i.id)).toEqual(["sin-likes"]);
+  });
+
+  it("paginación determinista: sin duplicados ni huecos entre página 1 y 2, ventana estable vía cursor", async () => {
+    communityFeedDb.posts = Array.from({ length: 25 }, (_, i) =>
+      postRow({
+        id: `p${String(i).padStart(2, "0")}`,
+        created_at: daysAgoIso(1),
+        like_count: 25 - i,
+      }),
+    );
+    const { res: res1, state: state1 } = mockRes();
+    await handleCommunityFeed(req("GET", { mode: "popular" }), res1);
+    const page1 = state1.body as { items: { id: string }[]; nextCursor: string | null };
+    expect(page1.items).toHaveLength(20);
+    expect(page1.nextCursor).not.toBeNull();
+    expect(page1.items[0]?.id).toBe("p00");
+
+    const { res: res2, state: state2 } = mockRes();
+    await handleCommunityFeed(
+      req("GET", { mode: "popular", cursor: page1.nextCursor! }),
+      res2,
+    );
+    const page2 = state2.body as { items: { id: string }[]; nextCursor: string | null };
+    expect(page2.items).toHaveLength(5);
+    expect(page2.nextCursor).toBeNull();
+
+    const allIds = [...page1.items, ...page2.items].map((i) => i.id);
+    expect(new Set(allIds).size).toBe(25);
+  });
+
+  it("cursor de Populares inválido → 400", async () => {
+    const { res, state } = mockRes();
+    await handleCommunityFeed(
+      req("GET", { mode: "popular", cursor: "%%%no-es-base64%%%" }),
+      res,
+    );
+    expect(state.status).toBe(400);
+  });
+
+  it("mode desconocido se comporta como recent (nunca 400)", async () => {
+    communityFeedDb.posts = [postRow()];
+    const { res, state } = mockRes();
+    await handleCommunityFeed(req("GET", { mode: "algo-raro" }), res);
+    expect(state.status).toBe(200);
   });
 });

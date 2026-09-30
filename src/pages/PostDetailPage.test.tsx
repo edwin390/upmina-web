@@ -4,8 +4,13 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import PostDetailPage from "./PostDetailPage";
 
-// /community/post/:postId (Fase 9J-2B.1): estados de carga/no-encontrado/error/contenido; texto
-// completo, media, identidad del autor enlazando a /@username, fecha; sin comentarios ni likes.
+// /community/post/:postId (Fase 9J-2B.1, con like real en 9J-2C): estados de carga/no-encontrado/
+// error/contenido; texto completo, media, identidad del autor enlazando a /@username, fecha; sin
+// comentarios ni reacciones múltiples.
+
+vi.mock("@/lib/auth-context", () => ({
+  useAuth: () => ({ session: null, user: null, loading: false, signOut: vi.fn() }),
+}));
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), {
@@ -20,6 +25,7 @@ function post(overrides: Record<string, unknown> = {}) {
     createdAt: "2026-03-02T10:00:00.000Z",
     author: { username: "edwin1", displayName: null },
     media: [],
+    likeCount: 0,
     ...overrides,
   };
 }
@@ -120,11 +126,28 @@ describe("/community/post/:postId — contenido", () => {
     expect(link).toHaveAttribute("href", "/@kirito");
   });
 
-  it("no muestra comentarios ni una estadística de likes fabricada", async () => {
+  it("no muestra comentarios (el like SÍ es real desde 9J-2C, ver el describe de abajo)", async () => {
     stubDetail({ post: post() });
     renderDetail();
     await screen.findByText("hola comunidad");
     expect(screen.queryByText(/comentario/i)).toBeNull();
-    expect(screen.queryByText(/like/i)).toBeNull();
+  });
+});
+
+describe("/community/post/:postId — like real (Fase 9J-2C)", () => {
+  it("muestra el recuento real de likes", async () => {
+    stubDetail({ post: post({ likeCount: 9 }) });
+    renderDetail();
+    expect(
+      await screen.findByRole("button", { name: /me gusta \(9\)/i }),
+    ).toBeInTheDocument();
+  });
+
+  it("el enlace de autor sigue funcionando junto al control de like (no interfieren)", async () => {
+    stubDetail({ post: post({ author: { username: "kirito", displayName: "Kirito" } }) });
+    renderDetail();
+    const link = await screen.findByRole("link", { name: /Kirito/ });
+    expect(link).toHaveAttribute("href", "/@kirito");
+    expect(screen.getByRole("button", { name: /me gusta/i })).toBeInTheDocument();
   });
 });

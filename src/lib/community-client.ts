@@ -40,13 +40,15 @@ async function authHeader(): Promise<string> {
 
 async function request<T>(
   action: string,
-  init: { method: "GET" | "POST"; body?: unknown },
+  init: { method: "GET" | "POST"; body?: unknown; query?: Record<string, string> },
 ): Promise<T> {
   const auth = await authHeader();
 
+  const query = init.query ? `?${new URLSearchParams(init.query).toString()}` : "";
+
   let response: Response;
   try {
-    response = await fetch(`/api/admin/${action}`, {
+    response = await fetch(`/api/admin/${action}${query}`, {
       method: init.method,
       headers: {
         Authorization: auth,
@@ -90,6 +92,8 @@ export interface CommunityPost {
   version: number;
   createdAt: string;
   updatedAt: string;
+  /** Recuento REAL de likes (Fase 9J-2C). */
+  likeCount: number;
 }
 
 export interface CommunityPostMedia {
@@ -163,4 +167,39 @@ export async function deleteCommunityPost(input: {
   allCleaned: boolean;
 }> {
   return request("community-post-delete", { method: "POST", body: input });
+}
+
+// ────────────────────────────────────────────────────────────────────────────────────────────
+// Likes (Fase 9J-2C). Operación de ESTADO idempotente (nunca lectura-luego-escritura desde aquí):
+// setCommunityPostLike({postId, liked:true}) garantiza exactamente un like propio; liked:false
+// garantiza cero. Cualquier usuario autenticado, incluido el propio autor — sin perfil de
+// Comunidad requerido (a diferencia de crear/editar una publicación): dar like no es "gestionar
+// contenido propio", así que no reutiliza community_post_save/community-post-fields.
+
+export interface SetCommunityPostLikeResult {
+  postId: string;
+  likeCount: number;
+  likedByMe: boolean;
+}
+
+export async function setCommunityPostLike(input: {
+  postId: string;
+  liked: boolean;
+}): Promise<SetCommunityPostLikeResult> {
+  return request("community-post-set-like", { method: "POST", body: input });
+}
+
+/** ¿Cuáles de estos postId dio like el usuario autenticado ACTUAL? Deliberadamente NUNCA forma
+ *  parte de una respuesta pública cacheada (feed/perfil/detalle): esas respuestas son las mismas
+ *  para cualquier visitante y se sirven con Cache-Control público — mezclar el estado de UN
+ *  usuario ahí arriesgaría que un CDN sirva el "me gusta" de una persona a otra. Esta llamada es
+ *  autenticada y sin caché, y el frontend combina su resultado con los datos públicos ya cargados. */
+export async function fetchCommunityLikedByMe(postIds: string[]): Promise<{
+  likedPostIds: string[];
+}> {
+  if (postIds.length === 0) return { likedPostIds: [] };
+  return request("community-post-liked-by-me", {
+    method: "GET",
+    query: { postIds: postIds.join(",") },
+  });
 }

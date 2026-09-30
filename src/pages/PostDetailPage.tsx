@@ -1,12 +1,14 @@
 import { Link, useParams } from "react-router-dom";
 import { useCommunityPostDetail } from "@/hooks/useCommunityPostDetail";
+import { useCommunityLikedByMe } from "@/hooks/useCommunityLikedByMe";
+import CommunityLikeButton from "@/components/community/CommunityLikeButton";
 import type { CommunityFeedPost } from "@/types";
 
-// /community/post/:postId (Fase 9J-2B.1): detalle público de UNA publicación de Comunidad —
-// destino "compartible" de las tarjetas del feed y de la galería de perfil, que antes eran
-// inertes. Solo lectura: sin comentarios, sin likes (no existen todavía), sin botón de reporte,
-// sin vídeo. La identidad del autor enlaza a /@username (nunca al revés: el enlace de autor NUNCA
-// abre esta página, ver CommunityFeedCard.tsx/ProfilePage.tsx).
+// /community/post/:postId (Fase 9J-2B.1, con like real en 9J-2C): detalle público de UNA
+// publicación de Comunidad — destino "compartible" de las tarjetas del feed y de la galería de
+// perfil, que antes eran inertes. Solo lectura salvo el like: sin comentarios, sin reacciones
+// múltiples, sin botón de reporte, sin vídeo. La identidad del autor enlaza a /@username (nunca al
+// revés: el enlace de autor NUNCA abre esta página, ver CommunityFeedCard.tsx/ProfilePage.tsx).
 
 function formatDate(iso: string): string {
   const date = new Date(iso);
@@ -51,6 +53,7 @@ export default function PostDetailPage() {
   const { postId } = useParams<{ postId: string }>();
   const { data: post, isLoading, isError, refetch } = useCommunityPostDetail(postId);
   const notFound = !isLoading && !isError && post === null;
+  const { likedByMe } = useCommunityLikedByMe(post ? [post.id] : []);
 
   return (
     <div className="mx-auto max-w-2xl px-4 py-16">
@@ -131,6 +134,15 @@ export default function PostDetailPage() {
           ) : null}
 
           <PostMedia media={post.media} />
+
+          <div className="mt-4 border-t border-border-subtle pt-4">
+            <CommunityLikeButton
+              postId={post.id}
+              likeCount={post.likeCount}
+              likedByMe={likedByMe?.has(post.id) ?? false}
+              stopPropagation={false}
+            />
+          </div>
         </article>
       ) : null}
     </div>

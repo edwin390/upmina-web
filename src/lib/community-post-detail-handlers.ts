@@ -26,13 +26,14 @@ const NOT_FOUND_BODY = { error: "No encontrado" };
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const POST_SELECT =
-  "id, author_user_id, text, created_at, community_post_media(id, position, media_assets(status, storage_key, width, height))";
+  "id, author_user_id, text, created_at, like_count, community_post_media(id, position, media_assets(status, storage_key, width, height))";
 
 interface RawPostRow {
   id: string;
   author_user_id: string;
   text: string | null;
   created_at: string;
+  like_count: number;
   community_post_media?: RawFeedMediaRow[];
 }
 

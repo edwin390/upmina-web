@@ -1,5 +1,6 @@
 import { Link } from "react-router-dom";
 import type { CommunityFeedPost } from "@/types";
+import CommunityLikeButton from "./CommunityLikeButton";
 
 // Tarjeta de una publicación en el feed público de /community (Fase 9J-2A). Puramente
 // presentacional: nunca consulta Supabase ni ningún API — todos los datos ya llegan normalizados
@@ -109,7 +110,13 @@ function MediaGrid({ media }: { media: CommunityFeedPost["media"] }) {
   );
 }
 
-export default function CommunityFeedCard({ post }: { post: CommunityFeedPost }) {
+export default function CommunityFeedCard({
+  post,
+  likedByMe,
+}: {
+  post: CommunityFeedPost;
+  likedByMe: boolean;
+}) {
   return (
     <li className="rounded-lg border border-border-subtle bg-bg-surface p-4">
       <div className="flex items-center gap-3">
@@ -141,6 +148,17 @@ export default function CommunityFeedCard({ post }: { post: CommunityFeedPost })
 
         <MediaGrid media={post.media} />
       </Link>
+
+      {/* Fase 9J-2C: HERMANO del Link de contenido (nunca dentro de él — un <button> anidado en
+          un <a> es HTML inválido y CommunityLikeButton ya detiene su propia propagación de clic,
+          así que activar "me gusta" nunca abre el detalle de la publicación). */}
+      <div className="mt-2">
+        <CommunityLikeButton
+          postId={post.id}
+          likeCount={post.likeCount}
+          likedByMe={likedByMe}
+        />
+      </div>
     </li>
   );
 }

@@ -6,6 +6,7 @@ import { useOwnCommunityPosts } from "@/hooks/useOwnCommunityPosts";
 import { useOwnProfile } from "@/hooks/useOwnProfile";
 import CommunityPostEditorDialog from "@/components/community/CommunityPostEditorDialog";
 import CommunityPostTileMenu from "@/components/community/CommunityPostTileMenu";
+import { CommunityLikeCountBadge } from "@/components/community/CommunityLikeButton";
 import type { CommunityOwnPost } from "@/lib/community-client";
 
 // /@username (Fase 9J-2B, ampliado en 9J-2B.1): perfil PÚBLICO de Comunidad — identidad/contenido
@@ -23,14 +24,17 @@ import type { CommunityOwnPost } from "@/lib/community-client";
 // autenticación + propiedad EN EL SERVIDOR (ver community-post-handlers.ts), sin MFA privilegiada
 // (gestionar contenido propio nunca lo fue).
 //
-// Likes NO existen todavía (9J-2C futuro): nunca se fabrica ni se muestra "0 likes". Avatar real
-// tampoco (checkpoint futuro): el placeholder estilizado es deliberado, no un estado de carga.
+// Likes REALES desde 9J-2C: cada tile muestra su likeCount de forma sutil (ver
+// CommunityLikeCountBadge) y el header del perfil suma un total real — nunca fabricado, 0 es un
+// valor válido. Avatar real todavía no existe (checkpoint futuro): el placeholder estilizado es
+// deliberado, no un estado de carga.
 
 interface GalleryTileData {
   id: string;
   text: string | null;
   createdAt: string;
   media: { id: string; url: string }[];
+  likeCount: number;
 }
 
 function toVisitorTile(post: {
@@ -38,8 +42,15 @@ function toVisitorTile(post: {
   text: string | null;
   createdAt: string;
   media: { id: string; url: string }[];
+  likeCount: number;
 }): GalleryTileData {
-  return { id: post.id, text: post.text, createdAt: post.createdAt, media: post.media };
+  return {
+    id: post.id,
+    text: post.text,
+    createdAt: post.createdAt,
+    media: post.media,
+    likeCount: post.likeCount,
+  };
 }
 
 /** Solo la media ya lista (con URL resuelta) cuenta para la miniatura/el indicador — una imagen
@@ -53,11 +64,16 @@ function toOwnerTile(post: CommunityOwnPost): GalleryTileData {
     media: post.media
       .filter((m): m is typeof m & { url: string } => m.url !== null)
       .map((m) => ({ id: m.id, url: m.url })),
+    likeCount: post.likeCount,
   };
 }
 
 function pluralizePosts(count: number): string {
   return count === 1 ? "1 publicación" : `${count} publicaciones`;
+}
+
+function pluralizeLikes(count: number): string {
+  return count === 1 ? "1 Me gusta" : `${count} Me gusta`;
 }
 
 function ProfileAvatarPlaceholder({ username }: { username: string }) {
@@ -137,6 +153,9 @@ function PostTile({ tile, ownerPost, onEdit, onDeleted }: PostTileProps) {
               {tile.text}
             </p>
           )}
+          {/* Fase 9J-2C: solo lectura a nivel de galería (sección 13 del checkpoint) — el like en
+              sí ocurre en el feed o en el detalle, nunca aquí. */}
+          <CommunityLikeCountBadge count={tile.likeCount} />
         </div>
         {ownerPost && onEdit && onDeleted ? (
           <div className="absolute right-1.5 top-1.5 z-20">
@@ -267,8 +286,12 @@ export default function ProfilePage() {
                 {profile.bio}
               </p>
             ) : null}
-            <p className="text-sm font-semibold text-text-primary">
-              {pluralizePosts(profile.postCount)}
+            <p className="flex items-center justify-center gap-3 text-sm font-semibold text-text-primary">
+              <span>{pluralizePosts(profile.postCount)}</span>
+              <span aria-hidden="true" className="text-text-secondary">
+                ·
+              </span>
+              <span>{pluralizeLikes(profile.totalLikes)}</span>
             </p>
 
             {isOwnProfile ? (

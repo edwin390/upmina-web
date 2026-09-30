@@ -68,6 +68,7 @@ function postRow(overrides: Record<string, unknown> = {}) {
     text: "hola comunidad",
     status: "published",
     created_at: "2026-03-02T10:00:00.000Z",
+    like_count: 0,
     community_post_media: [],
     ...overrides,
   };
@@ -141,7 +142,54 @@ describe("handleCommunityProfile", () => {
       displayName: "Edwin",
       bio: "Fan de Mina",
       postCount: 2,
+      totalLikes: 0,
     });
+  });
+
+  it("totalLikes: suma real de likeCount de sus publicaciones published (Fase 9J-2C)", async () => {
+    communityProfileDb.profiles = [profileRow()];
+    communityProfileDb.posts = [
+      postRow({ id: "p1", like_count: 5 }),
+      postRow({ id: "p2", like_count: 7 }),
+    ];
+    const { res, state } = mockRes();
+    await handleCommunityProfile(req("GET", { username: "edwin1" }), res);
+    const body = state.body as { profile: { totalLikes: number } };
+    expect(body.profile.totalLikes).toBe(12);
+  });
+
+  it("totalLikes excluye publicaciones hidden y de otro autor", async () => {
+    communityProfileDb.profiles = [
+      profileRow(),
+      profileRow({ user_id: "other", username: "otro" }),
+    ];
+    communityProfileDb.posts = [
+      postRow({ id: "mine", like_count: 3 }),
+      postRow({ id: "mine-hidden", status: "hidden", like_count: 100 }),
+      postRow({ id: "not-mine", author_user_id: "other", like_count: 100 }),
+    ];
+    const { res, state } = mockRes();
+    await handleCommunityProfile(req("GET", { username: "edwin1" }), res);
+    const body = state.body as { profile: { totalLikes: number } };
+    expect(body.profile.totalLikes).toBe(3);
+  });
+
+  it("cero likes es un valor válido, nunca fabricado", async () => {
+    communityProfileDb.profiles = [profileRow()];
+    communityProfileDb.posts = [postRow()];
+    const { res, state } = mockRes();
+    await handleCommunityProfile(req("GET", { username: "edwin1" }), res);
+    const body = state.body as { profile: { totalLikes: number } };
+    expect(body.profile.totalLikes).toBe(0);
+  });
+
+  it("cada item de la galería expone likeCount real", async () => {
+    communityProfileDb.profiles = [profileRow()];
+    communityProfileDb.posts = [postRow({ like_count: 4 })];
+    const { res, state } = mockRes();
+    await handleCommunityProfile(req("GET", { username: "edwin1" }), res);
+    const body = state.body as { posts: { items: { likeCount: number }[] } };
+    expect(body.posts.items[0]?.likeCount).toBe(4);
   });
 
   it("no expone email, UUID, author_user_id, role ni metadata de MFA/seguridad", async () => {

@@ -34,7 +34,7 @@ const NOT_FOUND_BODY = { error: "Perfil no encontrado" };
 const BAD_REQUEST_BODY = { error: "Username inválido" };
 
 const POSTS_SELECT =
-  "id, text, created_at, community_post_media(id, position, media_assets(status, storage_key, width, height))";
+  "id, text, created_at, like_count, community_post_media(id, position, media_assets(status, storage_key, width, height))";
 
 interface RawPostRow extends RawFeedPostRow {
   community_post_media?: RawFeedMediaRow[];
@@ -120,6 +120,21 @@ export async function handleCommunityProfile(
       .eq("status", "published");
     if (countError) return res.status(500).json(GENERIC_ERROR_BODY);
 
+    // Suma REAL de likeCount de sus publicaciones published (Fase 9J-2C) — nunca una tabla
+    // liker/publicación expuesta, solo el agregado. like_count ya viene desnormalizado en cada
+    // fila (ver la migración 20261005120000), así que basta con sumar en memoria: a esta escala
+    // no justifica una función de agregación SQL aparte.
+    const { data: likeRows, error: likeError } = await client
+      .from("community_posts")
+      .select("like_count")
+      .eq("author_user_id", profile.user_id)
+      .eq("status", "published");
+    if (likeError) return res.status(500).json(GENERIC_ERROR_BODY);
+    const totalLikes = ((likeRows ?? []) as unknown as { like_count: number }[]).reduce(
+      (sum, row) => sum + row.like_count,
+      0,
+    );
+
     let query = client
       .from("community_posts")
       .select(POSTS_SELECT)
@@ -158,6 +173,7 @@ export async function handleCommunityProfile(
       displayName: profile.display_name,
       bio: profile.bio,
       postCount: count ?? 0,
+      totalLikes,
     };
 
     const body: CommunityProfilePage = {

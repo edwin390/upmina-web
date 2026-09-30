@@ -31,6 +31,10 @@ import {
   handleCommunityPostReorderMedia,
   handleCommunityPostSave,
 } from "../../src/lib/community-post-handlers.js";
+import {
+  handleCommunityPostLikedByMe,
+  handleCommunityPostSetLike,
+} from "../../src/lib/community-like-handlers.js";
 
 // Despachador de acciones admin server-side por segmento dinámico `action`. Mismo
 // patrón que api/instagram/[resource].ts y api/tiktok/[resource].ts: un único
@@ -74,6 +78,11 @@ import {
 // función 12/12) y este es el único dispatcher genérico de acciones ya existente cuyo switch no
 // impone ninguna autorización compartida (cada acción autoriza la suya propia — ver el comentario
 // de arriba sobre "access"). Lógica en src/lib/community-post-handlers.ts.
+// "community-post-set-like" y "community-post-liked-by-me" (Fase 9J-2C — dar/quitar like y
+// consultar el propio estado de like sobre una lista de publicaciones). Igual que las acciones de
+// arriba, NO son privilegiadas: solo requireAuthenticated, sin perfil de Comunidad requerido (dar
+// like no es "gestionar contenido propio"), sin MFA, sin rol — cualquier usuario autenticado,
+// incluido el propio autor de la publicación. Lógica en src/lib/community-like-handlers.ts.
 // La lógica de cada una vive en src/lib/admin-handlers.ts, no aquí, siguiendo el mismo
 // patrón que los otros dos dispatchers.
 export default function handler(req: VercelRequest, res: VercelResponse) {
@@ -122,6 +131,10 @@ export default function handler(req: VercelRequest, res: VercelResponse) {
       return handleCommunityPostDelete(req, res);
     case "community-post-list-own":
       return handleCommunityPostListOwn(req, res);
+    case "community-post-set-like":
+      return handleCommunityPostSetLike(req, res);
+    case "community-post-liked-by-me":
+      return handleCommunityPostLikedByMe(req, res);
     default:
       return res.status(404).json({ error: "No encontrado" });
   }

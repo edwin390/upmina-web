@@ -103,6 +103,7 @@ function post(id: string, overrides: Record<string, unknown> = {}) {
     createdAt: "2026-03-02T10:00:00.000Z",
     author: { username: "edwin1", displayName: null },
     media: [],
+    likeCount: 0,
     ...overrides,
   };
 }
@@ -116,6 +117,7 @@ function ownPost(id: string, overrides: Record<string, unknown> = {}) {
     createdAt: "2026-03-02T10:00:00.000Z",
     updatedAt: "2026-03-02T10:00:00.000Z",
     media: [],
+    likeCount: 0,
     ...overrides,
   };
 }
@@ -127,6 +129,7 @@ function profilePage(overrides: Record<string, unknown> = {}) {
       displayName: null,
       bio: null,
       postCount: 0,
+      totalLikes: 0,
       ...(overrides.profile as Record<string, unknown> | undefined),
     },
     posts: { items: [], nextCursor: null, ...(overrides.posts as object | undefined) },
@@ -233,13 +236,34 @@ describe("/@username — encabezado (jerarquía tipo TikTok)", () => {
     renderProfile();
     expect(await screen.findByText("1 publicación")).toBeInTheDocument();
   });
+});
 
-  it("NUNCA fabrica una estadística de likes", async () => {
-    stubProfile(profilePage({ profile: { postCount: 5 } }));
+describe("/@username — total de likes (Fase 9J-2C)", () => {
+  it("muestra el total REAL de likes junto al recuento de publicaciones", async () => {
+    stubProfile(profilePage({ profile: { postCount: 5, totalLikes: 347 } }));
     renderProfile();
     await screen.findByText("5 publicaciones");
-    expect(screen.queryByText(/like/i)).toBeNull();
-    expect(screen.queryByText(/0 me gusta/i)).toBeNull();
+    expect(screen.getByText("347 Me gusta")).toBeInTheDocument();
+  });
+
+  it("0 likes es un valor válido: se muestra, nunca se omite ni se fabrica otro número", async () => {
+    stubProfile(profilePage({ profile: { postCount: 2, totalLikes: 0 } }));
+    renderProfile();
+    await screen.findByText("2 publicaciones");
+    expect(screen.getByText("0 Me gusta")).toBeInTheDocument();
+  });
+
+  it("1 like: singular correcto", async () => {
+    stubProfile(profilePage({ profile: { totalLikes: 1 } }));
+    renderProfile();
+    expect(await screen.findByText("1 Me gusta")).toBeInTheDocument();
+  });
+
+  it("nunca muestra contador de seguidores/siguiendo (fuera de alcance)", async () => {
+    stubProfile(profilePage({ profile: { postCount: 5, totalLikes: 347 } }));
+    renderProfile();
+    await screen.findByText("347 Me gusta");
+    expect(screen.queryByText(/seguidor|siguiendo|follower/i)).toBeNull();
   });
 });
 
@@ -313,6 +337,37 @@ describe("/@username — galería", () => {
     expect(tile).toHaveAttribute("href", "/community/post/p1");
     tile.focus();
     expect(document.activeElement).toBe(tile);
+  });
+
+  it("cada tile muestra su likeCount de forma sutil, solo lectura (Fase 9J-2C)", async () => {
+    stubProfile(
+      profilePage({
+        posts: {
+          items: [post("p1", { text: null, media: [mediaItem()], likeCount: 8 })],
+          nextCursor: null,
+        },
+      }),
+    );
+    const { container } = renderProfile();
+    await screen.findByRole("list");
+    expect(container.textContent).toContain("8");
+    // Solo lectura a nivel de galería: el badge no es un control interactivo (nunca un <button>
+    // de like en el grid — eso vive en el feed/detalle).
+    expect(screen.queryByRole("button", { name: /me gusta/i })).toBeNull();
+  });
+
+  it("activar el tile sigue abriendo el detalle (el badge de likes nunca lo intercepta)", async () => {
+    stubProfile(
+      profilePage({
+        posts: {
+          items: [post("p1", { text: null, media: [mediaItem()], likeCount: 8 })],
+          nextCursor: null,
+        },
+      }),
+    );
+    renderProfile();
+    const tile = await screen.findByRole("link", { name: /1 imagen/ });
+    expect(tile).toHaveAttribute("href", "/community/post/p1");
   });
 });
 

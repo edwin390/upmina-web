@@ -288,6 +288,8 @@ export interface CommunityFeedPost {
   createdAt: string;
   author: CommunityFeedAuthor;
   media: CommunityFeedMediaItem[];
+  /** Recuento REAL de likes (Fase 9J-2C). Agregado público: nunca la lista de quién dio like. */
+  likeCount: number;
 }
 
 /** Página de listado con paginación por cursor, mismo patrón que CosplayPostListPage. */
@@ -307,8 +309,11 @@ export interface CommunityProfilePublic {
   username: string;
   displayName: string | null;
   bio: string | null;
-  /** Recuento de publicaciones published. Nunca un recuento de "me gusta" (no existen todavía). */
+  /** Recuento de publicaciones published. */
   postCount: number;
+  /** Suma REAL de likeCount de sus publicaciones published (Fase 9J-2C). Nunca fabricado: 0 es un
+   *  valor válido. No cuenta publicaciones borradas ni 'hidden'. */
+  totalLikes: number;
 }
 
 export interface CommunityProfilePage {

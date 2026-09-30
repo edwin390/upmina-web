@@ -1,17 +1,52 @@
-import { useCommunityFeed } from "@/hooks/useCommunityFeed";
+import { useState } from "react";
+import { useCommunityFeed, type CommunityFeedMode } from "@/hooks/useCommunityFeed";
+import { useCommunityLikedByMe } from "@/hooks/useCommunityLikedByMe";
 import CommunityFeedCard from "./CommunityFeedCard";
 
-// /community (Fase 9J-2A): feed público REAL de Comunidad — reemplaza el cascarón temporal de
-// 9J-1C UX follow-up (que solo mostraba las etiquetas congeladas "Recientes"/"Populares" sin
-// ninguna fuente de datos, porque ese checkpoint no implementaba lectura pública todavía).
+// /community (Fase 9J-2A, con "Populares" activada en 9J-2C): feed público REAL de Comunidad —
+// reemplaza el cascarón temporal de 9J-1C UX follow-up (que solo mostraba las etiquetas congeladas
+// "Recientes"/"Populares" sin ninguna fuente de datos).
 //
-// Solo lectura: sin formulario ni botón de creación (eso vive EXCLUSIVAMENTE en /account,
-// CommunityPostsSection.tsx — decisión congelada desde 9J-1C UX follow-up, sin cambios aquí).
-// "Recientes" es la única pestaña funcional (created_at desc, sin aprobación previa: una
-// publicación 'published' es pública de inmediato). "Populares" se mantiene visible pero
-// deshabilitada — sin ranking real todavía, así que NUNCA se fabrican datos de popularidad; se
-// muestra como un estado "aún no disponible", nunca como una pestaña funcional falsa.
+// Solo lectura de PUBLICACIONES: sin formulario ni botón de creación (eso vive exclusivamente en
+// el perfil propio, /@username — ver ProfilePage.tsx). Dar like SÍ es posible desde aquí
+// (CommunityFeedCard → CommunityLikeButton, Fase 9J-2C).
+//
+// "Recientes" (created_at desc) y "Populares" (últimos 7 días, like_count desc, created_at desc,
+// id desc — ver useCommunityFeed.ts y community-feed-handlers.ts) son ahora dos pestañas
+// igualmente funcionales; ninguna fabrica datos: Populares muestra publicaciones elegibles con 0
+// likes en vez de un tab vacío, nunca un "engagement score" inventado.
+const TAB_LABEL: Record<CommunityFeedMode, string> = {
+  recent: "Recientes",
+  popular: "Populares",
+};
+
+function ModeTab({
+  mode,
+  active,
+  onSelect,
+}: {
+  mode: CommunityFeedMode;
+  active: boolean;
+  onSelect: (mode: CommunityFeedMode) => void;
+}) {
+  return (
+    <button
+      type="button"
+      aria-current={active ? "true" : undefined}
+      onClick={() => onSelect(mode)}
+      className={
+        active
+          ? "rounded-md bg-accent-primary px-3 py-1.5 text-sm font-semibold text-text-inverse"
+          : "rounded-md bg-bg-elevated px-3 py-1.5 text-sm text-text-secondary transition-colors hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-secondary"
+      }
+    >
+      {TAB_LABEL[mode]}
+    </button>
+  );
+}
+
 export default function CommunitySection() {
+  const [mode, setMode] = useState<CommunityFeedMode>("recent");
   const {
     data,
     isLoading,
@@ -20,9 +55,10 @@ export default function CommunitySection() {
     isFetchingNextPage,
     fetchNextPage,
     refetch,
-  } = useCommunityFeed();
+  } = useCommunityFeed(mode);
 
   const items = data?.pages.flatMap((page) => page.items) ?? [];
+  const { likedByMe } = useCommunityLikedByMe(items.map((post) => post.id));
 
   return (
     <section className="mx-auto max-w-3xl px-4 py-16">
@@ -31,19 +67,8 @@ export default function CommunitySection() {
           Comunidad
         </h1>
         <div className="mt-4 flex gap-2">
-          <span
-            aria-current="true"
-            className="rounded-md bg-accent-primary px-3 py-1.5 text-sm font-semibold text-text-inverse"
-          >
-            Recientes
-          </span>
-          <span
-            aria-disabled="true"
-            title="Próximamente"
-            className="rounded-md bg-bg-elevated px-3 py-1.5 text-sm text-text-muted"
-          >
-            Populares
-          </span>
+          <ModeTab mode="recent" active={mode === "recent"} onSelect={setMode} />
+          <ModeTab mode="popular" active={mode === "popular"} onSelect={setMode} />
         </div>
       </header>
 
@@ -94,7 +119,11 @@ export default function CommunitySection() {
         <>
           <ul className="flex flex-col gap-4">
             {items.map((post) => (
-              <CommunityFeedCard key={post.id} post={post} />
+              <CommunityFeedCard
+                key={post.id}
+                post={post}
+                likedByMe={likedByMe?.has(post.id) ?? false}
+              />
             ))}
           </ul>
 

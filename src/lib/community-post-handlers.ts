@@ -190,6 +190,10 @@ interface RawPostRow {
   version: number;
   created_at: string;
   updated_at: string;
+  /** Contador desnormalizado (Fase 9J-2C) — presente en toda fila de community_posts, incluida
+   *  una recién creada (empieza en 0). Ver el comentario de cabecera de la migración
+   *  20261005120000. */
+  like_count: number;
 }
 
 function mapPostRowNeutral(row: RawPostRow) {
@@ -198,6 +202,7 @@ function mapPostRowNeutral(row: RawPostRow) {
     text: row.text,
     status: row.status,
     version: row.version,
+    likeCount: row.like_count,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -438,7 +443,7 @@ export async function handleCommunityPostDelete(
 // simple no necesita atomicidad multi-tabla (mismo criterio que cosplay-post-list-admin).
 
 const OWN_SELECT_WITH_MEDIA =
-  "id, text, status, version, created_at, updated_at, community_post_media(id, asset_id, position, media_assets(id, status, width, height, storage_key))";
+  "id, text, status, version, created_at, updated_at, like_count, community_post_media(id, asset_id, position, media_assets(id, status, width, height, storage_key))";
 
 interface OwnMediaAssetRow {
   id: string;

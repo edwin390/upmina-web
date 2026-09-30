@@ -50,6 +50,7 @@ function postRow(overrides: Record<string, unknown> = {}) {
     text: "hola comunidad",
     status: "published",
     created_at: "2026-03-02T10:00:00.000Z",
+    like_count: 0,
     community_post_media: [],
     ...overrides,
   };
@@ -198,5 +199,14 @@ describe("handleCommunityPostDetail", () => {
     const { res, state } = mockRes();
     await handleCommunityPostDetail(req("GET", { postId: POST_ID }), res);
     expect(state.status).toBe(500);
+  });
+
+  it("expone likeCount real (Fase 9J-2C)", async () => {
+    communityPostDetailDb.posts = [postRow({ like_count: 12 })];
+    communityPostDetailDb.profiles = [profileRow()];
+    const { res, state } = mockRes();
+    await handleCommunityPostDetail(req("GET", { postId: POST_ID }), res);
+    const body = state.body as { post: { likeCount: number } };
+    expect(body.post.likeCount).toBe(12);
   });
 });

@@ -1,13 +1,20 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import type { CommunityFeedPost } from "@/types";
 import CommunityFeedCard from "./CommunityFeedCard";
 
-// Fase 9J-2B/9J-2B.1: la identidad del autor (avatar + display name/@username) enlaza al perfil
-// público /@username; el contenido (texto + media) enlaza al detalle de la publicación
-// (/community/post/:postId); el enlace de autor NUNCA abre la publicación, y la tarjeta no es un
-// único enlace gigante (los tres enlaces son hermanos, nunca anidados unos dentro de otros).
+// Fase 9J-2B/9J-2B.1 (con like real en 9J-2C): la identidad del autor (avatar + display
+// name/@username) enlaza al perfil público /@username; el contenido (texto + media) enlaza al
+// detalle de la publicación (/community/post/:postId); el enlace de autor NUNCA abre la
+// publicación, y la tarjeta no es un único enlace gigante (los tres enlaces son hermanos, nunca
+// anidados unos dentro de otros). El control de like (CommunityLikeButton) es un <button>, no un
+// <a>: no cambia el recuento de enlaces de estas pruebas, así que se cubre por separado en
+// CommunityLikeButton.test.tsx.
+
+vi.mock("@/lib/auth-context", () => ({
+  useAuth: () => ({ session: null, user: null, loading: false, signOut: vi.fn() }),
+}));
 
 function post(overrides: Partial<CommunityFeedPost> = {}): CommunityFeedPost {
   return {
@@ -16,6 +23,7 @@ function post(overrides: Partial<CommunityFeedPost> = {}): CommunityFeedPost {
     createdAt: "2026-03-02T10:00:00.000Z",
     author: { username: "kirito", displayName: "Kirito" },
     media: [],
+    likeCount: 0,
     ...overrides,
   };
 }
@@ -24,7 +32,7 @@ function renderCard(p: CommunityFeedPost) {
   return render(
     <MemoryRouter>
       <ul>
-        <CommunityFeedCard post={p} />
+        <CommunityFeedCard post={p} likedByMe={false} />
       </ul>
     </MemoryRouter>,
   );
