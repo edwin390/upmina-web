@@ -4,8 +4,10 @@ import { MemoryRouter } from "react-router-dom";
 import type { CommunityFeedPost } from "@/types";
 import CommunityFeedCard from "./CommunityFeedCard";
 
-// Fase 9J-2B: la identidad del autor (avatar + display name/@username) enlaza al perfil público
-// /@username; el resto de la tarjeta (texto, media, fecha) NUNCA es un enlace de perfil.
+// Fase 9J-2B/9J-2B.1: la identidad del autor (avatar + display name/@username) enlaza al perfil
+// público /@username; el contenido (texto + media) enlaza al detalle de la publicación
+// (/community/post/:postId); el enlace de autor NUNCA abre la publicación, y la tarjeta no es un
+// único enlace gigante (los tres enlaces son hermanos, nunca anidados unos dentro de otros).
 
 function post(overrides: Partial<CommunityFeedPost> = {}): CommunityFeedPost {
   return {
@@ -43,20 +45,38 @@ describe("CommunityFeedCard — enlaces de perfil", () => {
 
   it("usa el username canónico ya normalizado por el servidor, sin re-normalizar", () => {
     renderCard(post({ author: { username: "kirito", displayName: null } }));
-    const links = screen.getAllByRole("link");
-    for (const link of links) {
+    const profileLinks = screen
+      .getAllByRole("link")
+      .filter((l) => l.getAttribute("href")?.startsWith("/@"));
+    expect(profileLinks.length).toBeGreaterThan(0);
+    for (const link of profileLinks) {
       expect(link).toHaveAttribute("href", "/@kirito");
     }
   });
+});
 
-  it("la tarjeta entera NO es un enlace de perfil: solo existen los dos enlaces de identidad", () => {
+describe("CommunityFeedCard — abrir el detalle de la publicación", () => {
+  it("el contenido (texto + media) enlaza a /community/post/:postId", () => {
     renderCard(post());
+    const contentLink = screen.getByRole("link", { name: "Ver publicación completa" });
+    expect(contentLink).toHaveAttribute("href", "/community/post/post-1");
+  });
+
+  it("el enlace de autor NUNCA abre la publicación (destinos distintos)", () => {
+    renderCard(post());
+    const profileLink = screen.getByRole("link", { name: /Kirito/ });
+    expect(profileLink).toHaveAttribute("href", "/@kirito");
+    expect(profileLink).not.toHaveAttribute("href", "/community/post/post-1");
+  });
+
+  it("exactamente 3 enlaces (avatar, identidad, contenido), ninguno anidado dentro de otro", () => {
+    const { container } = renderCard(post());
     const links = screen.getAllByRole("link");
-    expect(links).toHaveLength(2);
+    expect(links).toHaveLength(3);
     for (const link of links) {
-      expect(link).toHaveAttribute("href", "/@kirito");
+      const nestedLink = link.querySelector("a");
+      expect(nestedLink).toBeNull();
     }
-    // El texto de la publicación no está dentro de ningún <a>.
-    expect(screen.getByText("hola comunidad").closest("a")).toBeNull();
+    expect(container.querySelectorAll("a")).toHaveLength(3);
   });
 });

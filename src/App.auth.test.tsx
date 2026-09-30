@@ -220,7 +220,7 @@ describe("/login público (Bloque 6C)", () => {
     expect(await screen.findByLabelText("Email")).toBeInTheDocument();
   });
 
-  it("flujo completo: Header → /login → login correcto → / con 'Cuenta', un solo listener y sin /api/admin/me", async () => {
+  it("flujo completo: Header → /login → login correcto → / con 'Perfil', un solo listener y sin /api/admin/me", async () => {
     renderAt("/terms");
     await waitFor(() =>
       expect(screen.getByTestId("probe")).toHaveTextContent("sin-sesion"),
@@ -242,14 +242,14 @@ describe("/login público (Bloque 6C)", () => {
       { email: "fan@example.com", password: "clave-sintetica-1" },
     ]);
 
-    // La sesión llega por el listener global y el Header pasa a "Cuenta" (no interactivo).
+    // La sesión llega por el listener global y el Header pasa a "Perfil" (sin @username configurado, enlaza a /account).
     act(() =>
       authFakes.emit?.({
         access_token: "at-sintetico",
         user: { id: "u1", email: "x@y.z" },
       }),
     );
-    expect(await screen.findByText("Cuenta")).toBeInTheDocument();
+    expect(await screen.findByText("Perfil")).toBeInTheDocument();
     expect(screen.queryByRole("link", { name: /iniciar sesión/i })).toBeNull();
 
     expect(authFakes.onAuthStateChangeCalls).toBe(1);
@@ -303,7 +303,7 @@ describe("/account privado (Bloque 6E)", () => {
     expect(screen.queryByRole("button", { name: "Cerrar sesión" })).toBeNull();
   });
 
-  it("flujo real: login → Header 'Cuenta' → /account → logout → visitante, con un solo listener y sin /api/admin/me", async () => {
+  it("flujo real: login → Header 'Perfil' → /account → logout → visitante, con un solo listener y sin /api/admin/me", async () => {
     renderAt("/terms");
     await waitFor(() =>
       expect(screen.getByTestId("probe")).toHaveTextContent("sin-sesion"),
@@ -320,14 +320,14 @@ describe("/account privado (Bloque 6E)", () => {
     fireEvent.submit(screen.getByLabelText("Email").closest("form")!);
     expect(await screen.findByText("Home stub")).toBeInTheDocument();
 
-    // la sesión llega por el listener global → Header pasa a "Cuenta" (enlace a /account)
+    // la sesión llega por el listener global → Header pasa a "Perfil" (enlace a /account)
     act(() =>
       authFakes.emit?.({
         access_token: "at-sintetico",
         user: { id: "u1", email: "fan@example.com" },
       }),
     );
-    const accountLink = await screen.findByRole("link", { name: "Cuenta" });
+    const accountLink = await screen.findByRole("link", { name: "Perfil" });
     expect(accountLink).toHaveAttribute("href", "/account");
 
     // /account
@@ -340,7 +340,7 @@ describe("/account privado (Bloque 6E)", () => {
     fireEvent.click(screen.getByRole("button", { name: "Cerrar sesión" }));
     expect(await screen.findByLabelText("Email")).toBeInTheDocument();
     expect(authFakes.signOutCalls).toBe(1);
-    expect(screen.queryByRole("link", { name: "Cuenta" })).toBeNull();
+    expect(screen.queryByRole("link", { name: "Perfil" })).toBeNull();
     expect(
       screen.getAllByRole("link", { name: /iniciar sesión/i }).length,
     ).toBeGreaterThan(0);

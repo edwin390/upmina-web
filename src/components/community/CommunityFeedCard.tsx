@@ -123,13 +123,24 @@ export default function CommunityFeedCard({ post }: { post: CommunityFeedPost })
         </time>
       </div>
 
-      {post.text ? (
-        <p className="mt-3 whitespace-pre-line break-words text-sm text-text-primary">
-          {post.text}
-        </p>
-      ) : null}
+      {/* Fase 9J-2B.1: el contenido (texto + media) abre el detalle de la publicación —
+          /community/post/:postId. Este Link es HERMANO de los de arriba (avatar/identidad),
+          nunca su ancestro ni su descendiente: el enlace de autor sigue yendo SOLO al perfil,
+          nunca abre la publicación, y no hay controles interactivos anidados dentro de este
+          enlace (MediaGrid solo pinta <img>, nunca <a>/<button>). */}
+      <Link
+        to={`/community/post/${post.id}`}
+        aria-label="Ver publicación completa"
+        className="block rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-secondary"
+      >
+        {post.text ? (
+          <p className="mt-3 whitespace-pre-line break-words text-sm text-text-primary">
+            {post.text}
+          </p>
+        ) : null}
 
-      <MediaGrid media={post.media} />
+        <MediaGrid media={post.media} />
+      </Link>
     </li>
   );
 }

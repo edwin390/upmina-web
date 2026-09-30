@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Link, NavLink } from "react-router-dom";
 import clsx from "clsx";
 import { useAuth } from "@/lib/auth-context";
+import { useOwnProfile } from "@/hooks/useOwnProfile";
 
 const NAV_LINKS = [
   { to: "/", label: "Inicio" },
@@ -13,12 +14,16 @@ const NAV_LINKS = [
   { to: "/cosplay", label: "Cosplay" },
 ];
 
-// Estado de sesión en la navegación (Bloques 6B/6C/6E): visitante -> "Iniciar sesión"
-// (/login); autenticado -> "Cuenta" (/account). Ambos son enlaces SPA.
-// Solo conoce session == null o != null del AuthProvider global: no distingue
-// USER/MODERATOR/ADMIN, no muestra datos de la cuenta y no es autorización de nada
-// (eso es server-side, ver /api/admin/me). Mientras loading=true reserva el espacio
-// sin mostrar ninguna etiqueta, para no parpadear ni desplazar el layout.
+// Estado de sesión en la navegación (Bloques 6B/6C/6E; renombrado a "Perfil" en 9J-2B.1): el
+// perfil público /@username es ahora la experiencia social/de cuenta PRIMARIA — visitante ->
+// "Iniciar sesión" (/login); autenticado CON @username configurado -> "Perfil" (/@username);
+// autenticado SIN @username todavía -> "Perfil" (/account, porque hay que configurar el perfil
+// antes de poder verlo). /account en sí NUNCA se renombra: sigue siendo la superficie de
+// configuración/ajustes privados (ver ProfileSection.tsx), solo cambia a qué apunta ESTE enlace
+// de navegación. useOwnProfile() es solo para PRESENTACIÓN (misma nota que useAdminAccess): no
+// decide autorización de nada, mientras se resuelve o si falla se cae a /account (nunca a un
+// /@username inventado). Mientras loading=true reserva el espacio sin mostrar ninguna etiqueta,
+// para no parpadear ni desplazar el layout.
 function SessionAction({
   variant,
   onNavigate,
@@ -27,6 +32,7 @@ function SessionAction({
   onNavigate?: () => void;
 }) {
   const { session, loading } = useAuth();
+  const { profile } = useOwnProfile();
 
   if (loading) {
     return (
@@ -39,10 +45,15 @@ function SessionAction({
     );
   }
 
-  // Visitante -> /login; autenticado -> /account. Solo distingue session == null o != null.
+  const destination = !session
+    ? "/login"
+    : profile
+      ? `/@${profile.username}`
+      : "/account";
+
   return (
     <Link
-      to={session ? "/account" : "/login"}
+      to={destination}
       onClick={onNavigate}
       className={
         variant === "desktop"
@@ -50,7 +61,7 @@ function SessionAction({
           : "block rounded-md px-3 py-2 text-sm text-text-secondary transition-colors duration-200 ease-smooth hover:bg-bg-elevated hover:text-accent-primary"
       }
     >
-      {session ? "Cuenta" : "Iniciar sesión"}
+      {session ? "Perfil" : "Iniciar sesión"}
     </Link>
   );
 }

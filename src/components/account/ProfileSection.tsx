@@ -462,14 +462,22 @@ export default function ProfileSection() {
                 {state.profile.bio}
               </p>
             ) : null}
-            <button
-              type="button"
-              ref={editButtonRef}
-              onClick={startEdit}
-              className={`${SECONDARY_BUTTON_CLASS} mt-4`}
-            >
-              Editar perfil
-            </button>
+            <div className="mt-4 flex flex-wrap gap-3">
+              <button
+                type="button"
+                ref={editButtonRef}
+                onClick={startEdit}
+                className={SECONDARY_BUTTON_CLASS}
+              >
+                Editar perfil
+              </button>
+              {/* Fase 9J-2B.1: el perfil público /@username es ahora la experiencia social
+                  primaria — un usuario ya configurado necesita un camino claro hacia allí desde
+                  /account, sin inventar un username: el suyo ya existe (state.profile.username). */}
+              <Link to={`/@${state.profile.username}`} className={PRIMARY_BUTTON_CLASS}>
+                Ver mi perfil
+              </Link>
+            </div>
           </div>
         ) : null}
 

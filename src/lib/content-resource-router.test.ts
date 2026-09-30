@@ -4,6 +4,7 @@ import router from "../../api/content/[resource]";
 import * as handlers from "./cosplay-handlers";
 import * as communityHandlers from "./community-feed-handlers";
 import * as communityProfileHandlers from "./community-profile-handlers";
+import * as communityPostDetailHandlers from "./community-post-detail-handlers";
 
 // Fija el despachador de lecturas públicas de contenido propio (api/content/[resource].ts): solo
 // comprueba que el `resource` correcto llega al handler correcto y que uno desconocido no llama a
@@ -29,6 +30,12 @@ vi.mock("./community-feed-handlers", () => ({
 vi.mock("./community-profile-handlers", () => ({
   handleCommunityProfile: vi.fn(async (_req: VercelRequest, res: VercelResponse) =>
     res.status(200).json("community-profile"),
+  ),
+}));
+
+vi.mock("./community-post-detail-handlers", () => ({
+  handleCommunityPostDetail: vi.fn(async (_req: VercelRequest, res: VercelResponse) =>
+    res.status(200).json("community-post-detail"),
   ),
 }));
 
@@ -93,6 +100,17 @@ describe("api/content/[resource]", () => {
     expect(state.body).toBe("community-profile");
   });
 
+  it("community-post-detail → handleCommunityPostDetail", async () => {
+    const { res, state } = mockRes();
+    await router(req("community-post-detail", { postId: "abc" }), res);
+    expect(communityPostDetailHandlers.handleCommunityPostDetail).toHaveBeenCalledTimes(
+      1,
+    );
+    expect(handlers.handleCosplayList).not.toHaveBeenCalled();
+    expect(communityProfileHandlers.handleCommunityProfile).not.toHaveBeenCalled();
+    expect(state.body).toBe("community-post-detail");
+  });
+
   it("resource desconocido → 404, sin llamar a ningún handler", async () => {
     const { res, state } = mockRes();
     await router(req("algo-inventado"), res);
@@ -101,6 +119,7 @@ describe("api/content/[resource]", () => {
     expect(handlers.handleCosplayPost).not.toHaveBeenCalled();
     expect(communityHandlers.handleCommunityFeed).not.toHaveBeenCalled();
     expect(communityProfileHandlers.handleCommunityProfile).not.toHaveBeenCalled();
+    expect(communityPostDetailHandlers.handleCommunityPostDetail).not.toHaveBeenCalled();
   });
 
   it("sin resource → 404", async () => {

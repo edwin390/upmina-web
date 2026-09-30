@@ -18,6 +18,8 @@ const TikTokSection = lazy(() => import("./components/tiktok/TikTokSection"));
 const CommunitySection = lazy(() => import("./components/community/CommunitySection"));
 // /@username (Fase 9J-2B): perfil público de Comunidad, su propio chunk.
 const ProfilePage = lazy(() => import("./pages/ProfilePage"));
+// /community/post/:postId (Fase 9J-2B.1): detalle público de una publicación, su propio chunk.
+const PostDetailPage = lazy(() => import("./pages/PostDetailPage"));
 // Fase 9I-1: su propio chunk, con use-intl y los mensajes ES/EN/DE dentro (CosplayLocaleProvider)
 // — nunca entran en el bundle de las demás secciones.
 const CosplayPage = lazy(() => import("./pages/CosplayPage"));
@@ -124,6 +126,7 @@ function AppShell() {
             <Route path="/tiktok" element={<TikTokSection />} />
             <Route path="/community" element={<CommunitySection />} />
             <Route path="/comunidad" element={<Navigate to="/community" replace />} />
+            <Route path="/community/post/:postId" element={<PostDetailPage />} />
             <Route path="/cosplay" element={<CosplayPage />} />
             <Route path="/cosplay/:slug" element={<CosplayDetailPage />} />
             {MediaHarnessPage && (

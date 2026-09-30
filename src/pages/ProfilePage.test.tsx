@@ -1,13 +1,82 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
-import ProfilePage from "./ProfilePage";
 
-// /@username (Fase 9J-2B): perfil público — estados de carga/no-encontrado/error/vacío/contenido,
-// jerarquía TikTok-style (avatar, display name, @username, bio, N publicaciones, SIN likes
-// fabricados), galería de 3 columnas con cover/indicador multi-media/tile de texto, y ausencia
-// total de controles de gestión (editar/borrar/ADMIN) — esta página es de solo lectura pública.
+// /@username (Fase 9J-2B, ampliado en 9J-2B.1): perfil público — estados de carga/no-encontrado/
+// error/vacío/contenido, jerarquía TikTok-style (avatar, display name, @username, bio, N
+// publicaciones, SIN likes fabricados), galería de 3 columnas cuyas tarjetas ahora abren el
+// detalle de la publicación, y — NUEVO en 9J-2B.1 — controles de dueño (Editar perfil/Nueva
+// publicación/gestión ⋯ por publicación/atajo ADMIN) que SOLO aparecen cuando el visitante
+// autenticado es, de verdad, el dueño de ESE perfil (derivado de useOwnProfile, nunca del
+// username de la URL).
+
+const ownProfileFakes = vi.hoisted(() => ({
+  profile: null as {
+    username: string;
+    displayName: string | null;
+    bio: string | null;
+  } | null,
+}));
+vi.mock("@/hooks/useOwnProfile", () => ({
+  useOwnProfile: () => ({
+    profile: ownProfileFakes.profile,
+    isLoading: false,
+    hasSession: ownProfileFakes.profile !== null,
+    isError: false,
+    invalidate: async () => {},
+  }),
+}));
+
+const adminAccessFakes = vi.hoisted(() => ({
+  status: "no-session" as "no-session" | "ready",
+  role: null as "admin" | "moderator" | "developer" | null,
+}));
+vi.mock("@/hooks/useAdminAccess", () => ({
+  useAdminAccess: () => ({
+    status: adminAccessFakes.status,
+    access:
+      adminAccessFakes.status === "ready"
+        ? { role: adminAccessFakes.role, capabilities: [], mfaRecent: false }
+        : null,
+    refetch: async () => null,
+    invalidate: async () => {},
+  }),
+}));
+
+const communityClientMocks = vi.hoisted(() => ({
+  listOwnCommunityPosts: vi.fn(),
+  saveCommunityPost: vi.fn(),
+  deleteCommunityPost: vi.fn(),
+}));
+vi.mock("@/lib/community-client", async () => {
+  const actual = await vi.importActual<typeof import("@/lib/community-client")>(
+    "@/lib/community-client",
+  );
+  return {
+    ...actual,
+    listOwnCommunityPosts: communityClientMocks.listOwnCommunityPosts,
+    saveCommunityPost: communityClientMocks.saveCommunityPost,
+    deleteCommunityPost: communityClientMocks.deleteCommunityPost,
+  };
+});
+
+const uploadMocks = vi.hoisted(() => ({
+  addFiles: vi.fn(),
+  remove: vi.fn(),
+  retry: vi.fn(),
+  items: [] as unknown[],
+}));
+vi.mock("@/hooks/useMediaUpload", () => ({
+  useMediaUpload: () => ({
+    items: uploadMocks.items,
+    addFiles: uploadMocks.addFiles,
+    remove: uploadMocks.remove,
+    retry: uploadMocks.retry,
+  }),
+}));
+
+const { default: ProfilePage } = await import("./ProfilePage");
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), {
@@ -33,6 +102,19 @@ function post(id: string, overrides: Record<string, unknown> = {}) {
     text: "hola comunidad",
     createdAt: "2026-03-02T10:00:00.000Z",
     author: { username: "edwin1", displayName: null },
+    media: [],
+    ...overrides,
+  };
+}
+
+function ownPost(id: string, overrides: Record<string, unknown> = {}) {
+  return {
+    id,
+    text: "hola comunidad",
+    status: "published",
+    version: 1,
+    createdAt: "2026-03-02T10:00:00.000Z",
+    updatedAt: "2026-03-02T10:00:00.000Z",
     media: [],
     ...overrides,
   };
@@ -65,11 +147,26 @@ function renderProfile(entry = "/@edwin1") {
         <Routes>
           <Route path="/:usernameParam" element={<ProfilePage />} />
           <Route path="/community" element={<p>Comunidad stub</p>} />
+          <Route path="/account" element={<p>Account stub</p>} />
+          <Route path="/admin" element={<p>Admin stub</p>} />
+          <Route path="/community/post/:postId" element={<p>Post detail stub</p>} />
         </Routes>
       </MemoryRouter>
     </QueryClientProvider>,
   );
 }
+
+beforeEach(() => {
+  ownProfileFakes.profile = null;
+  adminAccessFakes.status = "no-session";
+  adminAccessFakes.role = null;
+  communityClientMocks.listOwnCommunityPosts.mockReset();
+  communityClientMocks.listOwnCommunityPosts.mockResolvedValue({ items: [] });
+  communityClientMocks.saveCommunityPost.mockReset();
+  communityClientMocks.deleteCommunityPost.mockReset();
+  uploadMocks.addFiles.mockReset();
+  uploadMocks.items = [];
+});
 
 afterEach(() => {
   cleanup();
@@ -128,7 +225,6 @@ describe("/@username — encabezado (jerarquía tipo TikTok)", () => {
     stubProfile(profilePage());
     renderProfile();
     await screen.findByText("@edwin1");
-    // El único texto de identidad es "@edwin1"; no aparece ningún display name fabricado.
     expect(screen.getAllByText("@edwin1")).toHaveLength(1);
   });
 
@@ -203,7 +299,7 @@ describe("/@username — galería", () => {
     expect(await screen.findByText("solo texto aquí")).toBeInTheDocument();
   });
 
-  it("cada tile es enfocable por teclado con una etiqueta accesible", async () => {
+  it("cada tile es un enlace enfocable por teclado que abre el detalle de la publicación", async () => {
     stubProfile(
       profilePage({
         posts: {
@@ -213,14 +309,15 @@ describe("/@username — galería", () => {
       }),
     );
     renderProfile();
-    const tile = await screen.findByRole("button", { name: /1 imagen/ });
+    const tile = await screen.findByRole("link", { name: /1 imagen/ });
+    expect(tile).toHaveAttribute("href", "/community/post/p1");
     tile.focus();
     expect(document.activeElement).toBe(tile);
   });
 });
 
-describe("/@username — sin controles de gestión", () => {
-  it("no expone editar, borrar ni ningún control ADMIN/MODERATOR", async () => {
+describe("/@username — visitante: sin controles de dueño", () => {
+  it("no expone Editar perfil, Nueva publicación, gestión ⋯ ni atajo ADMIN", async () => {
     stubProfile(
       profilePage({
         profile: { postCount: 1 },
@@ -229,9 +326,239 @@ describe("/@username — sin controles de gestión", () => {
     );
     renderProfile();
     await screen.findByText("1 publicación");
-    expect(screen.queryByRole("button", { name: /editar/i })).toBeNull();
-    expect(screen.queryByRole("button", { name: /borrar/i })).toBeNull();
-    expect(screen.queryByText(/admin/i)).toBeNull();
-    expect(screen.queryByText(/moderator/i)).toBeNull();
+    expect(screen.queryByRole("link", { name: "Editar perfil" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Nueva publicación" })).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: "Gestionar esta publicación" }),
+    ).toBeNull();
+    expect(screen.queryByText(/panel de administración/i)).toBeNull();
+  });
+
+  it("un ADMIN visitando OTRO perfil no ve su propio atajo inyectado ahí", async () => {
+    ownProfileFakes.profile = { username: "kirito", displayName: null, bio: null };
+    adminAccessFakes.status = "ready";
+    adminAccessFakes.role = "admin";
+    stubProfile(profilePage({ profile: { postCount: 1 } }));
+    renderProfile("/@edwin1");
+    await screen.findByText("1 publicación");
+    expect(screen.queryByText(/panel de administración/i)).toBeNull();
+    expect(screen.queryByRole("button", { name: "Nueva publicación" })).toBeNull();
+  });
+});
+
+describe("/@username — dueño: controles propios", () => {
+  it("muestra Editar perfil (-> /account) y Nueva publicación", async () => {
+    ownProfileFakes.profile = { username: "edwin1", displayName: null, bio: null };
+    stubProfile(profilePage());
+    renderProfile();
+    await screen.findByText("Todavía no hay publicaciones");
+    expect(screen.getByRole("link", { name: "Editar perfil" })).toHaveAttribute(
+      "href",
+      "/account",
+    );
+    expect(screen.getByRole("button", { name: "Nueva publicación" })).toBeInTheDocument();
+  });
+
+  it("ownership se deriva de la identidad autenticada, no del username de la URL (manipular la URL no otorga controles)", async () => {
+    // El propio usuario es "kirito", pero visita /@edwin1 (otro perfil): sin controles de dueño.
+    ownProfileFakes.profile = { username: "kirito", displayName: null, bio: null };
+    stubProfile(profilePage({ profile: { username: "edwin1" } }));
+    renderProfile("/@edwin1");
+    await screen.findByText("Todavía no hay publicaciones");
+    expect(screen.queryByRole("link", { name: "Editar perfil" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Nueva publicación" })).toBeNull();
+  });
+
+  it("ADMIN viendo su PROPIO perfil ve el atajo Panel de administración -> /admin", async () => {
+    ownProfileFakes.profile = { username: "edwin1", displayName: null, bio: null };
+    adminAccessFakes.status = "ready";
+    adminAccessFakes.role = "admin";
+    stubProfile(profilePage());
+    renderProfile();
+    const link = await screen.findByRole("link", { name: "Panel de administración" });
+    expect(link).toHaveAttribute("href", "/admin");
+  });
+
+  it("un usuario normal (no ADMIN) no ve el atajo", async () => {
+    ownProfileFakes.profile = { username: "edwin1", displayName: null, bio: null };
+    adminAccessFakes.status = "ready";
+    adminAccessFakes.role = null;
+    stubProfile(profilePage());
+    renderProfile();
+    await screen.findByText("Todavía no hay publicaciones");
+    expect(screen.queryByText(/panel de administración/i)).toBeNull();
+  });
+
+  it("nunca inventa un panel de moderador o desarrollador", async () => {
+    ownProfileFakes.profile = { username: "edwin1", displayName: null, bio: null };
+    adminAccessFakes.status = "ready";
+    adminAccessFakes.role = "moderator";
+    stubProfile(profilePage());
+    renderProfile();
+    await screen.findByText("Todavía no hay publicaciones");
+    expect(screen.queryByText(/panel de moderador/i)).toBeNull();
+    expect(screen.queryByText(/panel de desarroll/i)).toBeNull();
+    expect(screen.queryByText(/panel de administración/i)).toBeNull();
+  });
+
+  it("la galería del dueño usa listOwnCommunityPosts (con ⋯ de gestión), no el feed público paginado", async () => {
+    ownProfileFakes.profile = { username: "edwin1", displayName: null, bio: null };
+    communityClientMocks.listOwnCommunityPosts.mockResolvedValue({
+      items: [ownPost("own-1")],
+    });
+    stubProfile(profilePage());
+    renderProfile();
+    await waitFor(() =>
+      expect(communityClientMocks.listOwnCommunityPosts).toHaveBeenCalled(),
+    );
+    expect(
+      await screen.findByRole("button", { name: "Gestionar esta publicación" }),
+    ).toBeInTheDocument();
+  });
+});
+
+describe("/@username — Nueva publicación (dueño)", () => {
+  it("abre el editor reutilizado y crea la publicación con la API existente", async () => {
+    ownProfileFakes.profile = { username: "edwin1", displayName: null, bio: null };
+    communityClientMocks.saveCommunityPost.mockResolvedValue({
+      post: {
+        id: "new-1",
+        text: "recién creada",
+        status: "published",
+        version: 1,
+        createdAt: "x",
+        updatedAt: "x",
+      },
+      media: [],
+    });
+    stubProfile(profilePage());
+    renderProfile();
+    await screen.findByText("Todavía no hay publicaciones");
+
+    fireEvent.click(screen.getByRole("button", { name: "Nueva publicación" }));
+    expect(screen.getByRole("dialog", { name: "Nueva publicación" })).toBeInTheDocument();
+
+    fireEvent.change(screen.getByPlaceholderText("¿Qué quieres compartir?"), {
+      target: { value: "recién creada" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Guardar" }));
+
+    await waitFor(() =>
+      expect(communityClientMocks.saveCommunityPost).toHaveBeenCalledWith({
+        postId: null,
+        expectedVersion: null,
+        text: "recién creada",
+        media: [],
+      }),
+    );
+    // Tras guardar, el diálogo se cierra y se refresca la galería propia.
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog", { name: "Nueva publicación" })).toBeNull(),
+    );
+    expect(communityClientMocks.listOwnCommunityPosts).toHaveBeenCalledTimes(2);
+  });
+
+  it("no habilita vídeo: accept sigue en image/*", async () => {
+    ownProfileFakes.profile = { username: "edwin1", displayName: null, bio: null };
+    stubProfile(profilePage());
+    renderProfile();
+    await screen.findByText("Todavía no hay publicaciones");
+    fireEvent.click(screen.getByRole("button", { name: "Nueva publicación" }));
+    const input = document.querySelector('input[type="file"]') as HTMLInputElement;
+    expect(input.accept).toBe("image/*");
+  });
+
+  it("nunca se muestra el formulario completo permanentemente bajo el encabezado", async () => {
+    ownProfileFakes.profile = { username: "edwin1", displayName: null, bio: null };
+    stubProfile(profilePage());
+    renderProfile();
+    await screen.findByText("Todavía no hay publicaciones");
+    expect(screen.queryByPlaceholderText("¿Qué quieres compartir?")).toBeNull();
+  });
+});
+
+describe("/@username — gestión de publicaciones propias (⋯)", () => {
+  it("Editar abre el editor con la publicación precargada", async () => {
+    ownProfileFakes.profile = { username: "edwin1", displayName: null, bio: null };
+    communityClientMocks.listOwnCommunityPosts.mockResolvedValue({
+      items: [ownPost("own-1", { text: "texto original" })],
+    });
+    stubProfile(profilePage());
+    renderProfile();
+    await screen.findByRole("button", { name: "Gestionar esta publicación" });
+
+    fireEvent.click(screen.getByRole("button", { name: "Gestionar esta publicación" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Editar" }));
+
+    expect(
+      screen.getByRole("dialog", { name: "Editar publicación" }),
+    ).toBeInTheDocument();
+    expect(screen.getByDisplayValue("texto original")).toBeInTheDocument();
+  });
+
+  it("Eliminar exige confirmación explícita antes de borrar", async () => {
+    ownProfileFakes.profile = { username: "edwin1", displayName: null, bio: null };
+    communityClientMocks.listOwnCommunityPosts.mockResolvedValue({
+      items: [ownPost("own-1")],
+    });
+    stubProfile(profilePage());
+    renderProfile();
+    await screen.findByRole("button", { name: "Gestionar esta publicación" });
+
+    fireEvent.click(screen.getByRole("button", { name: "Gestionar esta publicación" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Eliminar" }));
+
+    expect(communityClientMocks.deleteCommunityPost).not.toHaveBeenCalled();
+    expect(screen.getByText("¿Borrar esta publicación?")).toBeInTheDocument();
+  });
+
+  it("confirmar Eliminar usa la API existente de borrado propio", async () => {
+    ownProfileFakes.profile = { username: "edwin1", displayName: null, bio: null };
+    communityClientMocks.listOwnCommunityPosts.mockResolvedValue({
+      items: [ownPost("own-1")],
+    });
+    communityClientMocks.deleteCommunityPost.mockResolvedValue({
+      postId: "own-1",
+      deletedAssets: [],
+      allCleaned: true,
+    });
+    stubProfile(profilePage());
+    renderProfile();
+    await screen.findByRole("button", { name: "Gestionar esta publicación" });
+
+    fireEvent.click(screen.getByRole("button", { name: "Gestionar esta publicación" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Eliminar" }));
+    fireEvent.click(screen.getByRole("button", { name: "Eliminar" }));
+
+    await waitFor(() =>
+      expect(communityClientMocks.deleteCommunityPost).toHaveBeenCalledWith({
+        postId: "own-1",
+        expectedVersion: 1,
+      }),
+    );
+  });
+
+  it("interactuar con el menú ⋯ NUNCA abre la publicación subyacente", async () => {
+    ownProfileFakes.profile = { username: "edwin1", displayName: null, bio: null };
+    communityClientMocks.listOwnCommunityPosts.mockResolvedValue({
+      items: [ownPost("own-1")],
+    });
+    stubProfile(profilePage());
+    renderProfile();
+    await screen.findByRole("button", { name: "Gestionar esta publicación" });
+
+    fireEvent.click(screen.getByRole("button", { name: "Gestionar esta publicación" }));
+
+    expect(screen.getByRole("menu")).toBeInTheDocument();
+    expect(screen.queryByText("Post detail stub")).toBeNull();
+  });
+
+  it("un visitante nunca ve el control ⋯ en las tarjetas de otro perfil", async () => {
+    stubProfile(profilePage({ posts: { items: [post("p1")], nextCursor: null } }));
+    renderProfile();
+    await screen.findByText("hola comunidad");
+    expect(
+      screen.queryByRole("button", { name: "Gestionar esta publicación" }),
+    ).toBeNull();
   });
 });
