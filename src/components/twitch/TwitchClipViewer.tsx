@@ -22,14 +22,18 @@ export const SWIPE_THRESHOLD_PX = 60;
 /** Un swipe debe ser claramente horizontal: |dx| ≥ 1,5 × |dy|. */
 const SWIPE_HORIZONTAL_BIAS = 1.5;
 
-// Navegación anterior/siguiente y cierre (Fases "TWITCH OVERLAY NAVIGATION CONSISTENCY" y
-// "FULLSCREEN CYAN CONTROL CONSISTENCY"): mismo primitivo visual/posicionamiento ya aprobado en
-// el visor de Cosplay (CosplayLightbox.tsx NAV_BUTTON) — círculo cian-neón fijo cerca del borde
-// del overlay a pantalla completa, nunca pegado al reproductor. Antes cerrar usaba el círculo gris
-// translúcido GLASS_BUTTON, visualmente desligado de las flechas; ahora los tres controles
-// (anterior/siguiente/cerrar) comparten el mismo estilo cian, igual que Cosplay/Community.
+// Navegación anterior/siguiente (Fase "TWITCH OVERLAY NAVIGATION CONSISTENCY"): círculo
+// cian-neón SIEMPRE resaltado, fijo cerca del borde del overlay a pantalla completa, nunca
+// pegado al reproductor.
 const NAV_BUTTON =
   "grid h-11 w-11 shrink-0 place-items-center rounded-full border-2 border-accent-secondary bg-bg-base/90 text-xl text-accent-secondary shadow-glow-secondary transition-colors hover:bg-accent-secondary hover:text-text-inverse focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary";
+
+// Cerrar (Fase "FULLSCREEN CLOSE BUTTON — HOVER-ONLY CYAN"): a diferencia de anterior/siguiente,
+// el resaltado cian NO está presente en reposo (borde transparente) — solo aparece al pasar el
+// cursor (hover) o al enfocar con teclado. Mismo tamaño/forma/fondo que NAV_BUTTON para mantener
+// coherencia entre los tres controles, pero sin el anillo/glow cian permanente.
+const CLOSE_BUTTON =
+  "grid h-11 w-11 shrink-0 place-items-center rounded-full border-2 border-transparent bg-bg-base/90 text-xl text-text-secondary transition-colors hover:border-accent-secondary hover:text-accent-secondary hover:shadow-glow-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary";
 
 // Ancho del área 16:9: cabe en el alto disponible (dejando sitio a título, enlace y controles)
 // y nunca pasa de 960 px. Desde `sm` las flechas van fijas a los lados, así que se dejan
@@ -286,7 +290,7 @@ export default function TwitchClipViewer({
         onClick={onClose}
         aria-label="Cerrar"
         data-autofocus
-        className={`${NAV_BUTTON} fixed right-3 top-3`}
+        className={`${CLOSE_BUTTON} fixed right-3 top-3`}
       >
         <span aria-hidden="true">✕</span>
       </button>

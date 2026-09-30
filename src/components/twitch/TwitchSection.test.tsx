@@ -459,17 +459,26 @@ describe("TwitchClipViewer: navegación circular", () => {
     expect(next.className).toContain("right-2");
   });
 
-  it("Cerrar usa el mismo estilo cian-neón que anterior/siguiente (Fase 'FULLSCREEN CYAN CONTROL CONSISTENCY'), nunca el círculo gris translúcido de antes", async () => {
+  it("Cerrar NO tiene el resaltado cian en reposo (a diferencia de anterior/siguiente); el cian solo aparece en hover/focus", async () => {
     stubApi();
     renderSection();
     await openViewer("Clip 1");
 
     const close = screen.getByRole("button", { name: "Cerrar" });
-    expect(close.className).toContain("border-accent-secondary");
-    expect(close.className).toContain("bg-bg-base/90");
-    expect(close.className).toContain("shadow-glow-secondary");
-    expect(close.className).not.toContain("border-white/25");
-    expect(close.className).not.toContain("bg-black/45");
+    const classes = close.className.split(/\s+/);
+
+    // En reposo: borde transparente, nunca el anillo/glow cian permanente que sí tienen
+    // anterior/siguiente.
+    expect(classes).toContain("border-transparent");
+    expect(classes).not.toContain("border-accent-secondary");
+    expect(classes).not.toContain("shadow-glow-secondary");
+    expect(classes).not.toContain("border-white/25"); // tampoco el gris translúcido de antes
+    expect(classes).not.toContain("bg-black/45");
+
+    // El cian solo aparece con hover (y el foco vía focus-visible:ring ya existente).
+    expect(classes).toContain("hover:border-accent-secondary");
+    expect(classes).toContain("hover:text-accent-secondary");
+    expect(classes).toContain("hover:shadow-glow-secondary");
 
     // Cerrar sigue funcionando sin cambios: mismo comportamiento, solo cambia el estilo visual.
     fireEvent.click(close);

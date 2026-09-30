@@ -164,7 +164,7 @@ describe("/cosplay/:slug — galería y visor", () => {
     expect(screen.getByRole("button", { name: "Cerrar" })).toHaveFocus();
   });
 
-  it("Cerrar usa el mismo estilo cian-neón que las flechas anterior/siguiente (Fase 'FULLSCREEN CYAN CONTROL CONSISTENCY'), nunca el gris neutro de antes", async () => {
+  it("Cerrar NO tiene el resaltado cian en reposo (a diferencia de anterior/siguiente); el cian solo aparece en hover/focus", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(json(detail())));
     renderDetail("kirito-sao");
     await waitFor(() =>
@@ -175,10 +175,18 @@ describe("/cosplay/:slug — galería y visor", () => {
     await screen.findByRole("dialog");
 
     const close = screen.getByRole("button", { name: "Cerrar" });
-    expect(close.className).toContain("border-accent-secondary");
-    expect(close.className).toContain("bg-bg-base/90");
-    expect(close.className).toContain("shadow-glow-secondary");
-    expect(close.className).not.toContain("text-text-secondary");
+    const classes = close.className.split(/\s+/);
+
+    // En reposo: borde transparente, nunca el anillo/glow cian permanente que sí tienen
+    // anterior/siguiente.
+    expect(classes).toContain("border-transparent");
+    expect(classes).not.toContain("border-accent-secondary");
+    expect(classes).not.toContain("shadow-glow-secondary");
+
+    // El cian solo aparece con hover (y el foco vía focus-visible:ring ya existente).
+    expect(classes).toContain("hover:border-accent-secondary");
+    expect(classes).toContain("hover:text-accent-secondary");
+    expect(classes).toContain("hover:shadow-glow-secondary");
 
     fireEvent.click(close);
     expect(screen.queryByRole("dialog")).toBeNull();

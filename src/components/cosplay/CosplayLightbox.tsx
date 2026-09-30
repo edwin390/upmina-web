@@ -12,11 +12,17 @@ interface CosplayLightboxProps {
   returnFocusTo?: HTMLElement | null;
 }
 
-// Compartido por anterior/siguiente Y cerrar (Fase "COSPLAY CYAN CLOSE BUTTON"): antes el botón
-// de cerrar era gris neutro (sin borde ni glow), visualmente desligado de las flechas cian-neón.
-// Ahora los tres controles pertenecen a la misma familia visual.
+// Anterior/siguiente (Fase 9I-1): círculo cian-neón SIEMPRE resaltado.
 const NAV_BUTTON =
   "grid h-11 w-11 shrink-0 place-items-center rounded-full border-2 border-accent-secondary bg-bg-base/90 text-xl text-accent-secondary shadow-glow-secondary transition-colors hover:bg-accent-secondary hover:text-text-inverse focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary";
+
+// Cerrar (Fase "FULLSCREEN CLOSE BUTTON — HOVER-ONLY CYAN"): a diferencia de anterior/siguiente,
+// el resaltado cian NO está presente en reposo (borde transparente) — solo aparece al pasar el
+// cursor (hover) o al enfocar con teclado. Mismo tamaño/forma/fondo que NAV_BUTTON para mantener
+// coherencia entre los tres controles, pero sin el anillo/glow cian permanente. Mismo estilo que
+// TwitchClipViewer.tsx CLOSE_BUTTON.
+const CLOSE_BUTTON =
+  "grid h-11 w-11 shrink-0 place-items-center rounded-full border-2 border-transparent bg-bg-base/90 text-xl text-text-secondary transition-colors hover:border-accent-secondary hover:text-accent-secondary hover:shadow-glow-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary";
 
 /** Visor a pantalla completa de la galería de UNA publicación (Fase 9I-1). Mismo patrón que
  *  InstagramPostModal: <dialog>.showModal() da focus trap y fondo inerte nativos, Escape
@@ -127,7 +133,7 @@ export default function CosplayLightbox({
         onClick={onClose}
         aria-label={t("close")}
         data-autofocus
-        className={`${NAV_BUTTON} fixed right-3 top-3`}
+        className={`${CLOSE_BUTTON} fixed right-3 top-3`}
       >
         ✕
       </button>
