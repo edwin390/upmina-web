@@ -413,7 +413,7 @@ describe("TwitchClipViewer: navegación circular", () => {
     expect(viewerTitle()).toBe("Clip 12");
   });
 
-  it("los botones ← y → navegan igual (circular) y tienen nombre accesible", async () => {
+  it("los botones ‹ y › navegan igual (circular) y tienen nombre accesible", async () => {
     stubApi();
     renderSection();
     await openViewer("Clip 1");
@@ -423,6 +423,40 @@ describe("TwitchClipViewer: navegación circular", () => {
     fireEvent.click(screen.getByRole("button", { name: "Clip siguiente" }));
     fireEvent.click(screen.getByRole("button", { name: "Clip siguiente" }));
     expect(viewerTitle()).toBe("Clip 2");
+  });
+
+  it("navegación anterior/siguiente usa el mismo estilo cian-neón fijo a los bordes que Cosplay/Community (no los círculos grises con flechas largas ←/→ de antes)", async () => {
+    stubApi();
+    renderSection();
+    await openViewer("Clip 1");
+
+    const prev = screen.getByRole("button", { name: "Clip anterior" });
+    const next = screen.getByRole("button", { name: "Clip siguiente" });
+
+    // Icono canónico ‹ › (Cosplay/Community), nunca las flechas largas ←/→ de la presentación
+    // anterior.
+    expect(prev.textContent).toBe("‹");
+    expect(next.textContent).toBe("›");
+    expect(prev.textContent).not.toBe("←");
+    expect(next.textContent).not.toBe("→");
+
+    // Mismo primitivo visual que CosplayLightbox/CommunityPostMediaViewer: círculo cian-neón
+    // (border-accent-secondary + bg-bg-base/90 + shadow-glow-secondary), nunca el círculo gris
+    // translúcido (border-white/25 + bg-black/45) de la presentación anterior.
+    for (const button of [prev, next]) {
+      expect(button.className).toContain("border-accent-secondary");
+      expect(button.className).toContain("bg-bg-base/90");
+      expect(button.className).toContain("shadow-glow-secondary");
+      expect(button.className).not.toContain("border-white/25");
+      expect(button.className).not.toContain("bg-black/45");
+    }
+
+    // Posicionados fijos cerca de los bordes izquierdo/derecho del overlay (nunca pegados al
+    // reproductor): fixed en todos los tamaños, igual que Cosplay/Community.
+    expect(prev.className).toContain("fixed");
+    expect(prev.className).toContain("left-2");
+    expect(next.className).toContain("fixed");
+    expect(next.className).toContain("right-2");
   });
 
   it("↑/↓ NO navegan; tampoco con modificadores, tecla mantenida ni dentro de un input", async () => {

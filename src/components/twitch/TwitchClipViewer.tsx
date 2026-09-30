@@ -25,6 +25,15 @@ const SWIPE_HORIZONTAL_BIAS = 1.5;
 const GLASS_BUTTON =
   "grid h-11 w-11 shrink-0 place-items-center rounded-full border border-white/25 bg-black/45 text-lg text-white backdrop-blur-sm transition-colors hover:border-accent-secondary hover:text-accent-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-secondary";
 
+// Navegación anterior/siguiente (Fase "TWITCH OVERLAY NAVIGATION CONSISTENCY"): mismo primitivo
+// visual/posicionamiento ya aprobado en el visor de Cosplay (CosplayLightbox.tsx NAV_BUTTON) —
+// círculo cian-neón fijo cerca del borde izquierdo/derecho del overlay a pantalla completa, nunca
+// pegado al reproductor. Antes Twitch usaba círculos grises con flechas largas ←/→ pegadas al
+// vídeo en desktop (sm:fixed) y en una fila bajo el vídeo en móvil; ahora usa el mismo estilo y
+// posicionamiento fijo en todos los tamaños, igual que Cosplay/Community.
+const NAV_BUTTON =
+  "grid h-11 w-11 shrink-0 place-items-center rounded-full border-2 border-accent-secondary bg-bg-base/90 text-xl text-accent-secondary shadow-glow-secondary transition-colors hover:bg-accent-secondary hover:text-text-inverse focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary";
+
 // Ancho del área 16:9: cabe en el alto disponible (dejando sitio a título, enlace y controles)
 // y nunca pasa de 960 px. Desde `sm` las flechas van fijas a los lados, así que se dejan
 // 70 px libres a cada lado. En pantallas de poco alto (`short`) el texto se compacta y el
@@ -42,7 +51,8 @@ const FRAME_WIDTH =
  * - Teclado: → siguiente, ← anterior, Escape cierra.
  * - Táctil: swipe hacia la izquierda → siguiente, hacia la derecha → anterior (umbral
  *   SWIPE_THRESHOLD_PX), sobre las franjas laterales del reproductor o el resto del visor.
- * - Botones ← / → (siempre visibles; bajo el vídeo en móvil y a los lados en pantallas grandes).
+ * - Botones ‹ / › fijos cerca de los bordes izquierdo/derecho del overlay (siempre visibles, en
+ *   todos los tamaños), igual que el visor de Cosplay/Community — nunca pegados al reproductor.
  * Solo hay un reproductor montado a la vez: al cambiar de clip el anterior se desmonta, y al
  * cerrar también (deja de sonar). Mientras está abierto, el scroll del documento queda
  * bloqueado (y `touch-action: none` evita que el gesto desplace la página de detrás).
@@ -244,15 +254,16 @@ export default function TwitchClipViewer({
           </div>
 
           {canNavigate && (
-            /* Móvil: fila bajo el vídeo. Pantallas grandes: flechas fijas a los lados. */
+            /* Las flechas van fijas a los bordes del overlay en todos los tamaños (ver
+               NAV_BUTTON); este contenedor solo posiciona el contador visible en móvil. */
             <div className="flex items-center justify-center gap-4">
               <button
                 type="button"
                 onClick={() => go(-1)}
                 aria-label="Clip anterior"
-                className={`${GLASS_BUTTON} sm:fixed sm:left-4 sm:top-1/2 sm:-translate-y-1/2`}
+                className={`${NAV_BUTTON} fixed left-2 top-1/2 -translate-y-1/2 sm:left-4`}
               >
-                <span aria-hidden="true">←</span>
+                <span aria-hidden="true">‹</span>
               </button>
               <p
                 aria-hidden="true"
@@ -264,9 +275,9 @@ export default function TwitchClipViewer({
                 type="button"
                 onClick={() => go(1)}
                 aria-label="Clip siguiente"
-                className={`${GLASS_BUTTON} sm:fixed sm:right-4 sm:top-1/2 sm:-translate-y-1/2`}
+                className={`${NAV_BUTTON} fixed right-2 top-1/2 -translate-y-1/2 sm:right-4`}
               >
-                <span aria-hidden="true">→</span>
+                <span aria-hidden="true">›</span>
               </button>
             </div>
           )}
