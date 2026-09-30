@@ -120,6 +120,24 @@ async function openViewer(title = "Clip 1") {
 const viewerTitle = () => screen.getByRole("dialog").querySelector("h2")?.textContent;
 const key = (k: string, init: KeyboardEventInit = {}) =>
   fireEvent.keyDown(document, { key: k, ...init });
+
+// Anterior/siguiente existen DOS veces en el DOM a la vez (Fase "TWITCH MOBILE NAVIGATION ROW"):
+// una junto al reproductor (solo visible desde `sm`, oculta con CSS por debajo) y otra en la
+// fila móvil (visible solo por debajo de `sm`). jsdom no evalúa CSS/media queries, así que ambas
+// aparecen "visibles" para testing-library — se desambiguan por `data-nav-variant`, igual que el
+// contador ya desambigua por `selector: "p.hidden"` más abajo. Por defecto se usa la variante
+// "desktop" (la que existía antes de este follow-up), salvo que un test necesite explícitamente
+// la fila móvil.
+const navButton = (
+  name: "Clip anterior" | "Clip siguiente",
+  variant: "desktop" | "mobile" = "desktop",
+) => {
+  const match = screen
+    .getAllByRole("button", { name })
+    .find((button) => button.closest(`[data-nav-variant="${variant}"]`));
+  if (!match) throw new Error(`No se encontró el botón "${name}" (variante ${variant})`);
+  return match;
+};
 // Iframes de CLIPS (el reproductor principal de Twitch es otro iframe distinto).
 const clipIframes = () => document.querySelectorAll("iframe[src*='clips.twitch.tv']");
 
@@ -308,7 +326,11 @@ describe("TwitchClipViewer: apertura, un único iframe y cierre", () => {
     expect(frame.getAttribute("title")).toBe("Clip de Twitch: Clip 3");
     expect(viewerTitle()).toBe("Clip 3");
     expect(dialog.textContent).toContain("Clip 3 de 12");
-    expect(within(dialog).getByRole("link", { name: /Ver en Twitch/ })).toBeTruthy();
+    // Ambas variantes responsive existen en el DOM (Fase "TWITCH MOBILE NAVIGATION ROW"); jsdom
+    // no evalúa `hidden`/`sm:contents`, así que puede haber más de una coincidencia.
+    expect(
+      within(dialog).getAllByRole("link", { name: /Ver en Twitch/ }).length,
+    ).toBeGreaterThan(0);
   });
 
   it("cambiar de clip mantiene exactamente 1 iframe: el anterior se desmonta", async () => {
@@ -322,7 +344,7 @@ describe("TwitchClipViewer: apertura, un único iframe y cierre", () => {
       key("ArrowRight");
       expect(clipIframes()).toHaveLength(1);
     }
-    fireEvent.click(screen.getByRole("button", { name: "Clip siguiente" }));
+    fireEvent.click(navButton("Clip siguiente"));
     expect(clipIframes()).toHaveLength(1);
     // Ningún iframe anterior sigue en el documento.
     expect(seen.every((frame) => !frame.isConnected)).toBe(true);
@@ -418,20 +440,20 @@ describe("TwitchClipViewer: navegación circular", () => {
     renderSection();
     await openViewer("Clip 1");
 
-    fireEvent.click(screen.getByRole("button", { name: "Clip anterior" }));
+    fireEvent.click(navButton("Clip anterior"));
     expect(viewerTitle()).toBe("Clip 12");
-    fireEvent.click(screen.getByRole("button", { name: "Clip siguiente" }));
-    fireEvent.click(screen.getByRole("button", { name: "Clip siguiente" }));
+    fireEvent.click(navButton("Clip siguiente"));
+    fireEvent.click(navButton("Clip siguiente"));
     expect(viewerTitle()).toBe("Clip 2");
   });
 
-  it("navegación anterior/siguiente usa el mismo estilo cian-neón fijo a los bordes que Cosplay/Community (no los círculos grises con flechas largas ←/→ de antes)", async () => {
+  it("navegación anterior/siguiente (variante desktop) usa el mismo estilo cian-neón fijo a los bordes que Cosplay/Community (no los círculos grises con flechas largas ←/→ de antes)", async () => {
     stubApi();
     renderSection();
     await openViewer("Clip 1");
 
-    const prev = screen.getByRole("button", { name: "Clip anterior" });
-    const next = screen.getByRole("button", { name: "Clip siguiente" });
+    const prev = navButton("Clip anterior");
+    const next = navButton("Clip siguiente");
 
     // Icono canónico ‹ › (Cosplay/Community), nunca las flechas largas ←/→ de la presentación
     // anterior.
@@ -451,13 +473,13 @@ describe("TwitchClipViewer: navegación circular", () => {
       expect(button.className).not.toContain("bg-black/45");
     }
 
-    // Desde `sm` (escritorio/tablet), fijas a los bordes del overlay (viewport), igual que
-    // Cosplay/Community. Por debajo de `sm` (Fase "TWITCH MOBILE NAVIGATION FIX"), ver el test
-    // dedicado más abajo: se centran respecto al reproductor, no al overlay completo.
-    expect(prev.className).toContain("sm:fixed");
-    expect(prev.className).toContain("sm:left-4");
-    expect(next.className).toContain("sm:fixed");
-    expect(next.className).toContain("sm:right-4");
+    // Esta variante (data-nav-variant="desktop") vive dentro de un wrapper `hidden sm:contents`
+    // (ver el test de layout responsive más abajo): solo se muestra desde `sm`, fija a los
+    // bordes del overlay (viewport), igual que Cosplay/Community.
+    expect(prev.className).toContain("fixed");
+    expect(prev.className).toContain("left-4");
+    expect(next.className).toContain("fixed");
+    expect(next.className).toContain("right-4");
   });
 
   it("Cerrar NO tiene el resaltado cian en reposo (a diferencia de anterior/siguiente); el cian solo aparece en hover/focus", async () => {
@@ -486,33 +508,60 @@ describe("TwitchClipViewer: navegación circular", () => {
     expect(screen.queryByRole("dialog")).toBeNull();
   });
 
-  it("en móvil (por debajo de sm), anterior/siguiente se centran respecto al REPRODUCTOR (absolute, hermanas del vídeo), no respecto al overlay/viewport (Fase 'TWITCH MOBILE NAVIGATION FIX')", async () => {
+  it("en móvil (por debajo de sm), anterior/siguiente bajan a una fila junto a 'Ver en Twitch' — nunca superpuestas al reproductor (Fase 'TWITCH MOBILE NAVIGATION ROW')", async () => {
     stubApi();
     renderSection();
     await openViewer("Clip 1");
 
-    const prev = screen.getByRole("button", { name: "Clip anterior" });
-    const next = screen.getByRole("button", { name: "Clip siguiente" });
-
-    // Por debajo de `sm`: `absolute` (no `fixed`) — su centro vertical lo da el ancestro
-    // posicionado más cercano, que es el wrapper del reproductor, nunca el viewport completo.
-    expect(prev.className).toContain("absolute");
-    expect(prev.className).toContain("top-1/2");
-    expect(prev.className).toContain("-translate-y-1/2");
-    expect(next.className).toContain("absolute");
-    expect(next.className).toContain("top-1/2");
-    expect(next.className).toContain("-translate-y-1/2");
-
-    // Ambos botones son HERMANOS del wrapper que envuelve el <iframe> del reproductor (mismo
-    // padre `relative`), así que su referencia de centrado vertical es exactamente el
-    // reproductor, no el diálogo completo ni el bloque de título/metadatos/enlace de debajo.
     const dialog = screen.getByRole("dialog");
     const iframe = dialog.querySelector("iframe");
     expect(iframe).not.toBeNull();
-    const playerWrapper = iframe!.closest("[class*='aspect-video']");
-    expect(playerWrapper).not.toBeNull();
-    expect(prev.parentElement).toBe(playerWrapper);
-    expect(next.parentElement).toBe(playerWrapper);
+    // El reproductor no es hermano ni ancestro de ningún botón de navegación: ninguna flecha
+    // vive dentro/junto al wrapper del vídeo en móvil (a diferencia del intento anterior).
+    const playerWrapper = iframe!.closest("[class*='aspect-video']")!;
+    expect(playerWrapper.querySelector('[aria-label="Clip anterior"]')).toBeNull();
+    expect(playerWrapper.querySelector('[aria-label="Clip siguiente"]')).toBeNull();
+
+    // La fila móvil (data-nav-variant="mobile") contiene, en orden: anterior, "Ver en Twitch",
+    // siguiente — simétrica, con el enlace centrado entre ambas flechas.
+    const mobileRow = dialog.querySelector('[data-nav-variant="mobile"]')!;
+    expect(mobileRow).not.toBeNull();
+    expect(mobileRow.className).toContain("sm:hidden"); // solo visible por debajo de `sm`
+    const children = Array.from(mobileRow.children);
+    expect(children.map((el) => el.tagName)).toEqual(["BUTTON", "A", "BUTTON"]);
+    expect(children[0]).toHaveAttribute("aria-label", "Clip anterior");
+    expect(children[1]).toHaveTextContent("Ver en Twitch");
+    expect(children[2]).toHaveAttribute("aria-label", "Clip siguiente");
+
+    // Conserva el diseño cian-neón actual de las flechas (mismo NAV_BUTTON que la variante de
+    // escritorio), sin posición fija/absoluta: son ítems normales de la fila.
+    const mobilePrev = navButton("Clip anterior", "mobile");
+    expect(mobilePrev.className).toContain("border-accent-secondary");
+    expect(mobilePrev.className).toContain("shadow-glow-secondary");
+    expect(mobilePrev.className).not.toContain("fixed");
+    expect(mobilePrev.className).not.toContain("absolute");
+
+    // El contador sigue debajo de la fila, sin cambios de lógica.
+    expect(screen.getByText("1 / 12", { selector: "p.sm\\:hidden" })).toBeTruthy();
+  });
+
+  it("desde `sm`, las flechas vuelven a los lados del reproductor y la fila móvil desaparece; 'Ver en Twitch' vuelve a su sitio habitual", async () => {
+    stubApi();
+    renderSection();
+    await openViewer("Clip 1");
+
+    const dialog = screen.getByRole("dialog");
+    // La fila móvil sigue en el DOM (jsdom no evalúa `sm:hidden`) pero marcada para
+    // desaparecer desde `sm`; la variante de escritorio está marcada para aparecer desde `sm`.
+    expect(dialog.querySelector('[data-nav-variant="mobile"]')?.className).toContain(
+      "sm:hidden",
+    );
+    expect(dialog.querySelector('[data-nav-variant="desktop"]')?.className).toContain(
+      "hidden",
+    );
+    expect(dialog.querySelector('[data-nav-variant="desktop"]')?.className).toContain(
+      "sm:contents",
+    );
   });
 
   it("↑/↓ NO navegan; tampoco con modificadores, tecla mantenida ni dentro de un input", async () => {
@@ -807,9 +856,9 @@ describe("Deep link /twitch?clip=<id>", () => {
     expect(viewerTitle()).toBe("Clip 1");
     key("ArrowLeft");
     expect(url()).toBe("/twitch?clip=Clip12-abc");
-    fireEvent.click(screen.getByRole("button", { name: "Clip siguiente" }));
+    fireEvent.click(navButton("Clip siguiente"));
     expect(url()).toBe("/twitch?clip=Clip1-abc");
-    fireEvent.click(screen.getByRole("button", { name: "Clip anterior" }));
+    fireEvent.click(navButton("Clip anterior"));
     expect(url()).toBe("/twitch?clip=Clip12-abc");
     swipe(300, 150);
     expect(url()).toBe("/twitch?clip=Clip1-abc");

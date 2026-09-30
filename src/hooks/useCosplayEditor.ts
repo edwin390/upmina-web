@@ -59,8 +59,6 @@ export interface EditorFields {
   description: string;
   characterName: string;
   series: string;
-  event: string;
-  shotOn: string;
 }
 
 const EMPTY_FIELDS: EditorFields = {
@@ -68,8 +66,6 @@ const EMPTY_FIELDS: EditorFields = {
   description: "",
   characterName: "",
   series: "",
-  event: "",
-  shotOn: "",
 };
 
 function emptyToNull(value: string): string | null {
@@ -211,8 +207,6 @@ export function useCosplayEditor({
           description: detail.description ?? "",
           characterName: detail.characterName ?? "",
           series: detail.series ?? "",
-          event: detail.event ?? "",
-          shotOn: detail.shotOn ?? "",
         };
         const p = [...detail.images]
           .sort((a, b) => a.position - b.position)
@@ -427,11 +421,12 @@ export function useCosplayEditor({
           description: emptyToNull(fields.description),
           characterName: emptyToNull(fields.characterName),
           series: emptyToNull(fields.series),
-          event: emptyToNull(fields.event),
-          shotOn: emptyToNull(fields.shotOn),
-          // Créditos del fotógrafo: eliminado del editor (ajuste UX posterior a 9I-3). El campo
-          // sigue existiendo en el esquema/contrato (compatibilidad, sin migración) pero ya no se
-          // recoge del ADMIN, así que siempre se envía null.
+          // Evento, Fecha (shotOn) y créditos del fotógrafo: eliminados del editor (Evento/Fecha
+          // en la Fase "COSPLAY DETAIL REDESIGN"; fotógrafo, ajuste UX posterior a 9I-3). Los tres
+          // siguen existiendo en el esquema/contrato (compatibilidad, sin migración) pero ya no se
+          // recogen del ADMIN, así que siempre se envían null.
+          event: null,
+          shotOn: null,
           photographerCredit: null,
           images: buildImagesPayload(),
         });
@@ -513,8 +508,6 @@ export function useCosplayEditor({
         description: detail.description ?? "",
         characterName: detail.characterName ?? "",
         series: detail.series ?? "",
-        event: detail.event ?? "",
-        shotOn: detail.shotOn ?? "",
       };
       const p = [...detail.images]
         .sort((a, b) => a.position - b.position)

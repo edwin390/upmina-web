@@ -15,6 +15,7 @@
   "detail": {
     "loading": "Cargando…",
     "error": "No se pudo cargar esta publicación. Inténtalo de nuevo más tarde.",
+    "retry": "Reintentar",
     "notFound": {
       "title": "No encontramos esta publicación",
       "body": "Puede que el enlace sea incorrecto o que la publicación ya no esté disponible.",
@@ -22,12 +23,9 @@
     },
     "character": "Personaje",
     "series": "Serie / franquicia",
-    "event": "Evento",
-    "shotOn": "Fecha",
     "photographerCredit": "Fotografía",
     "galleryLabel": "Galería",
-    "backLink": "← Volver a Cosplay",
-    "openPhoto": "Ver foto {position}"
+    "backLink": "← Volver a Cosplay"
   },
   "admin": {
     "newPost": "Nueva publicación",
@@ -44,9 +42,7 @@
       "title": "Título",
       "description": "Descripción",
       "characterName": "Personaje",
-      "series": "Serie / franquicia",
-      "event": "Evento",
-      "shotOn": "Fecha"
+      "series": "Serie / franquicia"
     },
     "photos": {
       "heading": "Fotos",

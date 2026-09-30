@@ -15,6 +15,7 @@
   "detail": {
     "loading": "Loading…",
     "error": "Couldn't load this post. Please try again later.",
+    "retry": "Retry",
     "notFound": {
       "title": "We couldn't find this post",
       "body": "The link may be wrong, or the post may no longer be available.",
@@ -22,12 +23,9 @@
     },
     "character": "Character",
     "series": "Series / franchise",
-    "event": "Event",
-    "shotOn": "Date",
     "photographerCredit": "Photography",
     "galleryLabel": "Gallery",
-    "backLink": "← Back to Cosplay",
-    "openPhoto": "View photo {position}"
+    "backLink": "← Back to Cosplay"
   },
   "admin": {
     "newPost": "New post",
@@ -44,9 +42,7 @@
       "title": "Title",
       "description": "Description",
       "characterName": "Character",
-      "series": "Series / franchise",
-      "event": "Event",
-      "shotOn": "Date"
+      "series": "Series / franchise"
     },
     "photos": {
       "heading": "Photos",

@@ -35,15 +35,18 @@ const NAV_BUTTON =
 const CLOSE_BUTTON =
   "grid h-11 w-11 shrink-0 place-items-center rounded-full border-2 border-transparent bg-bg-base/90 text-xl text-text-secondary transition-colors hover:border-accent-secondary hover:text-accent-secondary hover:shadow-glow-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary";
 
+// Enlace "Ver en Twitch": compartido entre su ubicación habitual (bajo la info del clip) y la
+// fila de navegación móvil (Fase "TWITCH MOBILE NAVIGATION ROW"), para no duplicar estilos.
+const TWITCH_LINK =
+  "inline-flex items-center gap-1.5 rounded-full border border-white/25 bg-black/40 px-4 py-2 text-sm font-medium text-text-primary backdrop-blur-sm transition-colors hover:border-accent-primary hover:text-accent-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-secondary";
+
 // Ancho del área 16:9: cabe en el alto disponible (dejando sitio a título, enlace y controles)
 // y nunca pasa de 960 px. Desde `sm` las flechas van fijas a los lados del OVERLAY (viewport),
 // así que se dejan 70 px libres a cada lado para que no se superpongan al vídeo. Por debajo de
-// `sm` (Fase "TWITCH MOBILE NAVIGATION FIX") las flechas se centran respecto al REPRODUCTOR (no
-// el viewport ni el diálogo completo): se posicionan `absolute` dentro del wrapper del
-// reproductor, así que su centro vertical coincide exactamente con el centro del vídeo sin
-// importar cuánto ocupe el texto/enlace/contador debajo — una pequeña superposición con los
-// bordes del vídeo es aceptable y deliberada (el vídeo conserva su ancho máximo). En pantallas
-// de poco alto (`short`) el texto se compacta y el vídeo usa casi todo el alto.
+// `sm` (Fase "TWITCH MOBILE NAVIGATION ROW") no hay suficiente ancho lateral para las flechas sin
+// tapar el vídeo: en su lugar bajan a una fila junto a "Ver en Twitch", debajo de la info del
+// clip (ver más abajo) — el vídeo nunca se encoge para dejarles sitio. En pantallas de poco alto
+// (`short`) el texto se compacta y el vídeo usa casi todo el alto.
 const FRAME_WIDTH =
   "w-[min(94vw,calc((100dvh-230px)*16/9),960px)] sm:w-[min(calc(100vw-140px),calc((100dvh-230px)*16/9),960px)] short:w-[min(calc(100vw-140px),calc((100dvh-120px)*16/9),960px)]";
 
@@ -57,8 +60,10 @@ const FRAME_WIDTH =
  * - Teclado: → siguiente, ← anterior, Escape cierra.
  * - Táctil: swipe hacia la izquierda → siguiente, hacia la derecha → anterior (umbral
  *   SWIPE_THRESHOLD_PX), sobre las franjas laterales del reproductor o el resto del visor.
- * - Botones ‹ / › fijos cerca de los bordes izquierdo/derecho del overlay (siempre visibles, en
- *   todos los tamaños), igual que el visor de Cosplay/Community — nunca pegados al reproductor.
+ * - Botones ‹ / ›: desde `sm` fijos cerca de los bordes izquierdo/derecho del overlay, igual que
+ *   el visor de Cosplay/Community. Por debajo de `sm` bajan a una fila junto a "Ver en Twitch"
+ *   (nunca sobre el vídeo, que no tiene ancho suficiente en móvil para flechas laterales sin
+ *   tapar contenido).
  * Solo hay un reproductor montado a la vez: al cambiar de clip el anterior se desmonta, y al
  * cerrar también (deja de sonar). Mientras está abierto, el scroll del documento queda
  * bloqueado (y `touch-action: none` evita que el gesto desplace la página de detrás).
@@ -222,38 +227,40 @@ export default function TwitchClipViewer({
         className="flex h-full w-full items-center justify-center overflow-hidden px-2 py-3"
       >
         <div className="flex min-w-0 flex-col items-center gap-3 short:gap-2">
-          {/* Wrapper estable (nunca se remonta al cambiar de clip): ancla las flechas al centro
-              vertical del REPRODUCTOR, no del clip actual. El `key` vive en el div interior, que
-              sí se remonta por completo por clip (nuevo iframe; el anterior deja de sonar). */}
-          <div className={`relative shrink-0 aspect-video ${FRAME_WIDTH}`}>
-            <div
-              key={clip.id}
-              className="h-full w-full overflow-hidden rounded-2xl border border-border-strong bg-bg-surface shadow-glow-secondary"
-            >
-              <TwitchClipPlayer clip={clip} />
-            </div>
-
-            {canNavigate && (
-              <>
-                <button
-                  type="button"
-                  onClick={() => go(-1)}
-                  aria-label="Clip anterior"
-                  className={`${NAV_BUTTON} absolute left-2 top-1/2 -translate-y-1/2 sm:fixed sm:left-4 sm:top-1/2 sm:-translate-y-1/2`}
-                >
-                  <span aria-hidden="true">‹</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => go(1)}
-                  aria-label="Clip siguiente"
-                  className={`${NAV_BUTTON} absolute right-2 top-1/2 -translate-y-1/2 sm:fixed sm:right-4 sm:top-1/2 sm:-translate-y-1/2`}
-                >
-                  <span aria-hidden="true">›</span>
-                </button>
-              </>
-            )}
+          {/* `key`: un iframe nuevo por clip; el anterior se desmonta por completo. El vídeo
+              nunca se encoge para dejar sitio a las flechas (ni en móvil ni en desktop). */}
+          <div
+            key={clip.id}
+            className={`relative aspect-video shrink-0 overflow-hidden rounded-2xl border border-border-strong bg-bg-surface shadow-glow-secondary ${FRAME_WIDTH}`}
+          >
+            <TwitchClipPlayer clip={clip} />
           </div>
+
+          {/* Flechas laterales SOLO desde `sm` (desktop/tablet, donde el hueco de FRAME_WIDTH
+              deja 70px libres a cada lado). `hidden sm:contents` oculta por completo por debajo
+              de `sm` sin pelear con el `grid` propio de NAV_BUTTON; `fixed` las ancla al overlay
+              (viewport), igual que siempre en desktop — sin cambios de comportamiento ahí. En
+              móvil viven en la fila junto a "Ver en Twitch", ver más abajo. */}
+          {canNavigate && (
+            <div className="hidden sm:contents" data-nav-variant="desktop">
+              <button
+                type="button"
+                onClick={() => go(-1)}
+                aria-label="Clip anterior"
+                className={`${NAV_BUTTON} fixed left-4 top-1/2 -translate-y-1/2`}
+              >
+                <span aria-hidden="true">‹</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => go(1)}
+                aria-label="Clip siguiente"
+                className={`${NAV_BUTTON} fixed right-4 top-1/2 -translate-y-1/2`}
+              >
+                <span aria-hidden="true">›</span>
+              </button>
+            </div>
+          )}
 
           <div className="flex min-w-[14rem] max-w-[92vw] flex-col items-center gap-1.5 text-center short:gap-1">
             <h2
@@ -271,22 +278,67 @@ export default function TwitchClipViewer({
               {clip.viewCount === 1 ? "vista" : "vistas"} ·{" "}
               {formatRelativeDate(clip.createdAt)}
             </p>
+            {/* En móvil con navegación, este enlace se oculta aquí: vive en la fila de abajo,
+                junto a las flechas (ver "TWITCH MOBILE NAVIGATION ROW"). Sin navegación
+                (un solo clip) o desde `sm`, se queda en su sitio de siempre. El wrapper
+                `contents` evita pelear con el propio `inline-flex` de TWITCH_LINK al
+                ocultarlo/mostrarlo por breakpoint. */}
             {href && (
-              <a
-                href={href}
-                target="_blank"
-                rel="noreferrer noopener"
-                className="mt-1 inline-flex items-center gap-1.5 rounded-full border border-white/25 bg-black/40 px-4 py-2 text-sm font-medium text-text-primary backdrop-blur-sm transition-colors hover:border-accent-primary hover:text-accent-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-secondary short:py-1"
-              >
-                Ver en Twitch <span aria-hidden="true">↗</span>
-                <span className="sr-only">(se abre en una pestaña nueva)</span>
-              </a>
+              <div className={canNavigate ? "hidden sm:contents" : "contents"}>
+                <a
+                  href={href}
+                  target="_blank"
+                  rel="noreferrer noopener"
+                  className={`${TWITCH_LINK} mt-1 short:py-1`}
+                >
+                  Ver en Twitch <span aria-hidden="true">↗</span>
+                  <span className="sr-only">(se abre en una pestaña nueva)</span>
+                </a>
+              </div>
             )}
           </div>
 
           {canNavigate && (
-            /* Las flechas viven junto al reproductor (ver arriba); este contador solo se
-               muestra en móvil, bajo el vídeo. */
+            /* Fila SOLO en móvil (Fase "TWITCH MOBILE NAVIGATION ROW"): las flechas ya no caben
+               a los lados del vídeo sin taparlo, así que bajan junto a "Ver en Twitch" — el
+               vídeo conserva su ancho máximo. Desde `sm` esta fila desaparece (las flechas
+               vuelven a los lados del vídeo, ver arriba, y el enlace vuelve a su sitio). */
+            <div
+              className="flex max-w-[92vw] items-center justify-center gap-2 sm:hidden"
+              data-nav-variant="mobile"
+            >
+              <button
+                type="button"
+                onClick={() => go(-1)}
+                aria-label="Clip anterior"
+                className={NAV_BUTTON}
+              >
+                <span aria-hidden="true">‹</span>
+              </button>
+              {href && (
+                <a
+                  href={href}
+                  target="_blank"
+                  rel="noreferrer noopener"
+                  className={TWITCH_LINK}
+                >
+                  Ver en Twitch <span aria-hidden="true">↗</span>
+                  <span className="sr-only">(se abre en una pestaña nueva)</span>
+                </a>
+              )}
+              <button
+                type="button"
+                onClick={() => go(1)}
+                aria-label="Clip siguiente"
+                className={NAV_BUTTON}
+              >
+                <span aria-hidden="true">›</span>
+              </button>
+            </div>
+          )}
+
+          {canNavigate && (
+            /* Contador: siempre debajo de la fila de navegación en móvil. */
             <p aria-hidden="true" className="text-xs font-medium text-white/70 sm:hidden">
               {index + 1} / {total}
             </p>

@@ -191,29 +191,6 @@ export default function CosplayEditorDialog({
                       className={FIELD_CLASS}
                     />
                   </label>
-                  <label className={LABEL_CLASS}>
-                    {t("fields.event")}
-                    <input
-                      type="text"
-                      value={editor.fields.event}
-                      onChange={(event) =>
-                        editor.updateField("event", event.target.value)
-                      }
-                      maxLength={120}
-                      className={FIELD_CLASS}
-                    />
-                  </label>
-                  <label className={LABEL_CLASS}>
-                    {t("fields.shotOn")}
-                    <input
-                      type="date"
-                      value={editor.fields.shotOn}
-                      onChange={(event) =>
-                        editor.updateField("shotOn", event.target.value)
-                      }
-                      className={FIELD_CLASS}
-                    />
-                  </label>
                 </div>
 
                 <section

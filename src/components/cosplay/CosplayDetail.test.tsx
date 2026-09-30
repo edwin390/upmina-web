@@ -1,4 +1,4 @@
-import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
@@ -6,9 +6,12 @@ import CosplayLocaleProvider from "@/i18n/LocaleProvider";
 import type { CosplayPostDetail } from "@/types";
 import CosplayDetail from "./CosplayDetail";
 
-// /cosplay/:slug (Fase 9I-1): carga/error/no-encontrado/contenido, metadatos, y lo básico del
-// visor (abrir, foto siguiente/anterior, Escape cierra). jsdom no implementa
-// <dialog>.showModal(): se simula, igual que en InstagramSection.test.tsx.
+// /cosplay/:slug (Fase "COSPLAY DETAIL REDESIGN"): detalle de una publicación de Cosplay,
+// inspirado visualmente en el detalle de Community — media SIEMPRE visible (sin un paso
+// adicional de "abrir" un visor aparte, a diferencia del CosplayLightbox anterior), con
+// navegación anterior/siguiente entre las FOTOS de esta misma publicación (nunca entre
+// publicaciones). Evento y Fecha manual (shotOn) ya no se muestran: la fecha visible es la
+// automática de publicación (publishedAt).
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), {
@@ -38,7 +41,10 @@ function detail(overrides: Partial<CosplayPostDetail> = {}): CosplayPostDetail {
     title: "Kirito",
     characterName: "Kirito",
     series: "Sword Art Online",
-    event: null,
+    // Publicaciones antiguas pueden seguir teniendo event/shotOn en los datos (nunca se borran
+    // de forma destructiva) — el detalle simplemente ya no los muestra. Se dejan con valores
+    // aquí a propósito para probar justo eso.
+    event: "[legacy] Convención de ejemplo",
     shotOn: "2026-03-15",
     publishedAt: "2026-03-20T00:00:00.000Z",
     cover: image("0"),
@@ -62,15 +68,6 @@ function renderDetail(slug: string | undefined) {
     </QueryClientProvider>,
   );
 }
-
-beforeAll(() => {
-  HTMLDialogElement.prototype.showModal = function showModal() {
-    this.setAttribute("open", "");
-  };
-  HTMLDialogElement.prototype.close = function close() {
-    this.removeAttribute("open");
-  };
-});
 
 beforeEach(() => {
   vi.spyOn(console, "error").mockImplementation(() => {});
@@ -97,12 +94,13 @@ describe("/cosplay/:slug — estados", () => {
     expect(screen.getByRole("status")).toHaveTextContent("Cargando…");
   });
 
-  it("error: fetch 500 muestra el mensaje de error", async () => {
+  it("error: fetch 500 muestra el mensaje de error con reintento", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(json({}, 500)));
     renderDetail("kirito-sao");
     await waitFor(() =>
-      expect(screen.getByRole("status")).toHaveTextContent(/no se pudo cargar/i),
+      expect(screen.getByRole("alert")).toHaveTextContent(/no se pudo cargar/i),
     );
+    expect(screen.getByRole("button", { name: "Reintentar" })).toBeInTheDocument();
   });
 
   it("404: muestra 'no encontrado' con enlace de vuelta, no una pantalla en blanco", async () => {
@@ -111,10 +109,11 @@ describe("/cosplay/:slug — estados", () => {
     await waitFor(() =>
       expect(screen.getByText("No encontramos esta publicación")).toBeInTheDocument(),
     );
-    expect(screen.getByRole("link", { name: /volver a cosplay/i })).toHaveAttribute(
-      "href",
-      "/cosplay",
-    );
+    // Dos enlaces de vuelta coexisten en este estado (el de cabecera, siempre presente, y el del
+    // propio bloque "no encontrado") — ambos apuntan a /cosplay.
+    for (const link of screen.getAllByRole("link", { name: /volver a cosplay/i })) {
+      expect(link).toHaveAttribute("href", "/cosplay");
+    }
   });
 
   it("sin slug: se trata igual que no encontrado, nunca carga infinita", async () => {
@@ -126,7 +125,21 @@ describe("/cosplay/:slug — estados", () => {
     expect(fetch).not.toHaveBeenCalled();
   });
 
-  it("contenido: título, descripción, metadatos y fecha formateada (UTC, sin desfase)", async () => {
+  it("cierre/back: el enlace 'Volver a Cosplay' está siempre presente y apunta a /cosplay", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(json(detail())));
+    renderDetail("kirito-sao");
+    await waitFor(() =>
+      expect(screen.getByRole("heading", { name: "Kirito" })).toBeInTheDocument(),
+    );
+    const backLinks = screen.getAllByRole("link", { name: /volver a cosplay/i });
+    for (const link of backLinks) {
+      expect(link).toHaveAttribute("href", "/cosplay");
+    }
+  });
+});
+
+describe("/cosplay/:slug — contenido, inspirado en el detalle de Community", () => {
+  it("título, descripción, personaje/serie/fotógrafo y fecha AUTOMÁTICA de publicación (nunca la manual)", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(json(detail())));
     renderDetail("kirito-sao");
 
@@ -135,104 +148,116 @@ describe("/cosplay/:slug — estados", () => {
     );
     expect(screen.getByText("Descripción de Kirito.")).toBeInTheDocument();
     expect(screen.getByText("Sword Art Online")).toBeInTheDocument();
-    expect(screen.getByText("15 de marzo de 2026")).toBeInTheDocument();
     expect(screen.getByText("Fotógrafo de prueba")).toBeInTheDocument();
+
+    // publishedAt (automática) es un timestamp real: se formatea en la hora local del entorno
+    // (nunca fijada a UTC como formatDateOnly, que es solo para columnas `date`), así que no se
+    // fija un día exacto aquí — solo que use publishedAt (2026) y nunca el shot_on manual del
+    // fixture ("2026-03-15" → "15 de marzo").
+    const time = document.querySelector("time")!;
+    expect(time).toHaveAttribute("datetime", "2026-03-20T00:00:00.000Z");
+    expect(time.textContent).toContain("2026");
+    expect(time.textContent).not.toContain("15 de marzo");
   });
 
-  it("un campo opcional ausente (event) no deja un rótulo vacío", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(json(detail({ event: null }))));
+  it("Evento YA NO aparece en el detalle, aunque la publicación tenga un valor legacy", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(json(detail({ event: "[legacy] Convención X" }))),
+    );
     renderDetail("kirito-sao");
     await waitFor(() =>
       expect(screen.getByRole("heading", { name: "Kirito" })).toBeInTheDocument(),
     );
-    expect(screen.queryByText("EVENTO")).toBeNull();
+    expect(screen.queryByText("[legacy] Convención X")).toBeNull();
+    expect(screen.queryByText("Evento")).toBeNull();
+  });
+
+  it("Fecha MANUAL (shotOn) ya no aparece en el detalle, aunque la publicación tenga un valor legacy", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(json(detail({ shotOn: "2020-01-01" }))),
+    );
+    renderDetail("kirito-sao");
+    await waitFor(() =>
+      expect(screen.getByRole("heading", { name: "Kirito" })).toBeInTheDocument(),
+    );
+    // Ni el rótulo "Fecha" ni una fecha formateada a partir de shotOn (1 de enero de 2020).
+    expect(screen.queryByText("1 de enero de 2020")).toBeNull();
+  });
+
+  it("un campo opcional ausente (personaje/serie/fotógrafo) no deja metadata vacía ni rótulos huérfanos", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValue(
+          json(detail({ characterName: null, series: null, photographerCredit: null })),
+        ),
+    );
+    renderDetail("kirito-sao");
+    await waitFor(() =>
+      expect(screen.getByRole("heading", { name: "Kirito" })).toBeInTheDocument(),
+    );
+    expect(document.querySelector("dl")).toBeNull();
+  });
+
+  it("publicaciones antiguas (con event/shotOn en los datos) siguen renderizando el detalle con normalidad", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValue(
+          json(detail({ event: "Evento legacy", shotOn: "2019-05-05" })),
+        ),
+    );
+    renderDetail("kirito-sao");
+    await waitFor(() =>
+      expect(screen.getByRole("heading", { name: "Kirito" })).toBeInTheDocument(),
+    );
+    expect(screen.getByText("Descripción de Kirito.")).toBeInTheDocument();
+    expect(document.querySelector("img")).toHaveAttribute(
+      "src",
+      "https://example.test/0.webp",
+    );
   });
 });
 
-describe("/cosplay/:slug — galería y visor", () => {
-  it("abre el visor al pulsar una miniatura, con foco en Cerrar", async () => {
+describe("/cosplay/:slug — media SIEMPRE visible, navegación entre FOTOS (nunca entre publicaciones)", () => {
+  it("la fotografía principal está visible sin ningún paso de 'abrir' un visor aparte", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(json(detail())));
     renderDetail("kirito-sao");
     await waitFor(() =>
       expect(screen.getByRole("heading", { name: "Kirito" })).toBeInTheDocument(),
     );
-
-    fireEvent.click(screen.getByRole("button", { name: "Alt 0" }));
-
-    const dialog = await screen.findByRole("dialog");
-    expect(dialog).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Cerrar" })).toHaveFocus();
-  });
-
-  it("Cerrar NO tiene el resaltado cian en reposo (a diferencia de anterior/siguiente); el cian solo aparece en hover/focus", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(json(detail())));
-    renderDetail("kirito-sao");
-    await waitFor(() =>
-      expect(screen.getByRole("heading", { name: "Kirito" })).toBeInTheDocument(),
-    );
-
-    fireEvent.click(screen.getByRole("button", { name: "Alt 0" }));
-    await screen.findByRole("dialog");
-
-    const close = screen.getByRole("button", { name: "Cerrar" });
-    const classes = close.className.split(/\s+/);
-
-    // En reposo: borde transparente, nunca el anillo/glow cian permanente que sí tienen
-    // anterior/siguiente.
-    expect(classes).toContain("border-transparent");
-    expect(classes).not.toContain("border-accent-secondary");
-    expect(classes).not.toContain("shadow-glow-secondary");
-
-    // El cian solo aparece con hover (y el foco vía focus-visible:ring ya existente).
-    expect(classes).toContain("hover:border-accent-secondary");
-    expect(classes).toContain("hover:text-accent-secondary");
-    expect(classes).toContain("hover:shadow-glow-secondary");
-
-    fireEvent.click(close);
+    // Sin <dialog>, sin miniaturas-botón que haya que pulsar primero.
     expect(screen.queryByRole("dialog")).toBeNull();
+    const img = document.querySelector("img")!;
+    expect(img).toHaveAttribute("src", "https://example.test/0.webp");
+    expect(img.className).toContain("object-contain");
   });
 
-  it("Siguiente avanza a la foto 2 de 2 (circular)", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(json(detail())));
+  it("una sola foto: sin flechas de navegación ni contador", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(json(detail({ gallery: [image("0")], photoCount: 1 }))),
+    );
     renderDetail("kirito-sao");
     await waitFor(() =>
       expect(screen.getByRole("heading", { name: "Kirito" })).toBeInTheDocument(),
     );
-
-    fireEvent.click(screen.getByRole("button", { name: "Alt 0" }));
-    await screen.findByRole("dialog");
-    expect(screen.getByText("1 de 2")).toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole("button", { name: "Foto siguiente" }));
-    expect(screen.getByText("2 de 2")).toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole("button", { name: "Foto siguiente" }));
-    expect(screen.getByText("1 de 2")).toBeInTheDocument(); // circular
+    expect(screen.queryByRole("button", { name: "Foto anterior" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Foto siguiente" })).toBeNull();
   });
 
-  it("Escape cierra el visor y devuelve el foco a la miniatura que lo abrió", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(json(detail())));
-    renderDetail("kirito-sao");
-    await waitFor(() =>
-      expect(screen.getByRole("heading", { name: "Kirito" })).toBeInTheDocument(),
-    );
-
-    const trigger = screen.getByRole("button", { name: "Alt 0" });
-    fireEvent.click(trigger);
-    await screen.findByRole("dialog");
-
-    fireEvent.keyDown(document, { key: "Escape" });
-    expect(screen.queryByRole("dialog")).toBeNull();
-    await waitFor(() => expect(trigger).toHaveFocus());
-  });
-
-  it("una imagen decorativa sin alt real usa el rótulo genérico 'Ver foto N' (nunca sin nombre accesible)", async () => {
+  it("varias fotos: 'Siguiente' avanza en el orden correcto (circular) y el contador se actualiza", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn().mockResolvedValue(
         json(
           detail({
-            gallery: [image("0"), image("1", { decorative: true, alt: null })],
+            gallery: [image("0"), image("1"), image("2")],
+            photoCount: 3,
           }),
         ),
       ),
@@ -242,6 +267,143 @@ describe("/cosplay/:slug — galería y visor", () => {
       expect(screen.getByRole("heading", { name: "Kirito" })).toBeInTheDocument(),
     );
 
-    expect(screen.getByRole("button", { name: "Ver foto 2" })).toBeInTheDocument();
+    expect(document.querySelector("img")).toHaveAttribute(
+      "src",
+      "https://example.test/0.webp",
+    );
+    expect(screen.getByText("1 de 3")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Foto siguiente" }));
+    expect(document.querySelector("img")).toHaveAttribute(
+      "src",
+      "https://example.test/1.webp",
+    );
+    expect(screen.getByText("2 de 3")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Foto siguiente" }));
+    fireEvent.click(screen.getByRole("button", { name: "Foto siguiente" }));
+    // Circular: de vuelta a la primera.
+    expect(document.querySelector("img")).toHaveAttribute(
+      "src",
+      "https://example.test/0.webp",
+    );
+    expect(screen.getByText("1 de 3")).toBeInTheDocument();
+  });
+
+  it("'Anterior' retrocede circularmente", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(json(detail({ gallery: [image("0"), image("1")] }))),
+    );
+    renderDetail("kirito-sao");
+    await waitFor(() =>
+      expect(screen.getByRole("heading", { name: "Kirito" })).toBeInTheDocument(),
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Foto anterior" }));
+    expect(document.querySelector("img")).toHaveAttribute(
+      "src",
+      "https://example.test/1.webp",
+    );
+  });
+
+  it("teclado: ArrowRight/ArrowLeft cambian de foto", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(json(detail({ gallery: [image("0"), image("1")] }))),
+    );
+    renderDetail("kirito-sao");
+    await waitFor(() =>
+      expect(screen.getByRole("heading", { name: "Kirito" })).toBeInTheDocument(),
+    );
+
+    fireEvent.keyDown(document, { key: "ArrowRight" });
+    expect(document.querySelector("img")).toHaveAttribute(
+      "src",
+      "https://example.test/1.webp",
+    );
+    fireEvent.keyDown(document, { key: "ArrowLeft" });
+    expect(document.querySelector("img")).toHaveAttribute(
+      "src",
+      "https://example.test/0.webp",
+    );
+  });
+
+  it("navegar entre fotos NUNCA navega a otra publicación (la URL/slug permanecen intactos)", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(json(detail({ gallery: [image("0"), image("1")] }))),
+    );
+    renderDetail("kirito-sao");
+    await waitFor(() =>
+      expect(screen.getByRole("heading", { name: "Kirito" })).toBeInTheDocument(),
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Foto siguiente" }));
+    // El título/heading de la publicación no cambia: seguimos en la misma publicación.
+    expect(screen.getByRole("heading", { name: "Kirito" })).toBeInTheDocument();
+    expect(screen.queryAllByRole("link", { name: /volver a cosplay/i })).not.toHaveLength(
+      0,
+    );
+  });
+
+  it("responsive: la fotografía usa una altura máxima (nunca fija) y nunca se recorta (object-contain)", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(json(detail())));
+    renderDetail("kirito-sao");
+    await waitFor(() =>
+      expect(screen.getByRole("heading", { name: "Kirito" })).toBeInTheDocument(),
+    );
+    const img = document.querySelector("img")!;
+    expect(img.className).toContain("object-contain");
+    expect(img.className).not.toContain("object-cover");
+    expect(img.className).toMatch(/max-h-\[60vh\]/);
+  });
+
+  it("respeta el orden de las fotos (position) al recorrerlas", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        json(
+          detail({
+            gallery: [
+              image("2", { position: 0 }),
+              image("0", { position: 1 }),
+              image("1", { position: 2 }),
+            ],
+          }),
+        ),
+      ),
+    );
+    renderDetail("kirito-sao");
+    await waitFor(() =>
+      expect(screen.getByRole("heading", { name: "Kirito" })).toBeInTheDocument(),
+    );
+    // El visor respeta el orden en que llega `gallery` (ya ordenado por el servidor) —
+    // empieza en la primera del array, sea cual sea su `id`.
+    expect(document.querySelector("img")).toHaveAttribute(
+      "src",
+      "https://example.test/2.webp",
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Foto siguiente" }));
+    expect(document.querySelector("img")).toHaveAttribute(
+      "src",
+      "https://example.test/0.webp",
+    );
+  });
+
+  it("una imagen decorativa sin alt real usa alt vacío (nunca alt inventado)", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValue(
+          json(detail({ gallery: [image("0", { decorative: true, alt: null })] })),
+        ),
+    );
+    renderDetail("kirito-sao");
+    await waitFor(() =>
+      expect(screen.getByRole("heading", { name: "Kirito" })).toBeInTheDocument(),
+    );
+    expect(document.querySelector("img")).toHaveAttribute("alt", "");
   });
 });

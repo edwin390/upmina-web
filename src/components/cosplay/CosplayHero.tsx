@@ -1,7 +1,6 @@
 import { Link } from "react-router-dom";
 import { useTranslations } from "use-intl";
 import type { CosplayPostSummary } from "@/types";
-import { formatDateOnly, useUpminaLocale } from "@/i18n/useUpminaLocale";
 import PrivilegedOnly from "@/components/auth/PrivilegedOnly";
 import CosplayCardAdminMenu from "./admin/CosplayCardAdminMenu";
 
@@ -66,16 +65,14 @@ export default function CosplayHero({ post, onEdit, onDeleted }: Props) {
   // duplican como literales nuevos. Solo campos ya disponibles en CosplayPostSummary — la
   // descripción vive únicamente en CosplayPostDetail (la publicación individual) y no se expone
   // aquí sin tocar el contrato del listado público, fuera de alcance de este ajuste.
+  //
+  // Evento y Fecha (shotOn) ya NO se piden al crear/editar (Fase "COSPLAY DETAIL REDESIGN") ni
+  // se muestran en ningún lado — aquí solo quedan personaje/serie, sin rediseñar el resto del
+  // hero (mismo layout, mismas proporciones, mismo badge, mismo menú).
   const tDetail = useTranslations("cosplay.detail");
-  const { locale } = useUpminaLocale();
   const metaItems: MetaItem[] = [
     { label: tDetail("character"), value: post.characterName },
     { label: tDetail("series"), value: post.series },
-    { label: tDetail("event"), value: post.event },
-    {
-      label: tDetail("shotOn"),
-      value: post.shotOn && formatDateOnly(post.shotOn, locale),
-    },
   ].filter((item): item is MetaItem => Boolean(item.value));
   const coverAspectRatio = post.cover
     ? { aspectRatio: `${post.cover.width} / ${post.cover.height}` }

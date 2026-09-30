@@ -274,6 +274,39 @@ describe("crear (postId=null)", () => {
     ]);
   });
 
+  it("el payload de guardado nunca lleva Evento ni Fecha manual (Fase 'COSPLAY DETAIL REDESIGN'): siempre van null, igual que el fotógrafo", async () => {
+    saveCosplayPostMock.mockResolvedValue({
+      post: {
+        id: "post-1",
+        slug: "kirito",
+        status: "draft",
+        title: "Kirito",
+        description: null,
+        characterName: null,
+        series: null,
+        event: null,
+        shotOn: null,
+        photographerCredit: null,
+        version: 1,
+        publishedAt: null,
+      },
+      images: [],
+    });
+    const { result } = renderHook(() => useCosplayEditor({ initialPostId: null }));
+    act(() => result.current.updateField("title", "Kirito"));
+    // EditorFields ya NO tiene event/shotOn: no hay forma de que el ADMIN los rellene.
+    expect(result.current.fields).not.toHaveProperty("event");
+    expect(result.current.fields).not.toHaveProperty("shotOn");
+
+    await act(async () => {
+      await result.current.save("draft");
+    });
+
+    const args = saveCosplayPostMock.mock.calls[0]![0];
+    expect(args.event).toBeNull();
+    expect(args.shotOn).toBeNull();
+  });
+
   it("respeta el límite de fotos restantes al añadir más de las que caben", () => {
     const { result } = renderHook(() => useCosplayEditor({ initialPostId: null }));
     expect(result.current.remainingCapacity).toBe(20);
