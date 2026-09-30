@@ -183,3 +183,131 @@ describe("CommunityFeedCard — media de vídeo (Fase 9J-3)", () => {
     expect(screen.getAllByRole("link")).toHaveLength(3);
   });
 });
+
+describe("CommunityFeedCard — media compacta en el feed (9J-3 follow-up)", () => {
+  it("un único media vertical (9:16) NO hereda su alto natural: el contenedor usa una altura acotada, no el aspect-ratio del archivo", () => {
+    const { container } = renderCard(
+      post({
+        media: [
+          {
+            id: "m1",
+            position: 0,
+            kind: "video",
+            url: "https://example.test/vertical.mp4",
+            width: 1080,
+            height: 1920,
+            durationSeconds: 20,
+          },
+        ],
+      }),
+    );
+    const video = container.querySelector("video")!;
+    // object-cover (no object-contain): llena la altura acotada del contenedor recortando en vez
+    // de hacer letterboxing a un alto gigante.
+    expect(video.className).toContain("object-cover");
+    expect(video.className).toContain("h-full");
+    expect(video.className).not.toContain("object-contain");
+    // El contenedor (padre directo del <video>) lleva las clases de altura acotada y responsiva,
+    // nunca una altura derivada del 1080x1920 del archivo.
+    const wrapper = video.parentElement!;
+    expect(wrapper.className).toMatch(/\bh-72\b/);
+    expect(wrapper.className).toMatch(/\bsm:h-80\b/);
+    expect(wrapper.className).toMatch(/\bmd:h-96\b/);
+  });
+
+  it("una única imagen vertical también usa la altura acotada (mismo tratamiento que vídeo)", () => {
+    const { container } = renderCard(
+      post({
+        media: [
+          {
+            id: "m1",
+            position: 0,
+            kind: "image",
+            url: "https://example.test/vertical.webp",
+            width: 900,
+            height: 1600,
+            durationSeconds: null,
+          },
+        ],
+      }),
+    );
+    const img = container.querySelector("img")!;
+    expect(img.className).toContain("object-cover");
+    expect(img.parentElement!.className).toMatch(/\bh-72\b/);
+  });
+
+  it("no fuerza una altura fija de escritorio en móvil: usa clases responsivas (h-72 base, crece con sm:/md:)", () => {
+    const { container } = renderCard(
+      post({
+        media: [
+          {
+            id: "m1",
+            position: 0,
+            kind: "image",
+            url: "https://example.test/m1.webp",
+            width: 1200,
+            height: 1600,
+            durationSeconds: null,
+          },
+        ],
+      }),
+    );
+    const wrapper = container.querySelector("img")!.parentElement!;
+    // La clase base (móvil, sin prefijo de breakpoint) es MENOR que la de md: — nunca al revés.
+    expect(wrapper.className).toMatch(/\bh-72\b/);
+    expect(wrapper.className).not.toMatch(/\bh-96\b(?!\s*$)/); // h-96 solo debe aparecer prefijado (md:h-96)
+    expect(wrapper.className).toMatch(/\bmd:h-96\b/);
+  });
+
+  it("post multi-imagen: la grilla sigue siendo de tiles cuadrados (ya compacta, sin regresión de este follow-up)", () => {
+    const { container } = renderCard(
+      post({
+        media: [
+          {
+            id: "m1",
+            position: 0,
+            kind: "image",
+            url: "https://example.test/m1.webp",
+            width: 1200,
+            height: 1600,
+            durationSeconds: null,
+          },
+          {
+            id: "m2",
+            position: 1,
+            kind: "video",
+            url: "https://example.test/m2.mp4",
+            width: 1080,
+            height: 1920,
+            durationSeconds: 5,
+          },
+        ],
+      }),
+    );
+    const tiles = container.querySelectorAll("img, video");
+    expect(tiles).toHaveLength(2);
+    for (const tile of tiles) {
+      expect(tile.parentElement!.className).toContain("aspect-square");
+    }
+  });
+
+  it("el like sigue funcionando sin cambios junto a media compacta (regresión 9J-2C)", () => {
+    renderCard(
+      post({
+        media: [
+          {
+            id: "m1",
+            position: 0,
+            kind: "video",
+            url: "https://example.test/vertical.mp4",
+            width: 1080,
+            height: 1920,
+            durationSeconds: 20,
+          },
+        ],
+        likeCount: 5,
+      }),
+    );
+    expect(screen.getByRole("button", { name: /me gusta \(5\)/i })).toBeInTheDocument();
+  });
+});

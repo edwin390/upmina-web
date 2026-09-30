@@ -108,14 +108,27 @@ function MediaItemView({
   );
 }
 
+/** Altura FIJA (no derivada del aspect-ratio natural del archivo) para el único media de un post
+ *  de un solo item en el feed — Fase 9J-3 follow-up "COMPACT FEED MEDIA": antes, un vídeo o imagen
+ *  vertical (p. ej. 9:16) se renderizaba a `width / (width/height)` de alto, produciendo tarjetas
+ *  desproporcionadamente altas en desktop ahora que el vídeo vertical es un caso real y común.
+ *  Compacta pero creciente por breakpoint (nunca fuerza la altura de escritorio en móvil); usa
+ *  object-cover en vez de object-contain (aceptado explícitamente por el checkpoint) para llenar
+ *  esa altura sin deformar — recorta el sobrante en vez de hacer letterboxing. El post DETALLE
+ *  (PostDetailPage.tsx) no cambia: sigue mostrando el media a su tamaño/proporción real, sin
+ *  recortar — el feed es solo para explorar.*/
+const SINGLE_MEDIA_HEIGHT_CLASS = "h-72 sm:h-80 md:h-96";
+
 function MediaGrid({ media }: { media: CommunityFeedPost["media"] }) {
   if (media.length === 0) return null;
 
   if (media.length === 1) {
     const item = media[0]!;
     return (
-      <div className="relative mt-3 overflow-hidden rounded-lg bg-bg-elevated">
-        <MediaItemView item={item} className="w-full object-contain" />
+      <div
+        className={`relative mt-3 w-full overflow-hidden rounded-lg bg-bg-elevated ${SINGLE_MEDIA_HEIGHT_CLASS}`}
+      >
+        <MediaItemView item={item} className="h-full w-full object-cover" />
         {item.kind === "video" ? <VideoPlayBadge /> : null}
       </div>
     );

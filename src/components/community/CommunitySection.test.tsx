@@ -129,7 +129,7 @@ describe("/community — contenido real", () => {
     expect(container.querySelectorAll("img")).toHaveLength(0);
   });
 
-  it("publicación de solo imagen: sin texto, con la imagen, sin recorte forzado (nunca object-cover)", async () => {
+  it("publicación de solo imagen: sin texto, con la imagen, en un contenedor de altura compacta y acotada (9J-3 follow-up)", async () => {
     stubFeed({
       items: [post("p1", { text: null, media: [mediaItem()] })],
       nextCursor: null,
@@ -138,10 +138,11 @@ describe("/community — contenido real", () => {
     await waitFor(() => expect(container.querySelectorAll("img")).toHaveLength(1));
     const img = container.querySelector("img")!;
     expect(img).toHaveAttribute("src", "https://example.test/media-1.webp");
-    // Imagen única: preserva su aspect ratio natural, nunca recortada (object-cover está
-    // reservado para el grid de varias imágenes, ver el siguiente test).
-    expect(img.className).not.toContain("object-cover");
-    expect(img.style.aspectRatio).toBe("1200 / 1600");
+    // Imagen única en el feed (9J-3 follow-up "COMPACT FEED MEDIA"): el contenedor usa una altura
+    // acotada y responsiva (nunca el alto natural del archivo, que para media vertical produciría
+    // tarjetas desproporcionadamente altas) y object-cover para llenarla sin deformar.
+    expect(img.className).toContain("object-cover");
+    expect(img.parentElement!.className).toMatch(/\bh-72\b/);
   });
 
   it("varias imágenes: todas se presentan", async () => {
