@@ -180,6 +180,12 @@ describe("CommunityLikeButton — usuario autenticado", () => {
     fireEvent.click(button);
     expect(button).toBeDisabled();
     expect(button).toHaveAttribute("aria-busy", "true");
+    // El heart/count optimista ya es suficiente feedback (9J-2C follow-up de pulido): sin cursor
+    // de espera ni atenuación visual mientras está pendiente.
+    expect(button.className).not.toMatch(/cursor-wait/);
+    expect(button.className).not.toMatch(/opacity-70/);
+    expect(button).toHaveTextContent("1");
+    expect(button).toHaveAttribute("aria-pressed", "true");
 
     await act(async () => resolveFn({ postId: "post-1", likeCount: 1, likedByMe: true }));
     expect(button).not.toBeDisabled();

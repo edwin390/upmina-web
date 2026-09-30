@@ -135,7 +135,7 @@ export default function CommunityLikeButton({
       aria-label={liked ? `Quitar me gusta (${count})` : `Me gusta (${count})`}
       className={
         className ??
-        `inline-flex min-h-11 items-center gap-1.5 rounded-md px-2 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-secondary disabled:cursor-wait disabled:opacity-70 ${
+        `inline-flex min-h-11 items-center gap-1.5 rounded-md px-2 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-secondary ${
           liked ? "text-accent-live" : "text-text-secondary hover:text-text-primary"
         }`
       }
