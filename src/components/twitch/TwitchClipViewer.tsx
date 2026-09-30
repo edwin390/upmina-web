@@ -36,9 +36,14 @@ const CLOSE_BUTTON =
   "grid h-11 w-11 shrink-0 place-items-center rounded-full border-2 border-transparent bg-bg-base/90 text-xl text-text-secondary transition-colors hover:border-accent-secondary hover:text-accent-secondary hover:shadow-glow-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary";
 
 // Ancho del área 16:9: cabe en el alto disponible (dejando sitio a título, enlace y controles)
-// y nunca pasa de 960 px. Desde `sm` las flechas van fijas a los lados, así que se dejan
-// 70 px libres a cada lado. En pantallas de poco alto (`short`) el texto se compacta y el
-// vídeo usa casi todo el alto.
+// y nunca pasa de 960 px. Desde `sm` las flechas van fijas a los lados del OVERLAY (viewport),
+// así que se dejan 70 px libres a cada lado para que no se superpongan al vídeo. Por debajo de
+// `sm` (Fase "TWITCH MOBILE NAVIGATION FIX") las flechas se centran respecto al REPRODUCTOR (no
+// el viewport ni el diálogo completo): se posicionan `absolute` dentro del wrapper del
+// reproductor, así que su centro vertical coincide exactamente con el centro del vídeo sin
+// importar cuánto ocupe el texto/enlace/contador debajo — una pequeña superposición con los
+// bordes del vídeo es aceptable y deliberada (el vídeo conserva su ancho máximo). En pantallas
+// de poco alto (`short`) el texto se compacta y el vídeo usa casi todo el alto.
 const FRAME_WIDTH =
   "w-[min(94vw,calc((100dvh-230px)*16/9),960px)] sm:w-[min(calc(100vw-140px),calc((100dvh-230px)*16/9),960px)] short:w-[min(calc(100vw-140px),calc((100dvh-120px)*16/9),960px)]";
 
@@ -217,12 +222,37 @@ export default function TwitchClipViewer({
         className="flex h-full w-full items-center justify-center overflow-hidden px-2 py-3"
       >
         <div className="flex min-w-0 flex-col items-center gap-3 short:gap-2">
-          {/* `key`: un iframe nuevo por clip; el anterior se desmonta por completo. */}
-          <div
-            key={clip.id}
-            className={`relative aspect-video shrink-0 overflow-hidden rounded-2xl border border-border-strong bg-bg-surface shadow-glow-secondary ${FRAME_WIDTH}`}
-          >
-            <TwitchClipPlayer clip={clip} />
+          {/* Wrapper estable (nunca se remonta al cambiar de clip): ancla las flechas al centro
+              vertical del REPRODUCTOR, no del clip actual. El `key` vive en el div interior, que
+              sí se remonta por completo por clip (nuevo iframe; el anterior deja de sonar). */}
+          <div className={`relative shrink-0 aspect-video ${FRAME_WIDTH}`}>
+            <div
+              key={clip.id}
+              className="h-full w-full overflow-hidden rounded-2xl border border-border-strong bg-bg-surface shadow-glow-secondary"
+            >
+              <TwitchClipPlayer clip={clip} />
+            </div>
+
+            {canNavigate && (
+              <>
+                <button
+                  type="button"
+                  onClick={() => go(-1)}
+                  aria-label="Clip anterior"
+                  className={`${NAV_BUTTON} absolute left-2 top-1/2 -translate-y-1/2 sm:fixed sm:left-4 sm:top-1/2 sm:-translate-y-1/2`}
+                >
+                  <span aria-hidden="true">‹</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => go(1)}
+                  aria-label="Clip siguiente"
+                  className={`${NAV_BUTTON} absolute right-2 top-1/2 -translate-y-1/2 sm:fixed sm:right-4 sm:top-1/2 sm:-translate-y-1/2`}
+                >
+                  <span aria-hidden="true">›</span>
+                </button>
+              </>
+            )}
           </div>
 
           <div className="flex min-w-[14rem] max-w-[92vw] flex-col items-center gap-1.5 text-center short:gap-1">
@@ -255,32 +285,11 @@ export default function TwitchClipViewer({
           </div>
 
           {canNavigate && (
-            /* Las flechas van fijas a los bordes del overlay en todos los tamaños (ver
-               NAV_BUTTON); este contenedor solo posiciona el contador visible en móvil. */
-            <div className="flex items-center justify-center gap-4">
-              <button
-                type="button"
-                onClick={() => go(-1)}
-                aria-label="Clip anterior"
-                className={`${NAV_BUTTON} fixed left-2 top-1/2 -translate-y-1/2 sm:left-4`}
-              >
-                <span aria-hidden="true">‹</span>
-              </button>
-              <p
-                aria-hidden="true"
-                className="text-xs font-medium text-white/70 sm:hidden"
-              >
-                {index + 1} / {total}
-              </p>
-              <button
-                type="button"
-                onClick={() => go(1)}
-                aria-label="Clip siguiente"
-                className={`${NAV_BUTTON} fixed right-2 top-1/2 -translate-y-1/2 sm:right-4`}
-              >
-                <span aria-hidden="true">›</span>
-              </button>
-            </div>
+            /* Las flechas viven junto al reproductor (ver arriba); este contador solo se
+               muestra en móvil, bajo el vídeo. */
+            <p aria-hidden="true" className="text-xs font-medium text-white/70 sm:hidden">
+              {index + 1} / {total}
+            </p>
           )}
         </div>
       </div>

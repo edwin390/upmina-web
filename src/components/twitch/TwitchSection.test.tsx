@@ -451,12 +451,13 @@ describe("TwitchClipViewer: navegación circular", () => {
       expect(button.className).not.toContain("bg-black/45");
     }
 
-    // Posicionados fijos cerca de los bordes izquierdo/derecho del overlay (nunca pegados al
-    // reproductor): fixed en todos los tamaños, igual que Cosplay/Community.
-    expect(prev.className).toContain("fixed");
-    expect(prev.className).toContain("left-2");
-    expect(next.className).toContain("fixed");
-    expect(next.className).toContain("right-2");
+    // Desde `sm` (escritorio/tablet), fijas a los bordes del overlay (viewport), igual que
+    // Cosplay/Community. Por debajo de `sm` (Fase "TWITCH MOBILE NAVIGATION FIX"), ver el test
+    // dedicado más abajo: se centran respecto al reproductor, no al overlay completo.
+    expect(prev.className).toContain("sm:fixed");
+    expect(prev.className).toContain("sm:left-4");
+    expect(next.className).toContain("sm:fixed");
+    expect(next.className).toContain("sm:right-4");
   });
 
   it("Cerrar NO tiene el resaltado cian en reposo (a diferencia de anterior/siguiente); el cian solo aparece en hover/focus", async () => {
@@ -483,6 +484,35 @@ describe("TwitchClipViewer: navegación circular", () => {
     // Cerrar sigue funcionando sin cambios: mismo comportamiento, solo cambia el estilo visual.
     fireEvent.click(close);
     expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("en móvil (por debajo de sm), anterior/siguiente se centran respecto al REPRODUCTOR (absolute, hermanas del vídeo), no respecto al overlay/viewport (Fase 'TWITCH MOBILE NAVIGATION FIX')", async () => {
+    stubApi();
+    renderSection();
+    await openViewer("Clip 1");
+
+    const prev = screen.getByRole("button", { name: "Clip anterior" });
+    const next = screen.getByRole("button", { name: "Clip siguiente" });
+
+    // Por debajo de `sm`: `absolute` (no `fixed`) — su centro vertical lo da el ancestro
+    // posicionado más cercano, que es el wrapper del reproductor, nunca el viewport completo.
+    expect(prev.className).toContain("absolute");
+    expect(prev.className).toContain("top-1/2");
+    expect(prev.className).toContain("-translate-y-1/2");
+    expect(next.className).toContain("absolute");
+    expect(next.className).toContain("top-1/2");
+    expect(next.className).toContain("-translate-y-1/2");
+
+    // Ambos botones son HERMANOS del wrapper que envuelve el <iframe> del reproductor (mismo
+    // padre `relative`), así que su referencia de centrado vertical es exactamente el
+    // reproductor, no el diálogo completo ni el bloque de título/metadatos/enlace de debajo.
+    const dialog = screen.getByRole("dialog");
+    const iframe = dialog.querySelector("iframe");
+    expect(iframe).not.toBeNull();
+    const playerWrapper = iframe!.closest("[class*='aspect-video']");
+    expect(playerWrapper).not.toBeNull();
+    expect(prev.parentElement).toBe(playerWrapper);
+    expect(next.parentElement).toBe(playerWrapper);
   });
 
   it("↑/↓ NO navegan; tampoco con modificadores, tecla mantenida ni dentro de un input", async () => {
