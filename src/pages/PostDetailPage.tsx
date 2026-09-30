@@ -2,7 +2,7 @@ import { Link, useParams } from "react-router-dom";
 import { useCommunityPostDetail } from "@/hooks/useCommunityPostDetail";
 import { useCommunityLikedByMe } from "@/hooks/useCommunityLikedByMe";
 import CommunityLikeButton from "@/components/community/CommunityLikeButton";
-import type { CommunityFeedPost } from "@/types";
+import CommunityPostMediaViewer from "@/components/community/CommunityPostMediaViewer";
 
 // /community/post/:postId (Fase 9J-2B.1, con like real en 9J-2C, con vídeo real en 9J-3): detalle
 // público de UNA publicación de Comunidad — destino "compartible" de las tarjetas del feed y de la
@@ -28,41 +28,6 @@ function AuthorAvatarPlaceholder({ username }: { username: string }) {
     >
       {initial}
     </span>
-  );
-}
-
-/** A diferencia del feed (miniaturas no interactivas dentro de un <Link>, ver
- *  CommunityFeedCard.tsx), el detalle SÍ es el lugar real de reproducción: controles nativos,
- *  silenciado por defecto (nunca autoplay con sonido), playsInline — el usuario decide reproducir. */
-function PostMedia({ media }: { media: CommunityFeedPost["media"] }) {
-  if (media.length === 0) return null;
-  return (
-    <div className="mt-4 flex flex-col gap-3">
-      {media.map((item) =>
-        item.kind === "video" ? (
-          <div key={item.id} className="overflow-hidden rounded-lg bg-black">
-            <video
-              src={item.url}
-              controls
-              muted
-              playsInline
-              preload="metadata"
-              style={{ aspectRatio: `${item.width} / ${item.height}` }}
-              className="w-full"
-            />
-          </div>
-        ) : (
-          <div key={item.id} className="overflow-hidden rounded-lg bg-bg-elevated">
-            <img
-              src={item.url}
-              alt=""
-              style={{ aspectRatio: `${item.width} / ${item.height}` }}
-              className="w-full object-contain"
-            />
-          </div>
-        ),
-      )}
-    </div>
   );
 }
 
@@ -150,7 +115,7 @@ export default function PostDetailPage() {
             </p>
           ) : null}
 
-          <PostMedia media={post.media} />
+          <CommunityPostMediaViewer media={post.media} />
 
           <div className="mt-4 border-t border-border-subtle pt-4">
             <CommunityLikeButton

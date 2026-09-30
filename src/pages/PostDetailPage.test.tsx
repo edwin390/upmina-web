@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import PostDetailPage from "./PostDetailPage";
@@ -179,7 +179,7 @@ describe("/community/post/:postId — media de vídeo (Fase 9J-3)", () => {
     expect(video).toHaveProperty("playsInline", true);
   });
 
-  it("post mixto: preserva el orden imagen→vídeo definido por position", async () => {
+  it("post mixto: el visor muestra un item a la vez, respetando el orden imagen→vídeo definido por position", async () => {
     stubDetail({
       post: post({
         text: null,
@@ -204,9 +204,21 @@ describe("/community/post/:postId — media de vídeo (Fase 9J-3)", () => {
       }),
     });
     const { container } = renderDetail();
-    await waitFor(() => expect(container.querySelectorAll("video")).toHaveLength(1));
-    const mediaEls = Array.from(container.querySelectorAll("img, video"));
-    expect(mediaEls.map((el) => el.tagName)).toEqual(["IMG", "VIDEO"]);
+    // Solo UN item visible a la vez (9J-3 follow-up "POST DETAIL MEDIA VIEWER"): empieza en la
+    // imagen (position 0), nunca ambos apilados.
+    await waitFor(() => expect(container.querySelectorAll("img, video")).toHaveLength(1));
+    expect(container.querySelector("img")).toHaveAttribute(
+      "src",
+      "https://example.test/m1.webp",
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Siguiente" }));
+
+    expect(container.querySelectorAll("img, video")).toHaveLength(1);
+    expect(container.querySelector("video")).toHaveAttribute(
+      "src",
+      "https://example.test/m2.mp4",
+    );
   });
 
   it("los likes siguen intactos junto a un post con vídeo (regresión 9J-2C)", async () => {
