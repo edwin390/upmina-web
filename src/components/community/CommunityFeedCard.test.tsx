@@ -184,8 +184,8 @@ describe("CommunityFeedCard — media de vídeo (Fase 9J-3)", () => {
   });
 });
 
-describe("CommunityFeedCard — media compacta en el feed (9J-3 follow-up)", () => {
-  it("un único media vertical (9:16) NO hereda su alto natural: el contenedor usa una altura acotada, no el aspect-ratio del archivo", () => {
+describe("CommunityFeedCard — media compacta en el feed (9J-3 follow-up CORRECTION)", () => {
+  it("un único vídeo vertical (9:16) recibe max-height + object-contain directamente en el <video> (no solo en el wrapper)", () => {
     const { container } = renderCard(
       post({
         media: [
@@ -202,20 +202,36 @@ describe("CommunityFeedCard — media compacta en el feed (9J-3 follow-up)", () 
       }),
     );
     const video = container.querySelector("video")!;
-    // object-cover (no object-contain): llena la altura acotada del contenedor recortando en vez
-    // de hacer letterboxing a un alto gigante.
-    expect(video.className).toContain("object-cover");
-    expect(video.className).toContain("h-full");
-    expect(video.className).not.toContain("object-contain");
-    // El contenedor (padre directo del <video>) lleva las clases de altura acotada y responsiva,
-    // nunca una altura derivada del 1080x1920 del archivo.
-    const wrapper = video.parentElement!;
-    expect(wrapper.className).toMatch(/\bh-72\b/);
-    expect(wrapper.className).toMatch(/\bsm:h-80\b/);
-    expect(wrapper.className).toMatch(/\bmd:h-96\b/);
+    // object-contain (no object-cover): conserva la proporción intrínseca, nunca recorta ni
+    // deforma. La restricción de altura debe llegar al <video> real, no solo a un wrapper.
+    expect(video.className).toContain("object-contain");
+    expect(video.className).not.toContain("object-cover");
+    expect(video.className).toMatch(/max-h-\[55vh\]/);
   });
 
-  it("una única imagen vertical también usa la altura acotada (mismo tratamiento que vídeo)", () => {
+  it("una única imagen horizontal/cuadrada NO se recorta agresivamente: usa object-contain, nunca object-cover", () => {
+    const { container } = renderCard(
+      post({
+        media: [
+          {
+            id: "m1",
+            position: 0,
+            kind: "image",
+            url: "https://example.test/horizontal.webp",
+            width: 1600,
+            height: 900,
+            durationSeconds: null,
+          },
+        ],
+      }),
+    );
+    const img = container.querySelector("img")!;
+    expect(img.className).toContain("object-contain");
+    expect(img.className).not.toContain("object-cover");
+    expect(img.className).toMatch(/max-h-\[55vh\]/);
+  });
+
+  it("una única imagen vertical también usa max-height + object-contain (mismo tratamiento que vídeo)", () => {
     const { container } = renderCard(
       post({
         media: [
@@ -232,11 +248,11 @@ describe("CommunityFeedCard — media compacta en el feed (9J-3 follow-up)", () 
       }),
     );
     const img = container.querySelector("img")!;
-    expect(img.className).toContain("object-cover");
-    expect(img.parentElement!.className).toMatch(/\bh-72\b/);
+    expect(img.className).toContain("object-contain");
+    expect(img.className).toMatch(/max-h-\[55vh\]/);
   });
 
-  it("no fuerza una altura fija de escritorio en móvil: usa clases responsivas (h-72 base, crece con sm:/md:)", () => {
+  it("no fuerza una caja gigante fija: max-height es un TECHO, no una altura obligatoria (sin clase de alto fijo en el wrapper)", () => {
     const { container } = renderCard(
       post({
         media: [
@@ -253,10 +269,10 @@ describe("CommunityFeedCard — media compacta en el feed (9J-3 follow-up)", () 
       }),
     );
     const wrapper = container.querySelector("img")!.parentElement!;
-    // La clase base (móvil, sin prefijo de breakpoint) es MENOR que la de md: — nunca al revés.
-    expect(wrapper.className).toMatch(/\bh-72\b/);
-    expect(wrapper.className).not.toMatch(/\bh-96\b(?!\s*$)/); // h-96 solo debe aparecer prefijado (md:h-96)
-    expect(wrapper.className).toMatch(/\bmd:h-96\b/);
+    // El wrapper ya no lleva alturas fijas por breakpoint (h-72/sm:h-80/md:h-96): el alto lo
+    // determina el propio media (max-height + aspect-ratio intrínseco), no el contenedor.
+    expect(wrapper.className).not.toMatch(/\bh-72\b/);
+    expect(wrapper.className).not.toMatch(/\bmd:h-96\b/);
   });
 
   it("post multi-imagen: la grilla sigue siendo de tiles cuadrados (ya compacta, sin regresión de este follow-up)", () => {

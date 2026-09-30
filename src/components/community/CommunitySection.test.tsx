@@ -129,7 +129,7 @@ describe("/community — contenido real", () => {
     expect(container.querySelectorAll("img")).toHaveLength(0);
   });
 
-  it("publicación de solo imagen: sin texto, con la imagen, en un contenedor de altura compacta y acotada (9J-3 follow-up)", async () => {
+  it("publicación de solo imagen: sin texto, con la imagen completa (sin recorte forzado), acotada por una altura máxima (9J-3 follow-up CORRECTION)", async () => {
     stubFeed({
       items: [post("p1", { text: null, media: [mediaItem()] })],
       nextCursor: null,
@@ -138,11 +138,12 @@ describe("/community — contenido real", () => {
     await waitFor(() => expect(container.querySelectorAll("img")).toHaveLength(1));
     const img = container.querySelector("img")!;
     expect(img).toHaveAttribute("src", "https://example.test/media-1.webp");
-    // Imagen única en el feed (9J-3 follow-up "COMPACT FEED MEDIA"): el contenedor usa una altura
-    // acotada y responsiva (nunca el alto natural del archivo, que para media vertical produciría
-    // tarjetas desproporcionadamente altas) y object-cover para llenarla sin deformar.
-    expect(img.className).toContain("object-cover");
-    expect(img.parentElement!.className).toMatch(/\bh-72\b/);
+    // Imagen única en el feed (9J-3 follow-up CORRECTION): nunca object-cover — la imagen conserva
+    // su proporción completa (object-contain) y solo se acota con una altura MÁXIMA (max-height),
+    // nunca una altura fija que la recorte o la estire.
+    expect(img.className).toContain("object-contain");
+    expect(img.className).not.toContain("object-cover");
+    expect(img.className).toMatch(/max-h-\[55vh\]/);
   });
 
   it("varias imágenes: todas se presentan", async () => {
