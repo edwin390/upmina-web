@@ -164,6 +164,26 @@ describe("/cosplay/:slug — galería y visor", () => {
     expect(screen.getByRole("button", { name: "Cerrar" })).toHaveFocus();
   });
 
+  it("Cerrar usa el mismo estilo cian-neón que las flechas anterior/siguiente (Fase 'FULLSCREEN CYAN CONTROL CONSISTENCY'), nunca el gris neutro de antes", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(json(detail())));
+    renderDetail("kirito-sao");
+    await waitFor(() =>
+      expect(screen.getByRole("heading", { name: "Kirito" })).toBeInTheDocument(),
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Alt 0" }));
+    await screen.findByRole("dialog");
+
+    const close = screen.getByRole("button", { name: "Cerrar" });
+    expect(close.className).toContain("border-accent-secondary");
+    expect(close.className).toContain("bg-bg-base/90");
+    expect(close.className).toContain("shadow-glow-secondary");
+    expect(close.className).not.toContain("text-text-secondary");
+
+    fireEvent.click(close);
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
   it("Siguiente avanza a la foto 2 de 2 (circular)", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(json(detail())));
     renderDetail("kirito-sao");

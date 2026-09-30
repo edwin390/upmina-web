@@ -459,6 +459,23 @@ describe("TwitchClipViewer: navegación circular", () => {
     expect(next.className).toContain("right-2");
   });
 
+  it("Cerrar usa el mismo estilo cian-neón que anterior/siguiente (Fase 'FULLSCREEN CYAN CONTROL CONSISTENCY'), nunca el círculo gris translúcido de antes", async () => {
+    stubApi();
+    renderSection();
+    await openViewer("Clip 1");
+
+    const close = screen.getByRole("button", { name: "Cerrar" });
+    expect(close.className).toContain("border-accent-secondary");
+    expect(close.className).toContain("bg-bg-base/90");
+    expect(close.className).toContain("shadow-glow-secondary");
+    expect(close.className).not.toContain("border-white/25");
+    expect(close.className).not.toContain("bg-black/45");
+
+    // Cerrar sigue funcionando sin cambios: mismo comportamiento, solo cambia el estilo visual.
+    fireEvent.click(close);
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
   it("↑/↓ NO navegan; tampoco con modificadores, tecla mantenida ni dentro de un input", async () => {
     stubApi();
     renderSection();

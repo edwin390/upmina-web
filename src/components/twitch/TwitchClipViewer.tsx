@@ -22,15 +22,12 @@ export const SWIPE_THRESHOLD_PX = 60;
 /** Un swipe debe ser claramente horizontal: |dx| ≥ 1,5 × |dy|. */
 const SWIPE_HORIZONTAL_BIAS = 1.5;
 
-const GLASS_BUTTON =
-  "grid h-11 w-11 shrink-0 place-items-center rounded-full border border-white/25 bg-black/45 text-lg text-white backdrop-blur-sm transition-colors hover:border-accent-secondary hover:text-accent-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-secondary";
-
-// Navegación anterior/siguiente (Fase "TWITCH OVERLAY NAVIGATION CONSISTENCY"): mismo primitivo
-// visual/posicionamiento ya aprobado en el visor de Cosplay (CosplayLightbox.tsx NAV_BUTTON) —
-// círculo cian-neón fijo cerca del borde izquierdo/derecho del overlay a pantalla completa, nunca
-// pegado al reproductor. Antes Twitch usaba círculos grises con flechas largas ←/→ pegadas al
-// vídeo en desktop (sm:fixed) y en una fila bajo el vídeo en móvil; ahora usa el mismo estilo y
-// posicionamiento fijo en todos los tamaños, igual que Cosplay/Community.
+// Navegación anterior/siguiente y cierre (Fases "TWITCH OVERLAY NAVIGATION CONSISTENCY" y
+// "FULLSCREEN CYAN CONTROL CONSISTENCY"): mismo primitivo visual/posicionamiento ya aprobado en
+// el visor de Cosplay (CosplayLightbox.tsx NAV_BUTTON) — círculo cian-neón fijo cerca del borde
+// del overlay a pantalla completa, nunca pegado al reproductor. Antes cerrar usaba el círculo gris
+// translúcido GLASS_BUTTON, visualmente desligado de las flechas; ahora los tres controles
+// (anterior/siguiente/cerrar) comparten el mismo estilo cian, igual que Cosplay/Community.
 const NAV_BUTTON =
   "grid h-11 w-11 shrink-0 place-items-center rounded-full border-2 border-accent-secondary bg-bg-base/90 text-xl text-accent-secondary shadow-glow-secondary transition-colors hover:bg-accent-secondary hover:text-text-inverse focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary";
 
@@ -289,7 +286,7 @@ export default function TwitchClipViewer({
         onClick={onClose}
         aria-label="Cerrar"
         data-autofocus
-        className={`${GLASS_BUTTON} fixed right-3 top-3`}
+        className={`${NAV_BUTTON} fixed right-3 top-3`}
       >
         <span aria-hidden="true">✕</span>
       </button>

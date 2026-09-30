@@ -12,6 +12,9 @@ interface CosplayLightboxProps {
   returnFocusTo?: HTMLElement | null;
 }
 
+// Compartido por anterior/siguiente Y cerrar (Fase "COSPLAY CYAN CLOSE BUTTON"): antes el botón
+// de cerrar era gris neutro (sin borde ni glow), visualmente desligado de las flechas cian-neón.
+// Ahora los tres controles pertenecen a la misma familia visual.
 const NAV_BUTTON =
   "grid h-11 w-11 shrink-0 place-items-center rounded-full border-2 border-accent-secondary bg-bg-base/90 text-xl text-accent-secondary shadow-glow-secondary transition-colors hover:bg-accent-secondary hover:text-text-inverse focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary";
 
@@ -124,7 +127,7 @@ export default function CosplayLightbox({
         onClick={onClose}
         aria-label={t("close")}
         data-autofocus
-        className="fixed right-3 top-3 grid h-10 w-10 place-items-center rounded-full bg-bg-base/90 text-xl text-text-secondary transition-colors hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-secondary"
+        className={`${NAV_BUTTON} fixed right-3 top-3`}
       >
         ✕
       </button>
