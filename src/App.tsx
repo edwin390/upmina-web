@@ -16,6 +16,8 @@ const YouTubeSection = lazy(() => import("./components/youtube/YouTubeSection"))
 const InstagramSection = lazy(() => import("./components/instagram/InstagramSection"));
 const TikTokSection = lazy(() => import("./components/tiktok/TikTokSection"));
 const CommunitySection = lazy(() => import("./components/community/CommunitySection"));
+// /@username (Fase 9J-2B): perfil público de Comunidad, su propio chunk.
+const ProfilePage = lazy(() => import("./pages/ProfilePage"));
 // Fase 9I-1: su propio chunk, con use-intl y los mensajes ES/EN/DE dentro (CosplayLocaleProvider)
 // — nunca entran en el bundle de las demás secciones.
 const CosplayPage = lazy(() => import("./pages/CosplayPage"));
@@ -132,6 +134,16 @@ function AppShell() {
             <Route path="/login" element={<LoginPage />} />
             <Route path="/signup" element={<SignupPage />} />
             <Route path="/account" element={<AccountPage />} />
+            {/* /@username (Fase 9J-2B): React Router v6 no admite mezclar texto literal ("@") y
+                un segmento dinámico dentro del MISMO segmento de ruta (matchPath("/@:username",
+                "/@edwin1") devuelve null, verificado) — solo admite segmentos ENTERAMENTE
+                literales o ENTERAMENTE dinámicos. Por eso la ruta real es "/:usernameParam" (todo
+                "@edwin1" cae en un único param) y ProfilePage.tsx exige el prefijo "@" DENTRO del
+                componente, redirigiendo como el catch-all si falta — un segmento dinámico simple
+                SIEMPRE pierde frente a cualquier ruta literal en el ranking de v6 (static > dynamic
+                > splat, sin importar el orden de declaración), así que esto nunca le quita
+                prioridad a /community, /account, etc. */}
+            <Route path="/:usernameParam" element={<ProfilePage />} />
             <Route element={<AdminAuthLayout />}>
               <Route path="/admin" element={<AdminDashboardPage />} />
               <Route path="/admin/login" element={<AdminLoginPage />} />

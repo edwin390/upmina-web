@@ -295,3 +295,23 @@ export interface CommunityFeedPage {
   items: CommunityFeedPost[];
   nextCursor: string | null;
 }
+
+// ---------- Community public profile (Fase 9J-2B) ----------
+// Contrato PÚBLICO de /@username (lo que devuelve /api/content?resource=community-profile).
+// Reutiliza CommunityFeedPost/CommunityFeedPage TAL CUAL para la galería de publicaciones —
+// nunca una segunda representación incompatible de "publicación pública" (ver el comentario de
+// community-profile-handlers.ts). Nunca expone user_id/UUID, email, role ni metadata de MFA.
+
+export interface CommunityProfilePublic {
+  /** Identidad pública técnica (@username), ya canónica (minúsculas). */
+  username: string;
+  displayName: string | null;
+  bio: string | null;
+  /** Recuento de publicaciones published. Nunca un recuento de "me gusta" (no existen todavía). */
+  postCount: number;
+}
+
+export interface CommunityProfilePage {
+  profile: CommunityProfilePublic;
+  posts: CommunityFeedPage;
+}

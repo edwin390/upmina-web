@@ -3,11 +3,13 @@ import type { VercelRequest, VercelResponse } from "@vercel/node";
 import router from "../../api/content/[resource]";
 import * as handlers from "./cosplay-handlers";
 import * as communityHandlers from "./community-feed-handlers";
+import * as communityProfileHandlers from "./community-profile-handlers";
 
 // Fija el despachador de lecturas públicas de contenido propio (api/content/[resource].ts): solo
 // comprueba que el `resource` correcto llega al handler correcto y que uno desconocido no llama a
-// ninguno. La lógica de cada handler ya está cubierta por cosplay-handlers.test.ts y
-// community-feed-handlers.test.ts (Fase 9J-2A añadió "community-feed" a este mismo dispatcher).
+// ninguno. La lógica de cada handler ya está cubierta por cosplay-handlers.test.ts,
+// community-feed-handlers.test.ts (Fase 9J-2A añadió "community-feed") y
+// community-profile-handlers.test.ts (Fase 9J-2B añadió "community-profile").
 
 vi.mock("./cosplay-handlers", () => ({
   handleCosplayList: vi.fn(async (_req: VercelRequest, res: VercelResponse) =>
@@ -21,6 +23,12 @@ vi.mock("./cosplay-handlers", () => ({
 vi.mock("./community-feed-handlers", () => ({
   handleCommunityFeed: vi.fn(async (_req: VercelRequest, res: VercelResponse) =>
     res.status(200).json("community-feed"),
+  ),
+}));
+
+vi.mock("./community-profile-handlers", () => ({
+  handleCommunityProfile: vi.fn(async (_req: VercelRequest, res: VercelResponse) =>
+    res.status(200).json("community-profile"),
   ),
 }));
 
@@ -76,6 +84,15 @@ describe("api/content/[resource]", () => {
     expect(state.body).toBe("community-feed");
   });
 
+  it("community-profile → handleCommunityProfile", async () => {
+    const { res, state } = mockRes();
+    await router(req("community-profile", { username: "edwin1" }), res);
+    expect(communityProfileHandlers.handleCommunityProfile).toHaveBeenCalledTimes(1);
+    expect(handlers.handleCosplayList).not.toHaveBeenCalled();
+    expect(communityHandlers.handleCommunityFeed).not.toHaveBeenCalled();
+    expect(state.body).toBe("community-profile");
+  });
+
   it("resource desconocido → 404, sin llamar a ningún handler", async () => {
     const { res, state } = mockRes();
     await router(req("algo-inventado"), res);
@@ -83,6 +100,7 @@ describe("api/content/[resource]", () => {
     expect(handlers.handleCosplayList).not.toHaveBeenCalled();
     expect(handlers.handleCosplayPost).not.toHaveBeenCalled();
     expect(communityHandlers.handleCommunityFeed).not.toHaveBeenCalled();
+    expect(communityProfileHandlers.handleCommunityProfile).not.toHaveBeenCalled();
   });
 
   it("sin resource → 404", async () => {

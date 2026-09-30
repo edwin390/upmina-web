@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
+import { Link } from "react-router-dom";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/lib/auth-context";
 import AdminAuthField from "@/components/admin/AdminAuthField";
@@ -449,9 +450,12 @@ export default function ProfileSection() {
             ) : null}
             <p className="break-all text-sm text-text-secondary">
               @
-              <span className="font-medium text-text-primary">
+              <Link
+                to={`/@${state.profile.username}`}
+                className="font-medium text-text-primary underline decoration-border-subtle underline-offset-2 hover:decoration-accent-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-secondary"
+              >
                 {state.profile.username}
-              </span>
+              </Link>
             </p>
             {state.profile.bio ? (
               <p className="mt-3 whitespace-pre-line break-words text-sm text-text-secondary">

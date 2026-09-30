@@ -213,6 +213,15 @@ describe("perfil existente / ausente / error", () => {
     expect(screen.queryByText("Bio de prueba")).toBeNull();
   });
 
+  // Fase 9J-2B: "Tu perfil público" enlaza al perfil PÚBLICO real (/@username), en vez de mostrar
+  // el username como texto plano sin destino.
+  it("el username enlaza al perfil público /@username", async () => {
+    present();
+    render(tree());
+    const link = await screen.findByRole("link", { name: "fan_sintetico" });
+    expect(link).toHaveAttribute("href", "/@fan_sintetico");
+  });
+
   it("perfil inexistente: muestra el onboarding con la ayuda del username", async () => {
     await renderAbsent();
     expect(screen.getByRole("button", { name: "Crear perfil" })).toBeInTheDocument();

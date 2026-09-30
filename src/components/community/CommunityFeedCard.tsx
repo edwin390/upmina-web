@@ -1,3 +1,4 @@
+import { Link } from "react-router-dom";
 import type { CommunityFeedPost } from "@/types";
 
 // Tarjeta de una publicación en el feed público de /community (Fase 9J-2A). Puramente
@@ -14,35 +15,40 @@ function formatDate(iso: string): string {
   }).format(date);
 }
 
-/** Identidad del autor, ya "preparada para enlazar" a una futura /@username (el checkpoint prohíbe
- *  construir esa página pública todavía): un <span>, no un <Link>, para no crear una ruta que
- *  todavía no existe — sustituirlo por un Link real, cuando llegue ese checkpoint, es un cambio de
- *  una línea, no una reestructuración. */
+/** Identidad del autor (Fase 9J-2B): enlaza al perfil público /@username — el username YA llega
+ *  canónico (minúsculas) desde el servidor, así que se usa tal cual, sin volver a normalizar. Solo
+ *  el avatar y esta identidad son clicables (nunca la tarjeta entera: el resto del post no es un
+ *  enlace de perfil). */
 function AuthorIdentity({ post }: { post: CommunityFeedPost }) {
   const { username, displayName } = post.author;
   return (
-    <span className="flex min-w-0 flex-col">
+    <Link
+      to={`/@${username}`}
+      className="flex min-w-0 flex-col rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-secondary"
+    >
       <span className="truncate font-display text-sm tracking-wide text-text-primary">
         {displayName ?? `@${username}`}
       </span>
       {displayName ? (
         <span className="truncate text-xs text-text-secondary">@{username}</span>
       ) : null}
-    </span>
+    </Link>
   );
 }
 
 /** Avatar: placeholder deliberado y estilizado — la subida de avatar todavía no existe (checkpoint
- *  futuro), así que nunca se intenta construir una URL que casi con certeza no resolvería. */
+ *  futuro), así que nunca se intenta construir una URL que casi con certeza no resolvería. Enlaza
+ *  al perfil público /@username (Fase 9J-2B), igual que la identidad de al lado. */
 function AuthorAvatar({ username }: { username: string }) {
   const initial = username.charAt(0).toUpperCase();
   return (
-    <span
-      aria-hidden="true"
-      className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-border-subtle bg-bg-elevated font-display text-sm text-text-secondary"
+    <Link
+      to={`/@${username}`}
+      aria-label={`Ver el perfil de @${username}`}
+      className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-border-subtle bg-bg-elevated font-display text-sm text-text-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-secondary"
     >
-      {initial}
-    </span>
+      <span aria-hidden="true">{initial}</span>
+    </Link>
   );
 }
 

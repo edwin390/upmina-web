@@ -153,3 +153,89 @@ describe("/community (Fase 9J-2A)", () => {
     ).toBeInTheDocument();
   });
 });
+
+// /@username (Fase 9J-2B): coexiste con todas las rutas literales existentes y con el catch-all,
+// sin que una ruta normal del sitio se interprete accidentalmente como un username.
+describe("/@username (Fase 9J-2B)", () => {
+  afterEach(() => {
+    cleanup();
+    vi.unstubAllGlobals();
+  });
+
+  function json(body: unknown, status = 200) {
+    return new Response(JSON.stringify(body), {
+      status,
+      headers: { "content-type": "application/json" },
+    });
+  }
+
+  it("/@edwin1 renderiza el perfil público", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const u = String(input);
+        if (u.includes("community-profile")) {
+          return json({
+            profile: { username: "edwin1", displayName: null, bio: null, postCount: 0 },
+            posts: { items: [], nextCursor: null },
+          });
+        }
+        return json({}, 404);
+      }),
+    );
+
+    render(
+      <QueryClientProvider client={testQueryClient}>
+        <MemoryRouter initialEntries={["/@edwin1"]}>
+          <App />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    expect(await screen.findByText("@edwin1")).toBeInTheDocument();
+  });
+
+  it("username inexistente: estado de perfil-no-encontrado, nunca el 404 genérico del sitio (redirección a /)", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => json({ error: "Perfil no encontrado" }, 404)),
+    );
+
+    render(
+      <QueryClientProvider client={testQueryClient}>
+        <MemoryRouter initialEntries={["/@nadie-existe"]}>
+          <App />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    expect(await screen.findByText("Este perfil no existe")).toBeInTheDocument();
+    // Nunca redirigido a Home por el catch-all "*": /@username tiene su propia ruta dedicada.
+    expect(screen.queryByRole("heading", { level: 1, name: "Comunidad" })).toBeNull();
+  });
+
+  it("el catch-all sigue funcionando para rutas realmente desconocidas (sin @)", () => {
+    render(
+      <QueryClientProvider client={testQueryClient}>
+        <MemoryRouter initialEntries={["/esto-no-existe"]}>
+          <App />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    // El catch-all "*" redirige a Home ("/"): Home no depende de fetch, así que basta con que no
+    // haya quedado en un estado de perfil ni haya lanzado.
+    expect(screen.queryByText("Este perfil no existe")).toBeNull();
+  });
+
+  it("las rutas literales existentes (/cosplay, /account) siguen resolviendo con normalidad junto a /@:username", async () => {
+    render(
+      <QueryClientProvider client={testQueryClient}>
+        <MemoryRouter initialEntries={["/cosplay"]}>
+          <App />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+    expect(await screen.findByRole("heading", { level: 1 })).toBeInTheDocument();
+  });
+});
