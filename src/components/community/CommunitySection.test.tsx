@@ -90,6 +90,22 @@ describe("/community — estados", () => {
   });
 });
 
+// Fase 9J-2A UX follow-up (ancho en desktop): el feed usa un ancho máximo deliberadamente angosto
+// (max-w-3xl ≈ 768px, dentro del rango 720–800px pedido) y centrado — un solo <section> envuelve
+// header + estados de carga/error/vacío/contenido, así que TODOS comparten exactamente el mismo
+// ancho (nunca solo la lista de tarjetas). Por debajo de ese ancho, max-w-* no fuerza nada: el
+// feed sigue ocupando el ancho disponible con el mismo padding lateral de siempre (px-4).
+describe("/community — ancho del feed en desktop", () => {
+  it("el contenedor raíz tiene un max-width angosto y centrado, en carga/error/vacío/contenido", async () => {
+    stubFeed({ items: [post("p1")], nextCursor: null });
+    const { container } = renderSection();
+    await screen.findByText("hola comunidad");
+    const section = container.querySelector("section");
+    expect(section?.className).toContain("max-w-3xl");
+    expect(section?.className).toContain("mx-auto");
+  });
+});
+
 describe("/community — contenido real", () => {
   it("Recientes renderiza publicaciones reales devueltas por el feed", async () => {
     stubFeed({ items: [post("p1")], nextCursor: null });
@@ -107,17 +123,19 @@ describe("/community — contenido real", () => {
     expect(container.querySelectorAll("img")).toHaveLength(0);
   });
 
-  it("publicación de solo imagen: sin texto, con la imagen", async () => {
+  it("publicación de solo imagen: sin texto, con la imagen, sin recorte forzado (nunca object-cover)", async () => {
     stubFeed({
       items: [post("p1", { text: null, media: [mediaItem()] })],
       nextCursor: null,
     });
     const { container } = renderSection();
     await waitFor(() => expect(container.querySelectorAll("img")).toHaveLength(1));
-    expect(container.querySelector("img")).toHaveAttribute(
-      "src",
-      "https://example.test/media-1.webp",
-    );
+    const img = container.querySelector("img")!;
+    expect(img).toHaveAttribute("src", "https://example.test/media-1.webp");
+    // Imagen única: preserva su aspect ratio natural, nunca recortada (object-cover está
+    // reservado para el grid de varias imágenes, ver el siguiente test).
+    expect(img.className).not.toContain("object-cover");
+    expect(img.style.aspectRatio).toBe("1200 / 1600");
   });
 
   it("varias imágenes: todas se presentan", async () => {
@@ -144,6 +162,11 @@ describe("/community — contenido real", () => {
     });
     const { container } = renderSection();
     await waitFor(() => expect(container.querySelectorAll("img")).toHaveLength(3));
+    // El grid de varias imágenes sigue sin cambios (fuera de alcance de este ajuste): cada celda
+    // conserva object-cover.
+    for (const img of container.querySelectorAll("img")) {
+      expect(img.className).toContain("object-cover");
+    }
   });
 
   it("muestra @username del autor", async () => {

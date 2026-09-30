@@ -58,7 +58,7 @@ function MediaGrid({ media }: { media: CommunityFeedPost["media"] }) {
           alt=""
           loading="lazy"
           style={{ aspectRatio: `${item.width} / ${item.height}` }}
-          className="w-full object-cover"
+          className="w-full object-contain"
         />
       </div>
     );

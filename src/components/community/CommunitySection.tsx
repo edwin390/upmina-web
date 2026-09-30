@@ -25,7 +25,7 @@ export default function CommunitySection() {
   const items = data?.pages.flatMap((page) => page.items) ?? [];
 
   return (
-    <section className="mx-auto max-w-6xl px-4 py-16">
+    <section className="mx-auto max-w-3xl px-4 py-16">
       <header className="mb-8">
         <h1 className="font-display text-3xl tracking-wide text-text-primary">
           Comunidad
