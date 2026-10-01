@@ -669,6 +669,16 @@ describe("/@username — gestión de publicaciones propias (⋯)", () => {
     await screen.findByRole("button", { name: "Gestionar esta publicación" });
 
     fireEvent.click(screen.getByRole("button", { name: "Gestionar esta publicación" }));
+    const menu = screen.getByRole("menu");
+    const anchor = menu.parentElement?.parentElement;
+    const card = anchor?.parentElement;
+    expect(anchor).toHaveClass("inset-x-1.5");
+    expect(anchor).toHaveClass("z-20", "has-[[aria-expanded=true]]:z-30");
+    expect(
+      screen.getByRole("button", { name: "Gestionar esta publicación" }),
+    ).toHaveAttribute("aria-expanded", "true");
+    expect(card).not.toHaveClass("overflow-hidden");
+    expect(card?.querySelector(".pointer-events-none")).toHaveClass("overflow-hidden");
     fireEvent.click(screen.getByRole("menuitem", { name: "Editar" }));
 
     expect(

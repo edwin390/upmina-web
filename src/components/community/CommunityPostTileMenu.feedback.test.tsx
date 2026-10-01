@@ -28,6 +28,20 @@ beforeAll(() => {
 });
 beforeEach(() => vi.resetAllMocks());
 afterEach(cleanup);
+it("anchors the bounded menu to the right and preserves edit/outside-close behavior", () => {
+  const edit = vi.fn();
+  render(<CommunityPostTileMenu post={post} onEdit={edit} onDeleted={vi.fn()} />);
+  const trigger = screen.getByRole("button", { name: "Gestionar esta publicación" });
+  expect(trigger.parentElement).toHaveClass("relative", "flex", "justify-end");
+  fireEvent.click(trigger);
+  expect(screen.getByRole("menu")).toHaveClass("right-0", "max-w-full");
+  fireEvent.mouseDown(document.body);
+  expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+  fireEvent.click(trigger);
+  fireEvent.click(screen.getByRole("menuitem", { name: "Editar" }));
+  expect(edit).toHaveBeenCalledWith(post);
+  expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+});
 it.each([true, false])(
   "delete success=%s reports exactly the confirmed outcome",
   async (ok) => {

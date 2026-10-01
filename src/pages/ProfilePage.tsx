@@ -153,13 +153,13 @@ function PostTile({ tile, ownerPost, onEdit, onDeleted }: PostTileProps) {
   const cover = tile.media[0] ?? null;
   return (
     <li>
-      <div className="group relative aspect-square w-full overflow-hidden rounded-md border border-border-subtle bg-bg-surface">
+      <div className="group relative aspect-square w-full rounded-md border border-border-subtle bg-bg-surface">
         <Link
           to={`/community/post/${tile.id}`}
           aria-label={postTileLabel(tile)}
           className="absolute inset-0 z-0 rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-secondary"
         />
-        <div className="pointer-events-none relative flex h-full w-full items-center justify-center">
+        <div className="pointer-events-none relative flex h-full w-full items-center justify-center overflow-hidden rounded-md">
           {cover ? (
             <>
               {cover.kind === "video" ? (
@@ -194,7 +194,7 @@ function PostTile({ tile, ownerPost, onEdit, onDeleted }: PostTileProps) {
           <CommunityLikeCountBadge count={tile.likeCount} />
         </div>
         {ownerPost && onEdit && onDeleted ? (
-          <div className="absolute right-1.5 top-1.5 z-20">
+          <div className="absolute inset-x-1.5 top-1.5 z-20 has-[[aria-expanded=true]]:z-30">
             <CommunityPostTileMenu
               post={ownerPost}
               onEdit={onEdit}

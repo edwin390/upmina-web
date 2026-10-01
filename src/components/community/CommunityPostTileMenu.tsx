@@ -22,7 +22,7 @@ interface Props {
 }
 
 const MENU_ITEM =
-  "block w-full rounded px-3 py-2 text-left text-sm text-text-primary hover:bg-bg-elevated focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-secondary disabled:pointer-events-none disabled:opacity-50";
+  "block w-full rounded px-2 py-2 text-left sm:px-3 text-sm text-text-primary hover:bg-bg-elevated focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-secondary disabled:pointer-events-none disabled:opacity-50";
 const DANGER_BUTTON =
   "inline-flex min-h-9 items-center rounded-md border border-accent-live/60 px-3 py-1.5 text-sm font-semibold text-accent-live transition-colors hover:bg-accent-live/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-live disabled:pointer-events-none disabled:opacity-50";
 const SECONDARY_BUTTON =
@@ -115,7 +115,11 @@ export default function CommunityPostTileMenu({ post, onEdit, onDeleted }: Props
   };
 
   return (
-    <div ref={rootRef} className="relative" onClick={(event) => event.stopPropagation()}>
+    <div
+      ref={rootRef}
+      className="relative flex justify-end"
+      onClick={(event) => event.stopPropagation()}
+    >
       <button
         type="button"
         onClick={(event) => {
@@ -134,7 +138,7 @@ export default function CommunityPostTileMenu({ post, onEdit, onDeleted }: Props
         <div
           role="menu"
           aria-label="Gestionar esta publicación"
-          className="absolute right-0 top-full z-20 mt-1 w-32 rounded-md border border-border-subtle bg-bg-surface p-1 shadow-lg"
+          className="absolute right-0 top-full z-20 mt-1 w-32 max-w-full rounded-md border border-border-subtle bg-bg-surface p-1 shadow-lg"
         >
           <button
             type="button"

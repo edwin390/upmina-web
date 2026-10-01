@@ -255,12 +255,21 @@ describe("borradores reanudables", () => {
     renderSection();
     const button = await screen.findByRole("button", { name: "Nueva publicación" });
     expect(button).toBeEnabled();
+    const labelLayout = button.querySelector(".grid");
+    expect(labelLayout).toBeInTheDocument();
+    expect(labelLayout?.querySelectorAll("[aria-hidden='true'].invisible")).toHaveLength(
+      2,
+    );
+    const idleClasses = button.className;
     waitAccess = true;
     const before = fetchMock.mock.calls.filter(
       ([url]) => url === "/api/admin/access",
     ).length;
     fireEvent.click(button);
     expect(button).toHaveTextContent("Abriendo…");
+    expect(button).toHaveAccessibleName("Abriendo…");
+    expect(button.className).toBe(idleClasses);
+    expect(button.querySelector(".grid")).toBe(labelLayout);
     expect(button).toBeDisabled();
     fireEvent.click(button);
     await waitFor(() =>

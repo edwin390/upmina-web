@@ -99,9 +99,19 @@ export default function CosplaySection() {
               aria-busy={isEntering}
               className="inline-flex min-h-11 items-center justify-center rounded-md border border-accent-primary/60 bg-accent-primary px-5 py-2.5 text-sm font-bold text-text-inverse transition hover:bg-accent-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-secondary"
             >
-              {tAdmin(
-                enteringTarget === "/cosplay?intent=create" ? "opening" : "newPost",
-              )}
+              <span className="grid">
+                <span aria-hidden="true" className="invisible col-start-1 row-start-1">
+                  {tAdmin("newPost")}
+                </span>
+                <span aria-hidden="true" className="invisible col-start-1 row-start-1">
+                  {tAdmin("opening")}
+                </span>
+                <span className="col-start-1 row-start-1">
+                  {tAdmin(
+                    enteringTarget === "/cosplay?intent=create" ? "opening" : "newPost",
+                  )}
+                </span>
+              </span>
             </button>
           </PrivilegedOnly>
         </header>
