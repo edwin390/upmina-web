@@ -179,7 +179,9 @@ export async function processImage(
 
   const variants: ProcessedVariant[] = [];
   for (const targetWidth of targetWidths) {
-    const quality = qualityForOutputWidth(targetWidth);
+    // Mantiene q85 para la única copia de originales sub-480; el tier nominal
+    // ahora es 480, pero la política de calidad de imágenes pequeñas no cambia.
+    const quality = qualityForOutputWidth(longEdge < 480 ? longEdge : targetWidth);
     // "480/960/1600/2560" describe el LADO LARGO (mismo criterio que el pre-shrink de transporte
     // del navegador, Fase 9I sección 13 — "max long edge 4096"), no un ancho literal: mucha
     // fotografía de cosplay es vertical. `fit: "inside"` con width=height=targetWidth define una

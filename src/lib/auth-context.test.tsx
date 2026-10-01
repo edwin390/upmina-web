@@ -97,6 +97,30 @@ afterEach(() => {
 });
 
 describe("AuthProvider / useAuth", () => {
+  it("identity generation survives MFA/token refresh but invalidates logout even if the same user returns in one batch", async () => {
+    authFakes.session = fakeSession();
+    function Generation() {
+      return <span data-testid="generation">{useAuth().identityGeneration}</span>;
+    }
+    render(
+      <AuthProvider>
+        <Generation />
+      </AuthProvider>,
+    );
+    await act(async () => {});
+    const initial = Number(screen.getByTestId("generation").textContent);
+    act(() => {
+      authFakes.emitAuthChange?.(fakeSession(), "TOKEN_REFRESHED");
+      authFakes.emitAuthChange?.(fakeSession(), "MFA_CHALLENGE_VERIFIED");
+    });
+    expect(Number(screen.getByTestId("generation").textContent)).toBe(initial);
+    act(() => {
+      authFakes.emitAuthChange?.(null, "SIGNED_OUT");
+      authFakes.emitAuthChange?.(fakeSession(), "SIGNED_IN");
+    });
+    expect(Number(screen.getByTestId("generation").textContent)).toBeGreaterThan(initial);
+    expect(authFakes.onAuthStateChangeCalls).toBe(1);
+  });
   it("useAuth fuera de AuthProvider lanza (evita usarlo sin contexto por accidente)", () => {
     function Bare() {
       useAuth();

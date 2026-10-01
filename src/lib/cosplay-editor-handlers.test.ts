@@ -70,18 +70,34 @@ vi.mock("@supabase/supabase-js", () => ({
         return { select: () => builder };
       }
       if (table === "cosplay_posts") {
+        const scopeFilters: [string, unknown][] = [];
+        const matchesScope = (row: unknown) =>
+          scopeFilters.every(
+            ([column, value]) => (row as Record<string, unknown>)[column] === value,
+          );
         const builder: Record<string, unknown> = {
           neq() {
             return builder;
           },
-          eq() {
+          eq(column: string, value: unknown) {
+            if (column === "created_by" || column === "status")
+              scopeFilters.push([column, value]);
             return builder;
           },
           order() {
-            return Promise.resolve(fake.postListResult);
+            return Promise.resolve({
+              ...fake.postListResult,
+              data: fake.postListResult.data.filter(matchesScope),
+            });
           },
           async maybeSingle() {
-            return fake.postGetResult;
+            return {
+              ...fake.postGetResult,
+              data:
+                fake.postGetResult.data && matchesScope(fake.postGetResult.data)
+                  ? fake.postGetResult.data
+                  : null,
+            };
           },
           then(resolve: (v: unknown) => unknown, reject?: (e: unknown) => unknown) {
             return Promise.resolve(fake.slugListResult).then(resolve, reject);
@@ -603,6 +619,93 @@ describe("POST cosplay-post-delete", () => {
 // LECTURAS ADMIN
 
 describe("GET cosplay-post-list-admin / cosplay-post-get-admin", () => {
+  it.each(["jwt-user-aal2", "jwt-admin-aal1", "jwt-admin-aal2-stale"])(
+    "scoped draft recovery preserves capability/MFA gates for %s",
+    async (token) => {
+      const list = await call(
+        handleCosplayPostListAdmin,
+        req({ method: "GET", token, query: { scope: "own-drafts" } }),
+      );
+      const get = await call(
+        handleCosplayPostGetAdmin,
+        req({ method: "GET", token, query: { postId: POST_ID, scope: "own-draft" } }),
+      );
+      expect(list.status).toBe(403);
+      expect(get.status).toBe(403);
+    },
+  );
+
+  it("own-draft carga el registro propio por ID sin cambiar identidad ni estado", async () => {
+    fake.postGetResult = {
+      data: {
+        id: POST_ID,
+        created_by: ADMIN_ID,
+        status: "draft",
+        slug: "own",
+        title_es: "Propio",
+        version: 1,
+        cosplay_post_images: [],
+      },
+      error: null,
+    };
+    const state = await call(
+      handleCosplayPostGetAdmin,
+      req({ method: "GET", query: { postId: POST_ID, scope: "own-draft" } }),
+    );
+    expect(state.status).toBe(200);
+    expect(state.body).toMatchObject({ id: POST_ID, status: "draft", images: [] });
+  });
+  it("own-drafts solo devuelve drafts del actor verificado, aunque el cliente envíe otro owner", async () => {
+    fake.postListResult = {
+      data: [
+        { id: "own", status: "draft", created_by: ADMIN_ID, title_es: "Propio" },
+        { id: "foreign", status: "draft", created_by: USER_ID, title_es: "Ajeno" },
+        {
+          id: "published",
+          status: "published",
+          created_by: ADMIN_ID,
+          title_es: "Publicado",
+        },
+        { id: "ownerless", status: "draft", created_by: null, title_es: "Sin dueño" },
+      ],
+      error: null,
+    };
+    const state = await call(
+      handleCosplayPostListAdmin,
+      req({ method: "GET", query: { scope: "own-drafts", created_by: USER_ID } }),
+    );
+    expect(state.status).toBe(200);
+    expect(
+      (state.body as { items: { id: string }[] }).items.map((item) => item.id),
+    ).toEqual(["own"]);
+  });
+
+  it.each([USER_ID, null])(
+    "own-draft rechaza por ID un draft de creator=%s",
+    async (creator) => {
+      fake.postGetResult = {
+        data: { id: POST_ID, created_by: creator, status: "draft" },
+        error: null,
+      };
+      const state = await call(
+        handleCosplayPostGetAdmin,
+        req({ method: "GET", query: { postId: POST_ID, scope: "own-draft" } }),
+      );
+      expect(state.status).toBe(404);
+    },
+  );
+
+  it("own-draft no recupera una publicación que ya dejó de ser draft", async () => {
+    fake.postGetResult = {
+      data: { id: POST_ID, created_by: ADMIN_ID, status: "published" },
+      error: null,
+    };
+    const state = await call(
+      handleCosplayPostGetAdmin,
+      req({ method: "GET", query: { postId: POST_ID, scope: "own-draft" } }),
+    );
+    expect(state.status).toBe(404);
+  });
   it("el listado incluye borradores (nunca filtra por status, a diferencia de la ruta pública)", async () => {
     fake.postListResult = {
       data: [

@@ -16,6 +16,7 @@ import {
   deleteCosplayPost,
   detachCosplayMedia,
   getCosplayPostAdmin,
+  listOwnCosplayDrafts,
   reorderCosplayImages,
   saveCosplayPost,
 } from "./cosplay-admin-client";
@@ -43,6 +44,16 @@ afterEach(() => {
 });
 
 describe("construcción de URL — api/admin/<action>, nunca ?action=", () => {
+  it("descubre y carga drafts con scopes propios; la identidad no se envía como autoridad", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(200, { items: [] }));
+    vi.stubGlobal("fetch", fetchMock);
+    await listOwnCosplayDrafts();
+    await getCosplayPostAdmin("draft-1", true);
+    expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
+      "/api/admin/cosplay-post-list-admin?scope=own-drafts",
+      "/api/admin/cosplay-post-get-admin?postId=draft-1&scope=own-draft",
+    ]);
+  });
   it("getCosplayPostAdmin → GET /api/admin/cosplay-post-get-admin?postId=…", async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       jsonResponse(200, {

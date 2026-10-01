@@ -3,6 +3,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from "react";
@@ -29,6 +30,8 @@ import {
 // crítico de Home ni retrase su primer paint.
 
 interface AuthContextValue {
+  /** Changes on logout/identity replacement, never on token refresh or MFA. */
+  identityGeneration?: number;
   /** Sesión completa de Supabase Auth, o null si no hay ninguna. */
   session: Session | null;
   /** Atajo a session.user, o null. Nunca se deriva un rol de aquí. */
@@ -47,6 +50,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // supabase-js). Sin supabase configurado se resuelve como "sin sesión" en cuanto el
   // módulo carga, en vez de quedar cargando para siempre.
   const [loading, setLoading] = useState(true);
+  const [identityGeneration, setIdentityGeneration] = useState(0);
+  const identityRef = useRef<string | null>(null);
 
   useEffect(() => {
     let isMounted = true;
@@ -65,6 +70,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           .getSession()
           .then(({ data }) => {
             if (!isMounted) return;
+            identityRef.current = data.session?.user.id ?? null;
             setSession(data.session);
             setLoading(false);
           })
@@ -89,6 +95,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           } else {
             discardPendingInvitationIfUserChanged(nextSession?.user?.id ?? null);
           }
+          const nextId = nextSession?.user.id ?? null;
+          if (event === "SIGNED_OUT" || nextId !== identityRef.current) {
+            setIdentityGeneration((generation) => generation + 1);
+          }
+          identityRef.current = nextId;
           setSession(nextSession);
           setLoading(false);
         });
@@ -111,8 +122,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   const value = useMemo<AuthContextValue>(
-    () => ({ session, user: session?.user ?? null, loading, signOut }),
-    [session, loading],
+    () => ({
+      session,
+      user: session?.user ?? null,
+      loading,
+      signOut,
+      identityGeneration,
+    }),
+    [session, loading, identityGeneration],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

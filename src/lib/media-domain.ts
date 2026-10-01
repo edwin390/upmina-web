@@ -132,14 +132,15 @@ export function qualityForOutputWidth(width: number): number {
 
 /** Anchos objetivo a generar para un original cuyo lado largo mide `longEdge` px: los anchos de
  *  VARIANT_WIDTHS que no lo superan (nunca se hace upscaling). Si `longEdge` es menor que el más
- *  pequeño (480), se genera UNA sola variante al tamaño nativo del original — siempre existe al
+ *  pequeño (480), se genera UNA sola variante nominal 480; withoutEnlargement conserva el
+ *  tamaño nativo del original. La identidad nominal nunca es una dimensión física — siempre existe al
  *  menos una variante pública, nunca cero. Nunca lanza; `longEdge` no finito o ≤0 también produce
  *  una lista vacía tratada por quien llama como "nada que generar" (no debería ocurrir: se valida
  *  antes en validateReservationInput/el procesador). */
 export function targetWidthsForLongEdge(longEdge: number): number[] {
   if (!Number.isFinite(longEdge) || longEdge <= 0) return [];
   const eligible = VARIANT_WIDTHS.filter((w) => w <= longEdge);
-  return eligible.length > 0 ? [...eligible] : [Math.round(longEdge)];
+  return eligible.length > 0 ? [...eligible] : [VARIANT_WIDTHS[0]];
 }
 
 // ────────────────────────────────────────────────────────────────────────────────────────────

@@ -1,3 +1,4 @@
+import type { PrivilegedSessionIdentity } from "@/lib/privileged-session";
 import { supabase } from "@/lib/supabase";
 import {
   classifyPrivilegedFailure,
@@ -25,9 +26,17 @@ export class MediaClientError extends Error {
   }
 }
 
-async function authHeader(): Promise<string> {
+async function authHeader(identity?: PrivilegedSessionIdentity): Promise<string> {
   if (!supabase) throw new MediaClientError("Supabase no configurado");
-  const { data } = await supabase.auth.getSession();
+  const { data, error } = await supabase.auth.getSession();
+  if (
+    identity &&
+    (error ||
+      !identity.isActive() ||
+      !identity.userId ||
+      data.session?.user.id !== identity.userId)
+  )
+    throw new MediaClientError("Sesión no válida", 401, undefined, "unauthenticated");
   const token = data.session?.access_token;
   if (!token) throw new MediaClientError("Sin sesión", 401);
   return `Bearer ${token}`;
@@ -36,8 +45,11 @@ async function authHeader(): Promise<string> {
 async function postJson<T>(
   resource: "reserve" | "complete" | "abort",
   body: unknown,
+  identity?: PrivilegedSessionIdentity,
 ): Promise<T> {
-  const auth = await authHeader();
+  const auth = await authHeader(identity);
+  if (identity && !identity.isActive())
+    throw new MediaClientError("Sesión no válida", 401, undefined, "unauthenticated");
   let response: Response;
   try {
     response = await fetch(`/api/media/${resource}`, {
@@ -90,18 +102,21 @@ export type ReserveResponse =
       expiresInSeconds: number;
     };
 
-export function reserveMediaUpload(input: {
-  domain: string;
-  /** "image" (por defecto si se omite) o "video" (Fase 9J-3, solo domain="community"). */
-  kind?: "image" | "video";
-  sourceMime: string;
-  sourceBytes: number;
-  sourceWidth?: number;
-  sourceHeight?: number;
-  /** SOLO vídeo, opcional, nunca boundary de seguridad — ver media-domain.ts. */
-  sourceDurationSeconds?: number;
-}): Promise<ReserveResponse> {
-  return postJson<ReserveResponse>("reserve", input);
+export function reserveMediaUpload(
+  input: {
+    domain: string;
+    /** "image" (por defecto si se omite) o "video" (Fase 9J-3, solo domain="community"). */
+    kind?: "image" | "video";
+    sourceMime: string;
+    sourceBytes: number;
+    sourceWidth?: number;
+    sourceHeight?: number;
+    /** SOLO vídeo, opcional, nunca boundary de seguridad — ver media-domain.ts. */
+    sourceDurationSeconds?: number;
+  },
+  identity?: PrivilegedSessionIdentity,
+): Promise<ReserveResponse> {
+  return postJson<ReserveResponse>("reserve", input, identity);
 }
 
 export interface MediaVariantResult {
@@ -129,17 +144,21 @@ export type CompleteResponse =
   | { assetId: string; status: "processing" | "verifying" }
   | { assetId: string; status: "failed"; failureCode: string };
 
-export function completeMediaUpload(input: {
-  assetId: string;
-  parts?: { partNumber: number; etag: string }[];
-}): Promise<CompleteResponse> {
-  return postJson<CompleteResponse>("complete", input);
+export function completeMediaUpload(
+  input: {
+    assetId: string;
+    parts?: { partNumber: number; etag: string }[];
+  },
+  identity?: PrivilegedSessionIdentity,
+): Promise<CompleteResponse> {
+  return postJson<CompleteResponse>("complete", input, identity);
 }
 
 export function abortMediaUpload(
   assetId: string,
+  identity?: PrivilegedSessionIdentity,
 ): Promise<{ assetId: string; status: "deleted" }> {
-  return postJson<{ assetId: string; status: "deleted" }>("abort", { assetId });
+  return postJson<{ assetId: string; status: "deleted" }>("abort", { assetId }, identity);
 }
 
 /** Sube `blob` con PUT a una URL presignada de R2, reportando progreso REAL de subida (XHR, no

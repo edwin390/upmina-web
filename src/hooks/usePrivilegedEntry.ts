@@ -1,4 +1,4 @@
-import { useCallback } from "react";
+import { useCallback, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAdminAccess } from "@/hooks/useAdminAccess";
 
@@ -22,18 +22,32 @@ import { useAdminAccess } from "@/hooks/useAdminAccess";
 export function usePrivilegedEntry() {
   const navigate = useNavigate();
   const { refetch } = useAdminAccess();
+  const enteringRef = useRef(false);
+  const [enteringTarget, setEnteringTarget] = useState<string | null>(null);
 
   const enter = useCallback(
     async (returnTo: string, onReady: () => void) => {
-      const access = await refetch();
-      if (access?.mfaRecent) {
-        onReady();
+      // The ref also blocks calls made before React commits the disabled button.
+      if (enteringRef.current) return;
+      enteringRef.current = true;
+      setEnteringTarget(returnTo);
+      try {
+        const access = await refetch();
+        if (access?.mfaRecent) {
+          onReady();
+          return;
+        }
+        navigate(`/admin/mfa?returnTo=${encodeURIComponent(returnTo)}`);
+      } catch {
+        // A rejected access check never opens the surface; allow another explicit attempt.
         return;
+      } finally {
+        enteringRef.current = false;
+        setEnteringTarget(null);
       }
-      navigate(`/admin/mfa?returnTo=${encodeURIComponent(returnTo)}`);
     },
     [refetch, navigate],
   );
 
-  return { enter };
+  return { enter, isEntering: enteringTarget !== null, enteringTarget };
 }

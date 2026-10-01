@@ -195,6 +195,13 @@ export default function CosplayCardAdminMenu({
           <p className="mt-1 text-sm text-text-secondary">
             {t("deletePost.confirmBody")}
           </p>
+          {errorCode && (
+            <p role="alert" className="mt-2 text-sm text-accent-live">
+              {t("feedback.deleteFailed")}
+              {". "}
+              {t(`errors.${errorCode}` as never)}
+            </p>
+          )}
           <div className="mt-3 flex flex-wrap gap-2">
             <button
               type="button"
@@ -222,6 +229,8 @@ export default function CosplayCardAdminMenu({
           role="alert"
           className="absolute right-0 top-full z-20 mt-1 w-56 rounded-md border border-accent-live/40 bg-bg-surface p-2 text-sm text-accent-live shadow-lg"
         >
+          {t("feedback.deleteFailed")}
+          {". "}
           {t(`errors.${errorCode}` as never)}
         </p>
       )}

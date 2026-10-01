@@ -78,7 +78,7 @@ export function useAdminAccess(options: Options = {}): UseAdminAccessResult {
   // Estables entre renders: los consumidores los usan como dependencia de efectos.
   const refetch = useCallback(async (): Promise<AdminAccess | null> => {
     const result = await queryRefetch({ cancelRefetch: true });
-    return result.data ?? null;
+    return result.isError ? null : (result.data ?? null);
   }, [queryRefetch]);
 
   const invalidate = useCallback(async (): Promise<void> => {

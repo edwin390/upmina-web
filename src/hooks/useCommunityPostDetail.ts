@@ -1,4 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
+import type { QueryClient } from "@tanstack/react-query";
+import { freshContentUrl } from "@/lib/content-freshness";
 import type { CommunityFeedPost } from "@/types";
 
 // Detalle público de UNA publicación de Comunidad (Fase 9J-2B.1). GET
@@ -7,9 +9,14 @@ import type { CommunityFeedPost } from "@/types";
 // la UI necesita distinguir "esta publicación no existe/no es pública" de "no se pudo cargar".
 async function fetchCommunityPostDetail(
   postId: string,
+  client: QueryClient,
 ): Promise<CommunityFeedPost | null> {
   const res = await fetch(
-    `/api/content/community-post-detail?postId=${encodeURIComponent(postId)}`,
+    freshContentUrl(
+      client,
+      "community",
+      `/api/content/community-post-detail?postId=${encodeURIComponent(postId)}`,
+    ),
   );
   if (res.status === 404) return null;
   if (!res.ok) throw new Error("No se pudo obtener la publicación");
@@ -20,7 +27,7 @@ async function fetchCommunityPostDetail(
 export function useCommunityPostDetail(postId: string | undefined) {
   return useQuery({
     queryKey: ["community", "post-detail", postId],
-    queryFn: () => fetchCommunityPostDetail(postId as string),
+    queryFn: ({ client }) => fetchCommunityPostDetail(postId as string, client),
     enabled: Boolean(postId),
     staleTime: 30_000,
   });

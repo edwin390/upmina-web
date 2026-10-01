@@ -1,4 +1,6 @@
 import { useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
+import { refreshCommunityContent } from "@/lib/content-freshness";
 import { Link, Navigate, useParams } from "react-router-dom";
 import { useAdminAccess } from "@/hooks/useAdminAccess";
 import { useCommunityProfile } from "@/hooks/useCommunityProfile";
@@ -213,6 +215,7 @@ const SECONDARY_BUTTON_CLASS =
 type EditorState = { mode: "create" } | { mode: "edit"; post: CommunityOwnPost } | null;
 
 export default function ProfilePage() {
+  const queryClient = useQueryClient();
   // La ruta real es "/:usernameParam" (ver el comentario en App.tsx sobre por qué "/@:username"
   // no es válido en React Router v6): usernameParam es SIEMPRE el segmento completo tal como
   // llegó ("@edwin1", "cualquier-otra-cosa"...). Solo un valor que empiece por "@" es un intento
@@ -259,9 +262,8 @@ export default function ProfilePage() {
   const showAdminShortcut =
     isOwnProfile && adminStatus === "ready" && adminAccess?.role === "admin";
 
-  function refreshAfterMutation() {
-    void ownPosts.invalidate();
-    void refetch();
+  function refreshAfterMutation(postId?: string, deleted = false) {
+    void refreshCommunityContent(queryClient, username ?? "", postId, deleted);
   }
 
   return (
@@ -378,7 +380,11 @@ export default function ProfilePage() {
                           ? (post) => setEditorState({ mode: "edit", post })
                           : undefined
                       }
-                      onDeleted={isOwnProfile ? refreshAfterMutation : undefined}
+                      onDeleted={
+                        isOwnProfile
+                          ? () => refreshAfterMutation(tile.id, true)
+                          : undefined
+                      }
                     />
                   ))}
                 </ul>
@@ -407,7 +413,9 @@ export default function ProfilePage() {
           onClose={() => setEditorState(null)}
           onSaved={() => {
             setEditorState(null);
-            refreshAfterMutation();
+            refreshAfterMutation(
+              editorState.mode === "edit" ? editorState.post.id : undefined,
+            );
           }}
         />
       ) : null}

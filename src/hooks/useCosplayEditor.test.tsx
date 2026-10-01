@@ -4,6 +4,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { useCosplayEditor } from "./useCosplayEditor";
 import { CosplayAdminClientError } from "@/lib/cosplay-admin-client";
+import { QueryClient, QueryObserver } from "@tanstack/react-query";
+import { refreshCosplayContent } from "@/lib/content-freshness";
 
 // Estado del editor ADMIN de Cosplay (Fase 9I-3, checkpoint 3): cosplay-admin-client.ts y
 // media-client.ts SIEMPRE mockeados (nunca red/R2/Supabase reales — ya verificados por separado).
@@ -74,6 +76,161 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.restoreAllMocks();
+});
+
+describe("ownership después de persistencia", () => {
+  it.each(["draft", "published"] as const)(
+    "%s delete challenge requires another explicit confirmation after MFA",
+    async (status) => {
+      getCosplayPostAdminMock.mockResolvedValue({
+        id: "persisted-post",
+        status,
+        version: 7,
+        title: "Trabajo",
+        images: [],
+      });
+      deleteCosplayPostMock.mockRejectedValueOnce(
+        new CosplayAdminClientError(
+          "MFA required",
+          403,
+          "step_up_required",
+          "step_up_required",
+        ),
+      );
+      const changed = vi.fn();
+      const { result } = renderHook(() =>
+        useCosplayEditor({ initialPostId: "persisted-post", onPostChanged: changed }),
+      );
+      await waitFor(() => expect(result.current.loading).toBe(false));
+      await act(async () => {
+        await result.current.confirmDelete();
+      });
+      expect(result.current.stepUpIntent).toBe("delete");
+      act(() => result.current.clearStepUpIntent());
+      expect(deleteCosplayPostMock).toHaveBeenCalledTimes(1);
+      expect(changed).not.toHaveBeenCalled();
+      expect(result.current.postId).toBe("persisted-post");
+      expect(result.current.version).toBe(7);
+      deleteCosplayPostMock.mockResolvedValueOnce({});
+      await act(async () => {
+        await result.current.confirmDelete();
+      });
+      expect(deleteCosplayPostMock).toHaveBeenCalledTimes(2);
+      expect(changed).toHaveBeenCalledWith(status);
+      expect(abortMediaUploadMock).not.toHaveBeenCalled();
+    },
+  );
+  it.each(["draft", "published"] as const)(
+    "%s reconcilia IDs, orden y portada; quitar luego usa detach sin abort",
+    async (status) => {
+      let nextAsset = 0;
+      reserveMediaUploadMock.mockImplementation(async () =>
+        readyReservation(`new-${++nextAsset}`),
+      );
+      completeMediaUploadMock.mockImplementation(async ({ assetId }) => ({
+        assetId,
+        status: "ready",
+        variants: [
+          {
+            variant: 480,
+            width: 468,
+            height: 428,
+            bytes: 1000,
+            url: `https://pub.test/${assetId}.webp`,
+          },
+        ],
+      }));
+      saveCosplayPostMock.mockImplementation(async (input) => ({
+        post: { id: "persisted-post", status, version: 2 },
+        images: input.images.map(
+          (image: { assetId: string; position: number; isCover: boolean }) => ({
+            ...image,
+            id: `persisted-${image.assetId}`,
+          }),
+        ),
+      }));
+      detachCosplayMediaMock.mockResolvedValue({ version: 3 });
+      const { result, unmount } = renderHook(() =>
+        useCosplayEditor({ initialPostId: null }),
+      );
+      act(() => {
+        result.current.updateField("title", "Título");
+        result.current.addFiles([fakeFile("a.jpg"), fakeFile("b.jpg")]);
+      });
+      await waitFor(() =>
+        expect(
+          result.current.photos.filter((p) => p.uploadStatus === "ready"),
+        ).toHaveLength(2),
+      );
+      const secondKey = result.current.photos[1]!.key;
+      act(() => {
+        result.current.movePhoto(secondKey, -1);
+        result.current.setCover(secondKey);
+      });
+      const before = result.current.photos;
+      await act(async () => {
+        await result.current.save(status);
+      });
+      expect(result.current.photos.map((p) => p.assetId)).toEqual(
+        before.map((p) => p.assetId),
+      );
+      expect(result.current.photos.map((p) => p.key)).toEqual(before.map((p) => p.key));
+      expect(result.current.photos.map((p) => p.url)).toEqual(before.map((p) => p.url));
+      expect(result.current.photos.map((p) => p.isCover)).toEqual([true, false]);
+      expect(
+        result.current.photos.map((p) => ({
+          localId: p.localId,
+          status: p.uploadStatus,
+          id: p.existingImageId,
+        })),
+      ).toEqual(
+        before.map((p) => ({
+          localId: null,
+          status: "existing",
+          id: `persisted-${p.assetId}`,
+        })),
+      );
+      expect(result.current.isDirty).toBe(false);
+      act(() => result.current.removeNewPhoto(secondKey));
+      expect(result.current.photos).toHaveLength(2);
+      act(() => result.current.requestRemoveExisting(secondKey));
+      await act(async () => {
+        await result.current.confirmRemoveExisting();
+      });
+      expect(detachCosplayMediaMock).toHaveBeenCalledWith({
+        postId: "persisted-post",
+        expectedVersion: 2,
+        imageId: `persisted-${before[0]!.assetId}`,
+      });
+      expect(result.current.photos).toHaveLength(1);
+      unmount();
+      expect(abortMediaUploadMock).not.toHaveBeenCalled();
+    },
+  );
+
+  it("save fallido no transfiere ownership: permite quitar el upload", async () => {
+    reserveMediaUploadMock.mockResolvedValue(readyReservation("unpersisted"));
+    completeMediaUploadMock.mockResolvedValue({
+      assetId: "unpersisted",
+      status: "ready",
+      variants: [],
+    });
+    saveCosplayPostMock.mockRejectedValueOnce(new Error("save failed"));
+    const { result } = renderHook(() => useCosplayEditor({ initialPostId: null }));
+    act(() => {
+      result.current.updateField("title", "Título");
+      result.current.addFiles([fakeFile("a.jpg")]);
+    });
+    await waitFor(() => expect(result.current.photos[0]?.uploadStatus).toBe("ready"));
+    const key = result.current.photos[0]!.key;
+    await act(async () => {
+      await result.current.save("draft");
+    });
+    expect(result.current.photos[0]?.localId).not.toBeNull();
+    expect(abortMediaUploadMock).not.toHaveBeenCalled();
+    act(() => result.current.removeNewPhoto(key));
+    expect(abortMediaUploadMock).toHaveBeenCalledWith("unpersisted");
+  });
 });
 
 describe("crear (postId=null)", () => {
@@ -376,6 +533,69 @@ describe("editar (postId existente)", () => {
     expect(result.current.version).toBe(4);
   });
 
+  it.each(["draft", "published"] as const)(
+    "reanudar draft y guardar %s conserva ID, versión, fotos ordenadas y portada sin abort",
+    async (desiredStatus) => {
+      const original = existingDetail();
+      const detail = {
+        ...original,
+        status: "draft",
+        images: [
+          {
+            ...original.images[0]!,
+            id: "img-b",
+            assetId: "asset-b",
+            position: 1,
+            isCover: false,
+          },
+          {
+            ...original.images[0]!,
+            id: "img-a",
+            assetId: "asset-a",
+            position: 0,
+            isCover: true,
+          },
+        ],
+      };
+      getCosplayPostAdminMock.mockResolvedValue(detail);
+      saveCosplayPostMock.mockResolvedValue({
+        post: { ...detail, status: desiredStatus, version: 4 },
+        images: [...detail.images].sort((a, b) => a.position - b.position),
+      });
+      const onPostChanged = vi.fn();
+      const { result, unmount } = renderHook(() =>
+        useCosplayEditor({ initialPostId: "post-1", resumeDraft: true, onPostChanged }),
+      );
+      await waitFor(() => expect(result.current.loading).toBe(false));
+      expect(getCosplayPostAdminMock).toHaveBeenCalledWith("post-1", true);
+      expect(result.current.fields).toMatchObject({
+        title: detail.title,
+        description: detail.description ?? "",
+        characterName: detail.characterName ?? "",
+        series: detail.series ?? "",
+      });
+      expect(result.current.photos.map((p) => p.existingImageId)).toEqual([
+        "img-a",
+        "img-b",
+      ]);
+      expect(result.current.photos.map((p) => p.isCover)).toEqual([true, false]);
+      expect(result.current.photos.every((p) => p.localId === null)).toBe(true);
+      await act(async () => {
+        await result.current.save(desiredStatus);
+      });
+      expect(saveCosplayPostMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          postId: "post-1",
+          expectedVersion: 3,
+          status: desiredStatus,
+        }),
+      );
+      expect(onPostChanged).toHaveBeenCalledWith(desiredStatus);
+      unmount();
+      expect(abortMediaUploadMock).not.toHaveBeenCalled();
+    },
+  );
+
   it("409 cosplay_version_conflict: NUNCA sobrescribe silenciosamente, expone conflict", async () => {
     getCosplayPostAdminMock.mockResolvedValue(existingDetail());
     saveCosplayPostMock.mockRejectedValue(
@@ -541,6 +761,41 @@ describe("editar (postId existente)", () => {
     });
     expect(result.current.photos).toHaveLength(0);
     expect(result.current.version).toBe(4);
+  });
+
+  it("detach actualiza caches externos previamente fresh", async () => {
+    const client = new QueryClient();
+    let photoCount = 1;
+    const observer = new QueryObserver(client, {
+      queryKey: ["cosplay", "post", "slug"],
+      queryFn: async () => ({ photoCount }),
+      staleTime: 60_000,
+    });
+    const unsubscribe = observer.subscribe(() => undefined);
+    await observer.refetch();
+    getCosplayPostAdminMock.mockResolvedValue(existingDetail());
+    detachCosplayMediaMock.mockImplementationOnce(async () => {
+      photoCount = 0;
+      return { version: 4, cleaned: true };
+    });
+    const { result } = renderHook(() =>
+      useCosplayEditor({
+        initialPostId: "post-1",
+        onPostChanged: (status) => {
+          void refreshCosplayContent(client, status);
+        },
+      }),
+    );
+    await waitFor(() => expect(result.current.photos).toHaveLength(1));
+    act(() => result.current.requestRemoveExisting("existing:img-1"));
+    await act(async () => {
+      await result.current.confirmRemoveExisting();
+    });
+    await waitFor(() =>
+      expect(observer.getCurrentResult().data).toEqual({ photoCount: 0 }),
+    );
+    expect(abortMediaUploadMock).not.toHaveBeenCalled();
+    unsubscribe();
   });
 
   it("quitar una foto RECIÉN subida (nunca adjunta) no exige confirmación ni llama a detach", async () => {

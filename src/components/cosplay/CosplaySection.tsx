@@ -9,44 +9,33 @@ import { parsePrivilegedIntent } from "@/lib/privileged-intent";
 import CosplayCard from "./CosplayCard";
 import CosplayHero from "./CosplayHero";
 import CosplayEditorDialog from "./admin/CosplayEditorDialog";
+import CosplayDraftChooser from "./admin/CosplayDraftChooser";
+import { refreshCosplayContent } from "@/lib/content-freshness";
+import { showActionSuccess } from "@/lib/action-notice";
 
 /** Contenido de /cosplay (Fase 9I-1): hero + grid responsive + "Cargar más" (cursor, sin scroll
  *  infinito ni búsqueda/filtros, decisión congelada de 9I). El vacío es un estado de PRODUCTO
  *  cuidado, no un error: Cosplay es un dominio nuevo y Production puede empezar sin
  *  publicaciones. */
-type EditorState = { mode: "create" } | { mode: "edit"; postId: string } | null;
+type EditorState = { mode: "create" } | { mode: "edit" | "draft"; postId: string } | null;
 
 export default function CosplaySection() {
   const t = useTranslations("cosplay.list");
   const tAdmin = useTranslations("cosplay.admin");
-  // cacheBust > 0 fuerza un cache MISS en la Edge Network de Vercel para el próximo fetch del
-  // listado público (ver el comentario de fetchCosplayList en useCosplayList.ts) — SOLO se
-  // incrementa tras onPostChanged, nunca en la navegación normal.
-  const [cacheBust, setCacheBust] = useState(0);
   const { data, isLoading, isError, hasNextPage, isFetchingNextPage, fetchNextPage } =
-    useCosplayList(cacheBust);
+    useCosplayList();
   const queryClient = useQueryClient();
-  const { enter: enterPrivileged } = usePrivilegedEntry();
+  const { enter: enterPrivileged, isEntering, enteringTarget } = usePrivilegedEntry();
   const [searchParams, setSearchParams] = useSearchParams();
   const [editorState, setEditorState] = useState<EditorState>(null);
-  const [publishToast, setPublishToast] = useState(false);
-  const publishToastTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(
-    undefined,
-  );
+  const [choosingDraft, setChoosingDraft] = useState(false);
   const newPostTriggerRef = useRef<HTMLButtonElement | null>(null);
 
-  // Aviso temporal tras publicar (sección 5 del ajuste UX): se muestra 4s y se limpia si el
-  // componente se desmonta antes (nunca deja un timer huérfano actualizando estado).
-  useEffect(() => {
-    return () => {
-      if (publishToastTimerRef.current) clearTimeout(publishToastTimerRef.current);
-    };
-  }, []);
-
-  const onPublishSuccess = () => {
-    if (publishToastTimerRef.current) clearTimeout(publishToastTimerRef.current);
-    setPublishToast(true);
-    publishToastTimerRef.current = setTimeout(() => setPublishToast(false), 4000);
+  const onPublishSuccess = (message = tAdmin("feedback.created")) =>
+    showActionSuccess(message);
+  const onDeleted = (slug: string) => {
+    onPostChanged("published", slug);
+    showActionSuccess(tAdmin("feedback.deleted"));
   };
 
   // Fase 9I-3 (sección 16), ajustado tras reemplazar el panel "Tus publicaciones" por el menú
@@ -61,7 +50,7 @@ export default function CosplaySection() {
   useEffect(() => {
     const intent = parsePrivilegedIntent(searchParams.get("intent"));
     if (intent === null) return;
-    if (intent === "create") setEditorState({ mode: "create" });
+    if (intent === "create") setChoosingDraft(true);
 
     const next = new URLSearchParams(searchParams);
     next.delete("intent");
@@ -70,16 +59,12 @@ export default function CosplaySection() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // La causa real de que la publicación nueva no apareciera sin recargar NO era esta invalidación
-  // (invalidateQueries + refetch de TanStack Query ya funcionaban correctamente): era que el
-  // refetch pedía la MISMA URL que la Edge Network de Vercel tiene cacheada hasta 60s
-  // (Cache-Control: s-maxage=60 en cosplay-handlers.ts) — un refetch inmediato recibía la MISMA
-  // respuesta vieja de esa caché compartida, no de Postgres. invalidateQueries se conserva (sigue
-  // siendo correcto invalidar el estado de React Query), pero lo que de verdad soluciona el
-  // problema es incrementar cacheBust: cambia la queryKey y la URL, forzando un MISS de CDN real.
-  const onPostChanged = () => {
-    setCacheBust((n) => n + 1);
-    void queryClient.invalidateQueries({ queryKey: ["cosplay", "list"] });
+  // Refresh affected query families and their HTTP requests; draft-only saves stay private.
+  const onPostChanged = (
+    status: "draft" | "published" = "published",
+    deletedSlug?: string,
+  ) => {
+    void refreshCosplayContent(queryClient, status, deletedSlug);
   };
 
   // Endurecimiento global de MFA (9G/9I, Caso A): entrar a una superficie de autoría privilegiada
@@ -88,9 +73,7 @@ export default function CosplaySection() {
   // reciente, usePrivilegedEntry navega directo a /admin/mfa con el mismo returnTo que ya
   // consume el efecto de arriba — el editor nunca llega a montarse.
   const openCreateEditor = () =>
-    void enterPrivileged("/cosplay?intent=create", () =>
-      setEditorState({ mode: "create" }),
-    );
+    void enterPrivileged("/cosplay?intent=create", () => setChoosingDraft(true));
   const openEditEditor = (id: string) =>
     void enterPrivileged("/cosplay?intent=edit", () =>
       setEditorState({ mode: "edit", postId: id }),
@@ -112,9 +95,13 @@ export default function CosplaySection() {
               ref={newPostTriggerRef}
               type="button"
               onClick={openCreateEditor}
+              disabled={isEntering}
+              aria-busy={isEntering}
               className="inline-flex min-h-11 items-center justify-center rounded-md border border-accent-primary/60 bg-accent-primary px-5 py-2.5 text-sm font-bold text-text-inverse transition hover:bg-accent-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-secondary"
             >
-              {tAdmin("newPost")}
+              {tAdmin(
+                enteringTarget === "/cosplay?intent=create" ? "opening" : "newPost",
+              )}
             </button>
           </PrivilegedOnly>
         </header>
@@ -142,7 +129,11 @@ export default function CosplaySection() {
 
         {hero && (
           <>
-            <CosplayHero post={hero} onEdit={openEditEditor} onDeleted={onPostChanged} />
+            <CosplayHero
+              post={hero}
+              onEdit={openEditEditor}
+              onDeleted={() => onDeleted(hero.slug)}
+            />
             {rest.length > 0 && (
               <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
                 {rest.map((post) => (
@@ -150,7 +141,7 @@ export default function CosplaySection() {
                     key={post.id}
                     post={post}
                     onEdit={openEditEditor}
-                    onDeleted={onPostChanged}
+                    onDeleted={() => onDeleted(post.slug)}
                   />
                 ))}
               </div>
@@ -173,24 +164,26 @@ export default function CosplaySection() {
 
       {editorState && (
         <CosplayEditorDialog
-          postId={editorState.mode === "edit" ? editorState.postId : null}
+          postId={editorState.mode === "create" ? null : editorState.postId}
+          resumeDraft={editorState.mode === "draft"}
           onClose={() => setEditorState(null)}
           onPostChanged={onPostChanged}
           onPublishSuccess={onPublishSuccess}
           returnFocusTo={newPostTriggerRef.current}
         />
       )}
-
-      {publishToast && (
-        <div
-          role="status"
-          aria-live="polite"
-          className="fixed inset-x-0 bottom-6 z-50 flex justify-center px-4"
-        >
-          <p className="rounded-md border border-accent-primary/60 bg-bg-surface px-4 py-2.5 text-sm font-semibold text-text-primary shadow-glow-primary">
-            {tAdmin("publishSuccess")}
-          </p>
-        </div>
+      {choosingDraft && (
+        <CosplayDraftChooser
+          onClose={() => setChoosingDraft(false)}
+          onNew={() => {
+            setChoosingDraft(false);
+            setEditorState({ mode: "create" });
+          }}
+          onResume={(postId) => {
+            setChoosingDraft(false);
+            setEditorState({ mode: "draft", postId });
+          }}
+        />
       )}
     </>
   );

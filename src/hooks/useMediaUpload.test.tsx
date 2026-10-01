@@ -290,7 +290,73 @@ describe("useMediaUpload — fallo, reintento, quitar de la cola", () => {
     expect(reserveMediaUploadMock).toHaveBeenCalledTimes(2);
   });
 
-  it("remove() quita el elemento de la cola y aborta en el servidor si ya tenía assetId", async () => {
+  it.each(["community", "cosplay"])(
+    "%s: fallo genérico permite retry con nueva reserva/PUT; selecciones independientes tienen identidad propia",
+    async (domain) => {
+      const file = fakeFile("same.jpg", 1000);
+      reserveMediaUploadMock.mockReset();
+      completeMediaUploadMock.mockReset();
+      uploadWithProgressMock.mockReset();
+      for (const assetId of ["first", "retry", "selection"]) {
+        reserveMediaUploadMock.mockResolvedValueOnce({
+          assetId,
+          mode: "single",
+          uploadUrl: `https://r2.test/${assetId}`,
+          expiresInSeconds: 900,
+        });
+      }
+      uploadWithProgressMock.mockResolvedValue({ etag: '"e"' });
+      completeMediaUploadMock
+        .mockResolvedValueOnce({
+          assetId: "first",
+          status: "failed",
+          failureCode: "processing_failed",
+        })
+        .mockResolvedValueOnce({
+          assetId: "retry",
+          status: "ready",
+          kind: "image",
+          variants: [],
+        })
+        .mockResolvedValueOnce({
+          assetId: "selection",
+          status: "ready",
+          kind: "image",
+          variants: [],
+        });
+      const { result } = renderHook(() => useMediaUpload({ domain }));
+      act(() => {
+        result.current.addFiles([file]);
+      });
+      await waitFor(() => expect(result.current.items[0]!.status).toBe("failed"));
+      const localId = result.current.items[0]!.localId;
+      act(() => {
+        result.current.retry(localId);
+      });
+      await waitFor(() => {
+        expect(result.current.items[0]!.assetId).toBe("retry");
+        expect(result.current.items[0]!.status).toBe("ready");
+      });
+      expect(result.current.items[0]!.localId).toBe(localId);
+      act(() => {
+        result.current.addFiles([file]);
+      });
+      await waitFor(() => expect(result.current.items[1]!.status).toBe("ready"));
+      expect(result.current.items[1]!.localId).not.toBe(localId);
+      expect(reserveMediaUploadMock).toHaveBeenCalledTimes(3);
+      expect(uploadWithProgressMock).toHaveBeenCalledTimes(3);
+      for (const [index, assetId] of ["first", "retry", "selection"].entries()) {
+        expect(uploadWithProgressMock.mock.calls[index]!.slice(0, 3)).toEqual([
+          `https://r2.test/${assetId}`,
+          file,
+          "image/jpeg",
+        ]);
+        expect(completeMediaUploadMock).toHaveBeenNthCalledWith(index + 1, { assetId });
+      }
+    },
+  );
+
+  it("remove() conserva cancelación de un asset failed aún propiedad del uploader", async () => {
     reserveMediaUploadMock.mockResolvedValue({
       assetId: "asset-6",
       mode: "single",
@@ -300,8 +366,8 @@ describe("useMediaUpload — fallo, reintento, quitar de la cola", () => {
     uploadWithProgressMock.mockResolvedValue({ etag: '"e"' });
     completeMediaUploadMock.mockResolvedValue({
       assetId: "asset-6",
-      status: "ready",
-      variants: [],
+      status: "failed",
+      failureCode: "processing_failed",
     });
     abortMediaUploadMock.mockResolvedValue({ assetId: "asset-6", status: "deleted" });
 
@@ -309,7 +375,7 @@ describe("useMediaUpload — fallo, reintento, quitar de la cola", () => {
     act(() => {
       result.current.addFiles([fakeFile("foto.jpg", 1000)]);
     });
-    await waitFor(() => expect(result.current.items[0]!.assetId).toBe("asset-6"));
+    await waitFor(() => expect(result.current.items[0]!.status).toBe("failed"));
 
     const localId = result.current.items[0]!.localId;
     act(() => {
@@ -318,6 +384,37 @@ describe("useMediaUpload — fallo, reintento, quitar de la cola", () => {
 
     expect(result.current.items).toHaveLength(0);
     await waitFor(() => expect(abortMediaUploadMock).toHaveBeenCalledWith("asset-6"));
+  });
+});
+
+describe("useMediaUpload — ownership persistido", () => {
+  it("release retira un item ready sin abort; repetir release/remove/retry ya no lo alcanza", async () => {
+    reserveMediaUploadMock.mockResolvedValue({
+      assetId: "persisted",
+      mode: "single",
+      uploadUrl: "https://r2.test/put",
+      expiresInSeconds: 900,
+    });
+    uploadWithProgressMock.mockResolvedValue({ etag: '"e"' });
+    completeMediaUploadMock.mockResolvedValue({
+      assetId: "persisted",
+      status: "ready",
+      variants: [],
+    });
+    const { result, unmount } = renderHook(() => useMediaUpload({ domain: "community" }));
+    act(() => result.current.addFiles([fakeFile("a.jpg", 1000)]));
+    await waitFor(() => expect(result.current.items[0]?.status).toBe("ready"));
+    const id = result.current.items[0]!.localId;
+    act(() => result.current.release(id));
+    expect(result.current.items).toHaveLength(0);
+    act(() => {
+      result.current.release(id);
+      result.current.remove(id);
+      result.current.retry(id);
+    });
+    unmount();
+    expect(abortMediaUploadMock).not.toHaveBeenCalled();
+    expect(reserveMediaUploadMock).toHaveBeenCalledTimes(1);
   });
 });
 

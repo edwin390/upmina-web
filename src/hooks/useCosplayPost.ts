@@ -1,4 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
+import type { QueryClient } from "@tanstack/react-query";
+import { freshContentUrl } from "@/lib/content-freshness";
 import type { CosplayPostDetail } from "@/types";
 import { isDemoMode } from "@/lib/runtime";
 import { findCosplayFixtureBySlug } from "@/lib/cosplay-fixtures";
@@ -9,12 +11,21 @@ import { findCosplayFixtureBySlug } from "@/lib/cosplay-fixtures";
  *  ser true), igual que ya hace fetchTwitchLatestVideo/fetchLatestYouTubeVideo en este proyecto.
  *  Un error de red/servidor lanza en su lugar, para que la UI pueda distinguir "no existe" de
  *  "no se pudo cargar". */
-async function fetchCosplayPost(slug: string): Promise<CosplayPostDetail | null> {
+async function fetchCosplayPost(
+  slug: string,
+  client: QueryClient,
+): Promise<CosplayPostDetail | null> {
   // Mismo flag global que useCosplayList (ver su comentario): en demo se sirven los fixtures
   // ricos en vez de `null`, para poder revisar la página de detalle sin datos reales.
   if (isDemoMode) return findCosplayFixtureBySlug(slug);
 
-  const res = await fetch(`/api/content/cosplay-post?slug=${encodeURIComponent(slug)}`);
+  const res = await fetch(
+    freshContentUrl(
+      client,
+      "cosplay",
+      `/api/content/cosplay-post?slug=${encodeURIComponent(slug)}`,
+    ),
+  );
   if (res.status === 404) return null;
   if (!res.ok) throw new Error("No se pudo obtener la publicación de Cosplay");
   return res.json();
@@ -23,7 +34,7 @@ async function fetchCosplayPost(slug: string): Promise<CosplayPostDetail | null>
 export function useCosplayPost(slug: string | undefined) {
   return useQuery({
     queryKey: ["cosplay", "post", slug],
-    queryFn: () => fetchCosplayPost(slug as string),
+    queryFn: ({ client }) => fetchCosplayPost(slug as string, client),
     enabled: Boolean(slug),
     staleTime: 60_000,
   });

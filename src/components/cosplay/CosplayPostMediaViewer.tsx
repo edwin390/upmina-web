@@ -14,9 +14,8 @@ import type { CosplayImage } from "@/types";
 // CosplayLightbox — mismos rótulos accesibles, sin duplicar claves i18n.
 //
 // object-contain + una altura MÁXIMA (nunca fija, ~60-70vh según breakpoint) evita el problema de
-// superposición corregido en Twitch: como las fotos de cosplay suelen ser verticales, quedan
-// centradas con su proporción intacta y casi siempre dejan hueco lateral propio para las flechas,
-// sin necesidad de una fila aparte.
+// superposición corregido en Twitch. Los controles viven debajo del media en todos los tamaños,
+// porque una fotografía horizontal puede ocupar todo el ancho disponible.
 
 const NAV_BUTTON =
   "grid h-11 w-11 shrink-0 place-items-center rounded-full border-2 border-accent-secondary bg-bg-base/90 text-xl text-accent-secondary shadow-glow-secondary transition-colors hover:bg-accent-secondary hover:text-text-inverse focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary";
@@ -59,7 +58,7 @@ export default function CosplayPostMediaViewer({ gallery }: { gallery: CosplayIm
   if (total === 0 || !image) return null;
 
   return (
-    <div className="relative mt-4 flex w-full items-center justify-center overflow-hidden rounded-lg bg-black">
+    <div className="relative mt-4 flex w-full flex-col items-center justify-center overflow-hidden rounded-lg bg-black">
       <img
         src={image.url}
         alt={image.decorative ? "" : (image.alt ?? "")}
@@ -67,12 +66,16 @@ export default function CosplayPostMediaViewer({ gallery }: { gallery: CosplayIm
       />
 
       {canNavigate ? (
-        <>
+        <div
+          role="group"
+          aria-label={t("counter", { current: index + 1, total })}
+          className="flex w-full items-center justify-center gap-3 bg-bg-base px-2 py-3"
+        >
           <button
             type="button"
             onClick={goPrev}
             aria-label={t("previous")}
-            className={`${NAV_BUTTON} absolute left-2 top-1/2 -translate-y-1/2 sm:left-4`}
+            className={NAV_BUTTON}
           >
             ‹
           </button>
@@ -80,17 +83,17 @@ export default function CosplayPostMediaViewer({ gallery }: { gallery: CosplayIm
             type="button"
             onClick={goNext}
             aria-label={t("next")}
-            className={`${NAV_BUTTON} absolute right-2 top-1/2 -translate-y-1/2 sm:right-4`}
+            className={`${NAV_BUTTON} order-3`}
           >
             ›
           </button>
           <p
             aria-live="polite"
-            className="absolute bottom-2 left-1/2 z-10 -translate-x-1/2 rounded-full bg-bg-base/90 px-3 py-1 text-xs text-text-secondary"
+            className="order-2 rounded-full bg-bg-base/90 px-3 py-1 text-xs text-text-secondary"
           >
             {t("counter", { current: index + 1, total })}
           </p>
-        </>
+        </div>
       ) : null}
     </div>
   );

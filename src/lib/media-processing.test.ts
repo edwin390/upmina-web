@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import sharp from "sharp";
+import { readFileSync } from "node:fs";
 import { ProcessingFailure, processImage } from "./media-processing";
 
 // Procesador canónico (Fase 9I-2B): fixtures generadas EN MEMORIA con sharp — nunca se comete un
@@ -75,6 +76,41 @@ describe("processImage — formatos de origen", () => {
 });
 
 describe("processImage — variantes: anchos, calidad, nunca upscaling", () => {
+  it.each([
+    [468, 428],
+    [428, 468],
+    [480, 320],
+    [700, 500],
+    [4000, 3000],
+    [1, 1],
+  ])(
+    "9J-FIX4: %i×%i respeta el dominio SQL nominal sin enlargement",
+    async (width, height) => {
+      const schema = readFileSync(
+        "supabase/migrations/20261001120000_cosplay_media_pipeline.sql",
+        "utf8",
+      );
+      const match = schema.match(
+        /media_asset_variants_variant_check\s+check\s*\(variant in \(([^)]+)\)\)/,
+      );
+      expect(match).not.toBeNull();
+      const allowed = match![1]!.split(",").map(Number);
+      const result = await processImage(await makeJpeg(width, height), "image/jpeg");
+      expect(result.variants.map((row) => row.variant)).toEqual(
+        Math.max(width, height) >= 2560 ? [480, 960, 1600, 2560] : [480],
+      );
+      for (const row of result.variants) {
+        expect(allowed).toContain(row.variant);
+        expect(row.width).toBeLessThanOrEqual(width);
+        expect(row.height).toBeLessThanOrEqual(height);
+        expect(row.bytes).toBeGreaterThan(0);
+        expect(row.bytes).toBeLessThanOrEqual(8388608);
+      }
+      if (Math.max(width, height) <= 480) {
+        expect(result.variants[0]).toMatchObject({ variant: 480, width, height });
+      }
+    },
+  );
   it("original grande (lado largo ≥2560): genera las 4 variantes, cada una ≤ su ancho nominal", async () => {
     const result = await processImage(await makeJpeg(4000, 3000), "image/jpeg");
     const widths = result.variants.map((v) => v.width).sort((a, b) => a - b);

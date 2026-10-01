@@ -28,7 +28,31 @@
     "backLink": "← Volver a Cosplay"
   },
   "admin": {
+    "feedback": {
+      "created": "Publicación creada correctamente",
+      "updated": "Publicación actualizada correctamente",
+      "deleted": "Publicación eliminada correctamente",
+      "draftSaved": "Borrador guardado correctamente",
+      "draftFailed": "No se pudo guardar el borrador",
+      "publishFailed": "No se pudo publicar",
+      "updateFailed": "No se pudo actualizar la publicación",
+      "deleteFailed": "No se pudo eliminar la publicación",
+      "draftDeleted": "Borrador eliminado correctamente",
+      "draftDeleteFailed": "No se pudo eliminar el borrador",
+      "deleteDraft": "Eliminar borrador",
+      "photoRemoved": "Foto eliminada correctamente"
+    },
+    "drafts": {
+      "cancel": "Cancelar",
+      "error": "No se pudieron cargar tus borradores.",
+      "retry": "Reintentar",
+      "createNew": "Crear nueva publicación",
+      "title": "Tus borradores",
+      "loading": "Buscando borradores…",
+      "resume": "Continuar borrador"
+    },
     "newPost": "Nueva publicación",
+    "opening": "Abriendo…",
     "edit": "Editar",
     "delete": "Eliminar",
     "cardMenu": {
@@ -45,6 +69,7 @@
       "series": "Serie / franquicia"
     },
     "photos": {
+      "removeFailed": "No se pudo eliminar la foto",
       "heading": "Fotos",
       "addPhotos": "Añadir fotos",
       "remaining": "{count, plural, one {# foto disponible} other {# fotos disponibles}}",
@@ -68,7 +93,8 @@
         "processing": "Procesando…",
         "ready": "Lista",
         "failed": "Falló"
-      }
+      },
+      "mfaRetry": "Verificación necesaria. Después de verificar, pulsa Reintentar para continuar la subida."
     },
     "actions": {
       "saveDraft": "Guardar borrador",
@@ -114,6 +140,23 @@
       "body": "Tienes cambios sin guardar. Si cierras ahora, se perderán.",
       "discard": "Cerrar sin guardar",
       "keepEditing": "Seguir editando"
+    },
+    "mfa": {
+      "heading": "Verificar identidad",
+      "body": "Tu trabajo permanece en este editor. Verifica tu identidad para continuar.",
+      "checking": "Comprobando verificación…",
+      "accessFailed": "No se pudo comprobar el acceso. Inténtalo de nuevo.",
+      "enroll": "Configurar autenticador",
+      "qr": "Código QR del autenticador",
+      "code": "Código de verificación",
+      "verifying": "Verificando…",
+      "verify": "Verificar",
+      "invalidCode": "Código incorrecto o expirado.",
+      "verificationFailed": "No se pudo completar la verificación. Inténtalo de nuevo.",
+      "cancel": "Volver al editor",
+      "verified": "Verificación completada. Revisa tu publicación y vuelve a publicar.",
+      "sessionInvalid": "Tu sesión cambió o caducó. Cierra el editor e inicia sesión de nuevo.",
+      "retryLoad": "Volver a cargar publicación"
     }
   }
 }

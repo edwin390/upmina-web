@@ -138,6 +138,7 @@ interface SavePostInput {
   expectedVersion: number | null;
   text: string | null;
   media: SaveMediaInput[];
+  removedMediaIds: string[];
 }
 
 function parseSavePostInput(
@@ -169,6 +170,17 @@ function parseSavePostInput(
     media.push(item);
   }
 
+  const removedMediaIds = body.removedMediaIds ?? [];
+  if (
+    !Array.isArray(removedMediaIds) ||
+    removedMediaIds.length > COMMUNITY_POST_MAX_MEDIA ||
+    !removedMediaIds.every(isUuid) ||
+    new Set(removedMediaIds.map((id) => id.toLowerCase())).size !==
+      removedMediaIds.length ||
+    (!postId && removedMediaIds.length > 0)
+  )
+    return { ok: false };
+
   return {
     ok: true,
     value: {
@@ -176,6 +188,7 @@ function parseSavePostInput(
       expectedVersion: typeof expectedVersion === "number" ? expectedVersion : null,
       text: (body.text as string | null) ?? null,
       media,
+      removedMediaIds,
     },
   };
 }
@@ -244,20 +257,35 @@ export async function handleCommunityPostSave(
   if (!client) return res.status(500).json(GENERIC_ERROR_BODY);
 
   try {
-    const { data, error } = await client.rpc("community_post_save", {
+    const { data, error } = await client.rpc("community_post_save_atomic", {
       p_actor_user_id: actorId,
       p_post_id: input.postId,
       p_expected_version: input.expectedVersion,
       p_text: textCheck.value,
       p_media: input.media.map((m) => ({ asset_id: m.assetId, position: m.position })),
+      p_removed_media_ids: input.removedMediaIds,
     });
     if (error) return respondRpcError(res, error);
 
-    const result = data as { post: RawPostRow; media: RawMediaRow[] };
+    const result = data as {
+      post: RawPostRow;
+      media: RawMediaRow[];
+      cleanup_asset_ids?: string[];
+    };
+    // Solo candidatos devueltos por la RPC tras commit. Un fallo externo no revierte el post.
+    const cleanupIds = result.cleanup_asset_ids ?? [];
+    const cleanupResults = await Promise.allSettled(
+      cleanupIds.map((assetId) => attemptMediaAssetCleanup(assetId)),
+    );
+    const cleanup = cleanupResults.map((outcome, index) => ({
+      assetId: cleanupIds[index],
+      cleaned: outcome.status === "fulfilled" && outcome.value.cleaned,
+    }));
     res.setHeader("Cache-Control", "no-store");
     return res.status(200).json({
       post: mapPostRowNeutral(result.post),
       media: result.media.map(mapMediaRowNeutral),
+      ...(cleanup.length > 0 ? { cleanup } : {}),
     });
   } catch {
     return res.status(500).json(GENERIC_ERROR_BODY);

@@ -1,3 +1,4 @@
+import type { PrivilegedSessionIdentity } from "@/lib/privileged-session";
 import { useCallback, useRef, useState } from "react";
 import {
   abortMediaUpload,
@@ -59,6 +60,9 @@ export interface MediaQueueItem {
 interface InternalItem {
   file: File;
   aborted: boolean;
+  running?: boolean;
+  mfaCheckpoint?: boolean;
+  completeCheckpoint?: Parameters<typeof completeMediaUpload>[0];
 }
 
 export interface ConcurrencyOptions {
@@ -125,18 +129,34 @@ function failureFromError(err: unknown): { code: string | null; message: string 
   return { code: null, message: "Error inesperado" };
 }
 
+export interface PrivilegedUploadSession {
+  userId?: string | null;
+  isActive: () => boolean;
+  isCurrent: () => Promise<boolean>;
+  isBlocked: () => boolean;
+  onStepUp: () => void;
+  onInvalidSession?: () => void;
+}
+
 export interface UseMediaUploadOptions {
+  privilegedSession?: PrivilegedUploadSession;
   domain: string;
   concurrency?: ConcurrencyOptions;
 }
 
-export function useMediaUpload({ domain, concurrency }: UseMediaUploadOptions) {
+export function useMediaUpload({
+  domain,
+  concurrency,
+  privilegedSession,
+}: UseMediaUploadOptions) {
   // Se resuelve UNA sola vez por instancia del hook (ref, no state): la concurrencia de un lote de
   // subida ya en curso no debe cambiar a mitad de camino solo porque el viewport se redimensionó.
   // Un `concurrency` explícito del caller siempre gana sobre la detección automática.
   const resolvedConcurrency = useRef(
     concurrency ?? (isMobileUploadDevice() ? MOBILE_CONCURRENCY : DESKTOP_CONCURRENCY),
   ).current;
+  const sessionRef = useRef(privilegedSession);
+  sessionRef.current = privilegedSession;
   const [items, setItems] = useState<MediaQueueItem[]>([]);
   const internal = useRef(new Map<string, InternalItem>());
   const prepLimiter = useRef(createLimiter(resolvedConcurrency.prepare)).current;
@@ -151,7 +171,8 @@ export function useMediaUpload({ domain, concurrency }: UseMediaUploadOptions) {
   const runItem = useCallback(
     async (localId: string) => {
       const entry = internal.current.get(localId);
-      if (!entry || entry.aborted) return;
+      if (!entry || entry.aborted || (sessionRef.current && entry.running)) return;
+      if (sessionRef.current && !sessionRef.current.isActive()) return;
       const { file } = entry;
 
       const kind = detectMediaKind(file);
@@ -164,7 +185,48 @@ export function useMediaUpload({ domain, concurrency }: UseMediaUploadOptions) {
         return;
       }
 
+      entry.running = true;
+      function identityArgs(): [] | [PrivilegedSessionIdentity] {
+        const session = sessionRef.current;
+        return session
+          ? [{ userId: session.userId ?? null, isActive: session.isActive }]
+          : [];
+      }
+      async function guardProtected() {
+        const session = sessionRef.current;
+        if (!session) return;
+        if (!session.isActive() || !(await session.isCurrent()))
+          throw new MediaClientError(
+            "Sesión no válida",
+            401,
+            undefined,
+            "unauthenticated",
+          );
+        if (session.isBlocked())
+          throw new MediaClientError(
+            "Verificación requerida",
+            403,
+            "step_up_required",
+            "step_up_required",
+          );
+      }
+      async function finishUpload(checkpoint: Parameters<typeof completeMediaUpload>[0]) {
+        if (sessionRef.current) entry!.completeCheckpoint = checkpoint;
+        if (sessionRef.current) await guardProtected();
+        if (sessionRef.current && entry!.aborted) return;
+        const result = await completeMediaUpload(checkpoint, ...identityArgs());
+        if (sessionRef.current && !sessionRef.current.isActive()) return;
+        if (sessionRef.current && entry!.aborted) return;
+        entry!.mfaCheckpoint = false;
+        entry!.completeCheckpoint = undefined;
+        applyCompleteResult(localId, result);
+      }
       try {
+        if (entry.mfaCheckpoint && entry.completeCheckpoint) {
+          patch(localId, { status: "uploaded" });
+          await finishUpload(entry.completeCheckpoint);
+          return;
+        }
         patch(localId, { status: "preparing" });
 
         // Vídeo (Fase 9J-3): nunca pasa por el pre-shrink de imagen (createImageBitmap no puede
@@ -210,17 +272,24 @@ export function useMediaUpload({ domain, concurrency }: UseMediaUploadOptions) {
             uploadedBytes: 0,
           });
 
-          const reservation = await reserveMediaUpload({
-            domain,
-            kind,
-            sourceMime: prepared.mime,
-            sourceBytes: prepared.bytes,
-            sourceWidth: prepared.width ?? undefined,
-            sourceHeight: prepared.height ?? undefined,
-            sourceDurationSeconds: durationSeconds ?? undefined,
-          });
+          if (sessionRef.current) await guardProtected();
+          const reservation = await reserveMediaUpload(
+            {
+              domain,
+              kind,
+              sourceMime: prepared.mime,
+              sourceBytes: prepared.bytes,
+              sourceWidth: prepared.width ?? undefined,
+              sourceHeight: prepared.height ?? undefined,
+              sourceDurationSeconds: durationSeconds ?? undefined,
+            },
+            ...identityArgs(),
+          );
+          if (sessionRef.current && !sessionRef.current.isActive()) return;
           if (entry.aborted) {
-            await abortMediaUpload(reservation.assetId).catch(() => undefined);
+            await abortMediaUpload(reservation.assetId, ...identityArgs()).catch(
+              () => undefined,
+            );
             return;
           }
           patch(localId, { assetId: reservation.assetId });
@@ -233,8 +302,7 @@ export function useMediaUpload({ domain, concurrency }: UseMediaUploadOptions) {
               (loaded) => patch(localId, { uploadedBytes: loaded }),
             );
             patch(localId, { status: "uploaded" });
-            const result = await completeMediaUpload({ assetId: reservation.assetId });
-            applyCompleteResult(localId, result);
+            await finishUpload({ assetId: reservation.assetId });
             return;
           }
 
@@ -242,7 +310,8 @@ export function useMediaUpload({ domain, concurrency }: UseMediaUploadOptions) {
           const parts: { partNumber: number; etag: string }[] = [];
           let uploadedSoFar = 0;
           for (const part of reservation.parts) {
-            if (entry.aborted) return;
+            if (entry.aborted || (sessionRef.current && !sessionRef.current.isActive()))
+              return;
             const start = (part.partNumber - 1) * partSize;
             const end = Math.min(start + partSize, prepared.blob.size);
             const chunk = prepared.blob.slice(start, end);
@@ -258,22 +327,28 @@ export function useMediaUpload({ domain, concurrency }: UseMediaUploadOptions) {
             parts.push({ partNumber: part.partNumber, etag });
           }
           patch(localId, { status: "uploaded" });
-          const result = await completeMediaUpload({
-            assetId: reservation.assetId,
-            parts,
-          });
-          applyCompleteResult(localId, result);
+          await finishUpload({ assetId: reservation.assetId, parts });
         });
       } catch (err) {
         const { code, message } = failureFromError(err);
         const privilegedFailure =
           err instanceof MediaClientError ? err.privilegedFailure : null;
+        if (sessionRef.current && !sessionRef.current.isActive()) return;
+        if (entry.aborted) return;
+        entry.mfaCheckpoint =
+          privilegedFailure === "step_up_required" && Boolean(entry.completeCheckpoint);
+        if (privilegedFailure === "unauthenticated")
+          sessionRef.current?.onInvalidSession?.();
+        if (privilegedFailure === "step_up_required") sessionRef.current?.onStepUp();
+        else entry.completeCheckpoint = undefined;
         patch(localId, {
           status: "failed",
           errorCode: code,
           errorMessage: message,
           privilegedFailure,
         });
+      } finally {
+        entry.running = false;
       }
 
       function applyCompleteResult(
@@ -346,14 +421,19 @@ export function useMediaUpload({ domain, concurrency }: UseMediaUploadOptions) {
   const retry = useCallback(
     (localId: string) => {
       const entry = internal.current.get(localId);
-      if (!entry) return;
+      if (
+        !entry ||
+        (sessionRef.current && entry.running) ||
+        (sessionRef.current && !sessionRef.current.isActive())
+      )
+        return;
       entry.aborted = false;
       patch(localId, {
         status: "queued",
         errorCode: null,
         errorMessage: null,
         privilegedFailure: null,
-        uploadedBytes: 0,
+        ...(entry.mfaCheckpoint ? {} : { uploadedBytes: 0 }),
       });
       void runItem(localId);
     },
@@ -365,7 +445,22 @@ export function useMediaUpload({ domain, concurrency }: UseMediaUploadOptions) {
     if (entry) {
       entry.aborted = true;
       const assetId = itemsRefAssetId(localId);
-      if (assetId) void abortMediaUpload(assetId).catch(() => undefined);
+      if (assetId && (!sessionRef.current || sessionRef.current.isActive())) {
+        void (async () => {
+          if (sessionRef.current && !(await sessionRef.current.isCurrent())) return;
+          await abortMediaUpload(
+            assetId,
+            ...(sessionRef.current
+              ? [
+                  {
+                    userId: sessionRef.current.userId ?? null,
+                    isActive: sessionRef.current.isActive,
+                  },
+                ]
+              : []),
+          ).catch(() => undefined);
+        })();
+      }
     }
     internal.current.delete(localId);
     setItems((prev) => prev.filter((item) => item.localId !== localId));
@@ -379,5 +474,11 @@ export function useMediaUpload({ domain, concurrency }: UseMediaUploadOptions) {
     return itemsRef.current.find((i) => i.localId === localId)?.assetId ?? null;
   }
 
-  return { items, addFiles, retry, remove };
+  /** Persisted media belongs to its post: relinquish local ownership without aborting it. */
+  const release = useCallback((localId: string) => {
+    internal.current.delete(localId);
+    setItems((prev) => prev.filter((item) => item.localId !== localId));
+  }, []);
+
+  return { items, addFiles, retry, remove, release };
 }

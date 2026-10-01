@@ -196,6 +196,99 @@ describe("autorización — solo requireAuthenticated, nunca cosplay_admin ni MF
 // SAVE: forma del body, validación de texto, mapeo de errores RPC.
 
 describe("handleCommunityPostSave", () => {
+  it.each(["bad", ["bad"], [MEDIA_ID, MEDIA_ID], [MEDIA_ID.toUpperCase(), MEDIA_ID]])(
+    "rejects malformed/duplicate removal IDs %j before RPC",
+    async (removedMediaIds) => {
+      const state = await call(
+        handleCommunityPostSave,
+        req({
+          body: {
+            postId: POST_ID,
+            expectedVersion: 2,
+            text: "Editado",
+            media: [],
+            removedMediaIds,
+          },
+        }),
+      );
+      expect(state.status).toBe(400);
+      expect(fake.rpcCalls).toHaveLength(0);
+      expect(cleanupMock).not.toHaveBeenCalled();
+    },
+  );
+  it("rejects create removals", async () => {
+    const state = await call(
+      handleCommunityPostSave,
+      req({
+        body: { postId: null, text: "New", media: [], removedMediaIds: [MEDIA_ID] },
+      }),
+    );
+    expect(state.status).toBe(400);
+    expect(fake.rpcCalls).toHaveLength(0);
+  });
+  it.each([false, true])(
+    "cleanup outcome failure/throw=%s cannot turn committed save into false failure",
+    async (throws) => {
+      fake.rpcResult = ok({
+        post: {
+          id: POST_ID,
+          author_user_id: USER_ID,
+          text: "Editado",
+          status: "published",
+          version: 3,
+          created_at: "x",
+          updated_at: "x",
+          like_count: 0,
+        },
+        media: [],
+        cleanup_asset_ids: [ASSET_ID],
+      });
+      if (throws) cleanupMock.mockRejectedValueOnce(new Error("secret cleanup failure"));
+      else cleanupMock.mockResolvedValueOnce({ assetId: ASSET_ID, cleaned: false });
+      const state = await call(
+        handleCommunityPostSave,
+        req({
+          body: {
+            postId: POST_ID,
+            expectedVersion: 2,
+            text: "Editado",
+            media: [],
+            removedMediaIds: [MEDIA_ID],
+            cleanup_asset_ids: [OTHER_USER_ID],
+          },
+        }),
+      );
+      expect(state.status).toBe(200);
+      expect(state.body).toMatchObject({
+        post: { id: POST_ID, version: 3 },
+        cleanup: [{ assetId: ASSET_ID, cleaned: false }],
+      });
+      expect(cleanupMock).toHaveBeenCalledTimes(1);
+      expect(cleanupMock).toHaveBeenCalledWith(ASSET_ID);
+      expect(fake.rpcCalls[0]).toMatchObject({
+        name: "community_post_save_atomic",
+        args: { p_removed_media_ids: [MEDIA_ID] },
+      });
+      expect(JSON.stringify(state.body)).not.toContain("secret");
+    },
+  );
+  it("failed RPC never starts cleanup", async () => {
+    fake.rpcResult = rpcError("media_missing_existing");
+    const state = await call(
+      handleCommunityPostSave,
+      req({
+        body: {
+          postId: POST_ID,
+          expectedVersion: 2,
+          text: "Editado",
+          media: [],
+          removedMediaIds: [MEDIA_ID],
+        },
+      }),
+    );
+    expect(state.status).toBe(400);
+    expect(cleanupMock).not.toHaveBeenCalled();
+  });
   it("método distinto de POST: 405 con Allow: POST", async () => {
     const state = await call(handleCommunityPostSave, req({ method: "GET" }));
     expect(state.status).toBe(405);

@@ -28,7 +28,31 @@
     "backLink": "← Back to Cosplay"
   },
   "admin": {
+    "feedback": {
+      "created": "Post created successfully",
+      "updated": "Post updated successfully",
+      "deleted": "Post deleted successfully",
+      "draftSaved": "Draft saved successfully",
+      "draftFailed": "Could not save the draft",
+      "publishFailed": "Could not publish",
+      "updateFailed": "Could not update the post",
+      "deleteFailed": "Could not delete the post",
+      "draftDeleted": "Draft deleted successfully",
+      "draftDeleteFailed": "Could not delete the draft",
+      "deleteDraft": "Delete draft",
+      "photoRemoved": "Photo deleted successfully"
+    },
+    "drafts": {
+      "cancel": "Cancel",
+      "error": "Your drafts could not be loaded.",
+      "retry": "Retry",
+      "createNew": "Create new post",
+      "title": "Your drafts",
+      "loading": "Looking for drafts…",
+      "resume": "Continue draft"
+    },
     "newPost": "New post",
+    "opening": "Opening…",
     "edit": "Edit",
     "delete": "Delete",
     "cardMenu": {
@@ -45,6 +69,7 @@
       "series": "Series / franchise"
     },
     "photos": {
+      "removeFailed": "Could not delete the photo",
       "heading": "Photos",
       "addPhotos": "Add photos",
       "remaining": "{count, plural, one {# photo left} other {# photos left}}",
@@ -68,7 +93,8 @@
         "processing": "Processing…",
         "ready": "Ready",
         "failed": "Failed"
-      }
+      },
+      "mfaRetry": "Verification required. After verifying, select Retry to continue this upload."
     },
     "actions": {
       "saveDraft": "Save draft",
@@ -114,6 +140,23 @@
       "body": "You have unsaved changes. Closing now will lose them.",
       "discard": "Close without saving",
       "keepEditing": "Keep editing"
+    },
+    "mfa": {
+      "heading": "Verify identity",
+      "body": "Your work stays in this editor. Verify your identity to continue.",
+      "checking": "Checking verification…",
+      "accessFailed": "Access could not be checked. Please try again.",
+      "enroll": "Set up authenticator",
+      "qr": "Authenticator QR code",
+      "code": "Verification code",
+      "verifying": "Verifying…",
+      "verify": "Verify",
+      "invalidCode": "Incorrect or expired code.",
+      "verificationFailed": "Verification could not be completed. Please try again.",
+      "cancel": "Return to editor",
+      "verified": "Verification completed. Review your post and publish again.",
+      "sessionInvalid": "Your session changed or expired. Close the editor and sign in again.",
+      "retryLoad": "Load post again"
     }
   }
 }

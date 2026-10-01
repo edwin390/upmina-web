@@ -1,6 +1,7 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   cleanup,
+  act,
   render,
   screen,
   waitFor,
@@ -12,6 +13,8 @@ import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 import CosplayLocaleProvider from "@/i18n/LocaleProvider";
 import type { CosplayPostListPage } from "@/types";
 import CosplaySection from "./CosplaySection";
+import ActionNotice from "@/components/ActionNotice";
+import * as actionNotice from "@/lib/action-notice";
 
 // Menú ADMIN contextual por tarjeta de Cosplay en /cosplay (ajuste UX posterior a 9I-3: reemplaza
 // el panel "Tus publicaciones" — ver CLAUDE.md). El backend sigue siendo la única autoridad real
@@ -112,6 +115,7 @@ function routeFetch(
     /** Respuesta de POST /api/admin/cosplay-post-save (éxito por defecto, publicado). */
     saveResult?: { status: number; body: unknown };
     listAfterPublish?: CosplayPostListPage;
+    drafts?: { id: string; title: string; updatedAt: string }[];
   } = {},
 ) {
   return vi.fn(async (url: string, init?: { method?: string }) => {
@@ -128,6 +132,8 @@ function routeFetch(
         mfa: { recent: opts.mfaRecent ?? true },
       });
     }
+    if (url.startsWith("/api/admin/cosplay-post-list-admin"))
+      return jsonResponse({ items: opts.drafts ?? [] });
     if (url.startsWith("/api/admin/cosplay-post-get-admin")) {
       const result = opts.adminDetail ?? { status: 200, body: adminDetailFor("1") };
       return jsonResponse(result.body, result.status);
@@ -175,6 +181,7 @@ function renderSection(initialEntries = ["/cosplay"]) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={client}>
+      <ActionNotice />
       <MemoryRouter initialEntries={initialEntries}>
         <CosplayLocaleProvider>
           <Routes>
@@ -223,6 +230,235 @@ describe("USER/sin sesión — cero UI privilegiada (test 1)", () => {
     expect(screen.queryByText(/^editar$/i)).toBeNull();
     expect(screen.queryByText(/^eliminar$/i)).toBeNull();
     expect(fetchMock.mock.calls.some((c) => c[0] === "/api/admin/access")).toBe(false);
+  });
+});
+
+describe("borradores reanudables", () => {
+  it("Abriendo cubre acceso y Buscando borradores cubre una segunda promise independiente", async () => {
+    authFakes.session = { access_token: "jwt-admin", user: { id: "admin" } };
+    const base = routeFetch();
+    let resolveAccess!: (value: Response) => void;
+    let resolveDrafts!: (value: Response) => void;
+    let waitAccess = false;
+    const fetchMock = vi.fn((url: string, init?: { method?: string }) => {
+      if (url === "/api/admin/access" && waitAccess)
+        return new Promise<Response>((done) => {
+          resolveAccess = done;
+        });
+      if (url.includes("scope=own-drafts"))
+        return new Promise<Response>((done) => {
+          resolveDrafts = done;
+        });
+      return base(url, init);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    renderSection();
+    const button = await screen.findByRole("button", { name: "Nueva publicación" });
+    expect(button).toBeEnabled();
+    waitAccess = true;
+    const before = fetchMock.mock.calls.filter(
+      ([url]) => url === "/api/admin/access",
+    ).length;
+    fireEvent.click(button);
+    expect(button).toHaveTextContent("Abriendo…");
+    expect(button).toBeDisabled();
+    fireEvent.click(button);
+    await waitFor(() =>
+      expect(
+        fetchMock.mock.calls.filter(([url]) => url === "/api/admin/access"),
+      ).toHaveLength(before + 1),
+    );
+    expect(screen.queryByText("Buscando borradores…")).toBeNull();
+    await act(async () =>
+      resolveAccess(
+        jsonResponse({
+          role: "admin",
+          capabilities: ["cosplay_admin"],
+          mfa: { recent: true },
+        }),
+      ),
+    );
+    expect(await screen.findByText("Buscando borradores…")).toBeInTheDocument();
+    expect(button).toHaveTextContent("Nueva publicación");
+    expect(button).toBeEnabled();
+    await act(async () => resolveDrafts(jsonResponse({ items: [] })));
+    expect(await screen.findByLabelText("Título")).toHaveValue("");
+  });
+  it("MFA vencido durante save conserva el editor inline sin falso éxito ni autosave/retry", async () => {
+    const notice = vi.spyOn(actionNotice, "showActionSuccess");
+    authFakes.session = { access_token: "jwt-admin", user: { id: "admin" } };
+    const fetchMock = routeFetch({
+      saveResult: {
+        status: 403,
+        body: { error: "No autorizado", code: "step_up_required" },
+      },
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    renderSection();
+    fireEvent.click(await screen.findByRole("button", { name: "Nueva publicación" }));
+    fireEvent.change(await screen.findByLabelText("Título"), {
+      target: { value: "Trabajo sin guardar" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Guardar borrador" }));
+    expect(
+      await screen.findByRole("region", { name: "Verificar identidad" }),
+    ).toBeVisible();
+    expect(screen.queryByTestId("mfa")).toBeNull();
+    expect(screen.getByLabelText("Título")).toHaveValue("Trabajo sin guardar");
+    fireEvent.click(screen.getByRole("button", { name: "Volver al editor" }));
+    expect(screen.getByLabelText("Título")).toBeVisible();
+    expect(
+      fetchMock.mock.calls.filter(([url]) => url === "/api/admin/cosplay-post-save"),
+    ).toHaveLength(1);
+    expect(notice).not.toHaveBeenCalled();
+  });
+  const ownDraft = {
+    id: "draft-1",
+    title: "Progreso guardado",
+    updatedAt: "2026-09-30T12:00:00Z",
+  };
+  function asAdmin() {
+    authFakes.session = { access_token: "jwt-admin", user: { id: "admin" } };
+  }
+  it("cero drafts abre un editor vacío", async () => {
+    asAdmin();
+    vi.stubGlobal("fetch", routeFetch());
+    renderSection();
+    fireEvent.click(await screen.findByRole("button", { name: "Nueva publicación" }));
+    expect(
+      await screen.findByRole("dialog", { name: "Nueva publicación de Cosplay" }),
+    ).toBeInTheDocument();
+    expect(screen.getByLabelText("Título")).toHaveValue("");
+  });
+
+  it.each([false, true])(
+    "un draft permite elegir resume=%s sin selección automática",
+    async (resume) => {
+      asAdmin();
+      const fetchMock = routeFetch({
+        drafts: [ownDraft],
+        adminDetail: {
+          status: 200,
+          body: adminDetailFor("draft", {
+            id: ownDraft.id,
+            status: "draft",
+            title: ownDraft.title,
+          }),
+        },
+      });
+      vi.stubGlobal("fetch", fetchMock);
+      renderSection();
+      fireEvent.click(await screen.findByRole("button", { name: "Nueva publicación" }));
+      const choice = await screen.findByRole("button", {
+        name: /Progreso guardado.*Continuar borrador/,
+      });
+      expect(
+        fetchMock.mock.calls.some(([url]) => url.includes("cosplay-post-get-admin")),
+      ).toBe(false);
+      fireEvent.click(
+        resume ? choice : screen.getByRole("button", { name: "Crear nueva publicación" }),
+      );
+      await screen.findByLabelText("Título");
+      await waitFor(() =>
+        expect(screen.getByLabelText("Título")).toHaveValue(resume ? ownDraft.title : ""),
+      );
+      if (resume)
+        expect(
+          fetchMock.mock.calls.some(
+            ([url]) =>
+              url.includes(`postId=${ownDraft.id}`) && url.includes("scope=own-draft"),
+          ),
+        ).toBe(true);
+      expect(
+        fetchMock.mock.calls.some(([url]) => url.includes("cosplay-post-delete")),
+      ).toBe(false);
+    },
+  );
+
+  it("múltiples drafts muestran selección y cargan el elegido", async () => {
+    asAdmin();
+    const second = { ...ownDraft, id: "draft-2", title: "Segundo progreso" };
+    const fetchMock = routeFetch({
+      drafts: [ownDraft, second],
+      adminDetail: {
+        status: 200,
+        body: adminDetailFor("2", {
+          id: second.id,
+          status: "draft",
+          title: second.title,
+        }),
+      },
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    renderSection();
+    fireEvent.click(await screen.findByRole("button", { name: "Nueva publicación" }));
+    const selected = await screen.findByRole("button", {
+      name: /Segundo progreso.*Continuar borrador/,
+    });
+    expect(
+      screen.getByRole("button", { name: /Progreso guardado.*Continuar borrador/ }),
+    ).toBeInTheDocument();
+    expect(
+      fetchMock.mock.calls.some(([url]) => url.includes("cosplay-post-get-admin")),
+    ).toBe(false);
+    fireEvent.click(selected);
+    await waitFor(() =>
+      expect(screen.getByLabelText("Título")).toHaveValue(second.title),
+    );
+    expect(fetchMock.mock.calls.some(([url]) => url.includes("postId=draft-2"))).toBe(
+      true,
+    );
+  });
+
+  it("guardar → desmontar → nueva entrada descubre el draft y conserva el ID al reanudar", async () => {
+    asAdmin();
+    const drafts: (typeof ownDraft)[] = [];
+    const detail = adminDetailFor("draft", {
+      id: ownDraft.id,
+      status: "draft",
+      title: ownDraft.title,
+    });
+    const base = routeFetch({
+      drafts,
+      adminDetail: { status: 200, body: detail },
+      saveResult: { status: 200, body: { post: detail, images: [] } },
+    });
+    const fetchMock = vi.fn(
+      async (url: string, init?: { method?: string; body?: string }) => {
+        if (url === "/api/admin/cosplay-post-save" && init?.method === "POST")
+          drafts.splice(0, drafts.length, ownDraft);
+        return base(url, init);
+      },
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const first = renderSection();
+    fireEvent.click(await screen.findByRole("button", { name: "Nueva publicación" }));
+    fireEvent.change(await screen.findByLabelText("Título"), {
+      target: { value: ownDraft.title },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Guardar borrador" }));
+    await screen.findByText("Borrador guardado correctamente");
+    await waitFor(() => expect(screen.queryByLabelText("Título")).toBeNull());
+    await waitFor(() => expect(drafts).toHaveLength(1));
+    first.unmount();
+    renderSection();
+    fireEvent.click(await screen.findByRole("button", { name: "Nueva publicación" }));
+    fireEvent.click(
+      await screen.findByRole("button", {
+        name: /Progreso guardado.*Continuar borrador/,
+      }),
+    );
+    await waitFor(() =>
+      expect(screen.getByLabelText("Título")).toHaveValue(ownDraft.title),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Guardar borrador" }));
+    await waitFor(() => {
+      const calls = fetchMock.mock.calls.filter(
+        ([url]) => url === "/api/admin/cosplay-post-save",
+      );
+      expect(calls).toHaveLength(2);
+      expect(JSON.parse(calls[1]![1]!.body!)).toMatchObject({ postId: ownDraft.id });
+    });
   });
 });
 
@@ -380,6 +616,35 @@ describe("ADMIN (cosplay_admin + MFA reciente) — menú contextual por tarjeta"
     );
     const body = JSON.parse((deleteCall?.[1] as { body: string }).body);
     expect(body).toEqual({ postId: "post-2", expectedVersion: 7 });
+    expect(
+      await screen.findByText("Publicación eliminada correctamente"),
+    ).toBeInTheDocument();
+  });
+
+  it("failed published deletion keeps confirmation usable and shows one error, no success", async () => {
+    const notice = vi.spyOn(actionNotice, "showActionSuccess");
+    vi.stubGlobal(
+      "fetch",
+      routeFetch({
+        posts: { items: [post("1")], nextCursor: null },
+        deleteResult: { status: 500, body: { error: "error" } },
+      }),
+    );
+    renderSection();
+    fireEvent.click(
+      await screen.findByRole("button", { name: /más acciones para publicación 1/i }),
+    );
+    fireEvent.click(screen.getByRole("menuitem", { name: "Eliminar" }));
+    const group = await screen.findByRole("group", {
+      name: /eliminar esta publicación/i,
+    });
+    fireEvent.click(within(group).getByRole("button", { name: "Confirmar eliminación" }));
+    expect(await within(group).findByRole("alert")).toHaveTextContent(
+      "No se pudo eliminar la publicación",
+    );
+    expect(screen.getAllByRole("alert")).toHaveLength(1);
+    expect(within(group).getByRole("button", { name: "Cancelar" })).toBeEnabled();
+    expect(notice).not.toHaveBeenCalled();
   });
 
   it("'Cancelar' en la confirmación de borrado no envía nada", async () => {

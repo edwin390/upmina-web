@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type ChangeEvent, type FormEvent } from "react";
 import { useMediaUpload } from "@/hooks/useMediaUpload";
+import { showActionSuccess } from "@/lib/action-notice";
 import {
   CommunityClientError,
   saveCommunityPost,
@@ -42,16 +43,24 @@ interface FormState {
   text: string;
   /** Media YA guardada (al editar) que el usuario no ha quitado. */
   existingMedia: LocalMedia[];
+  removedMediaIds: string[];
 }
 
 function initialFormState(initialPost: CommunityOwnPost | null): FormState {
   if (!initialPost) {
-    return { postId: null, expectedVersion: null, text: "", existingMedia: [] };
+    return {
+      postId: null,
+      expectedVersion: null,
+      text: "",
+      existingMedia: [],
+      removedMediaIds: [],
+    };
   }
   return {
     postId: initialPost.id,
     expectedVersion: initialPost.version,
     text: initialPost.text ?? "",
+    removedMediaIds: [],
     existingMedia: initialPost.media.map((m) => ({
       assetId: m.assetId,
       url: m.url,
@@ -147,10 +156,13 @@ export default function CommunityPostEditorForm({
     onCancel();
   }
 
-  function removeExistingMedia(assetId: string) {
+  function removeExistingMedia(mediaId: string) {
     setForm((prev) => ({
       ...prev,
-      existingMedia: prev.existingMedia.filter((m) => m.assetId !== assetId),
+      existingMedia: prev.existingMedia.filter((m) => m.key !== mediaId),
+      removedMediaIds: prev.removedMediaIds.includes(mediaId)
+        ? prev.removedMediaIds
+        : [...prev.removedMediaIds, mediaId],
     }));
   }
 
@@ -206,12 +218,27 @@ export default function CommunityPostEditorForm({
         expectedVersion: form.expectedVersion,
         text: form.text.trim().length === 0 ? null : form.text,
         media,
+        removedMediaIds: form.removedMediaIds,
       });
       if (!isMountedRef.current) return;
-      for (const item of upload.items) upload.remove(item.localId);
+      for (const item of upload.items) {
+        if (readyNewMedia.some((media) => media.key === item.localId)) {
+          upload.release(item.localId);
+        } else {
+          upload.remove(item.localId);
+        }
+      }
+      showActionSuccess(
+        form.postId === null
+          ? "Publicación creada correctamente"
+          : "Publicación actualizada correctamente",
+      );
       onSaved();
     } catch (err) {
-      if (isMountedRef.current) setSaveError(errorMessage(err));
+      if (isMountedRef.current)
+        setSaveError(
+          `${form.postId === null ? "No se pudo crear la publicación" : "No se pudo actualizar la publicación"}. ${errorMessage(err)}`,
+        );
     } finally {
       if (isMountedRef.current) setIsSaving(false);
     }
@@ -315,7 +342,7 @@ export default function CommunityPostEditorForm({
               )}
               <button
                 type="button"
-                onClick={() => removeExistingMedia(m.assetId)}
+                onClick={() => removeExistingMedia(m.key)}
                 disabled={isSaving}
                 aria-label={m.kind === "video" ? "Quitar video" : "Quitar imagen"}
                 className="absolute -right-2 -top-2 flex h-6 w-6 items-center justify-center rounded-full border border-border-subtle bg-bg-surface text-xs text-text-primary"
@@ -370,7 +397,7 @@ export default function CommunityPostEditorForm({
 
       <div className="mt-4 flex flex-wrap gap-3">
         <button type="submit" disabled={!canSave} className={PRIMARY_BUTTON_CLASS}>
-          {isSaving ? "Guardando…" : "Guardar"}
+          {isSaving ? "Publicando…" : "Publicar"}
         </button>
         <button
           type="button"

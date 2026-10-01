@@ -1,4 +1,6 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
+import { createPortal } from "react-dom";
+import { showActionSuccess } from "@/lib/action-notice";
 import {
   CommunityClientError,
   deleteCommunityPost,
@@ -28,10 +30,28 @@ const SECONDARY_BUTTON =
 
 export default function CommunityPostTileMenu({ post, onEdit, onDeleted }: Props) {
   const rootRef = useRef<HTMLDivElement>(null);
+  const dialogRef = useRef<HTMLDialogElement>(null);
+  const headingId = useId();
   const [menuOpen, setMenuOpen] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [errorText, setErrorText] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!confirming) return;
+    const dialog = dialogRef.current;
+    if (!dialog) return;
+    const previousFocus = document.activeElement as HTMLElement | null;
+    dialog.showModal();
+    dialog.querySelector<HTMLButtonElement>("[data-cancel]")?.focus();
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      dialog.close();
+      document.body.style.overflow = previousOverflow;
+      if (previousFocus?.isConnected) previousFocus.focus();
+    };
+  }, [confirming]);
 
   useEffect(() => {
     if (!menuOpen) return;
@@ -74,18 +94,21 @@ export default function CommunityPostTileMenu({ post, onEdit, onDeleted }: Props
     try {
       await deleteCommunityPost({ postId: post.id, expectedVersion: post.version });
       setConfirming(false);
+      showActionSuccess("Publicación eliminada correctamente");
       onDeleted();
     } catch (err) {
       if (err instanceof CommunityClientError) {
         if (err.code === "community_version_conflict") {
-          setErrorText("Esta publicación cambió mientras tanto. Vuelve a intentarlo.");
+          setErrorText(
+            "No se pudo eliminar la publicación. Esta publicación cambió mientras tanto. Vuelve a intentarlo.",
+          );
           setConfirming(false);
           return;
         }
-        setErrorText(err.message || "No se pudo borrar la publicación.");
+        setErrorText("No se pudo eliminar la publicación");
         return;
       }
-      setErrorText("No se pudo borrar la publicación.");
+      setErrorText("No se pudo eliminar la publicación");
     } finally {
       setDeleting(false);
     }
@@ -132,39 +155,51 @@ export default function CommunityPostTileMenu({ post, onEdit, onDeleted }: Props
         </div>
       )}
 
-      {confirming && (
-        <div
-          role="group"
-          aria-label="Confirmar borrado de la publicación"
-          className="absolute right-0 top-full z-20 mt-1 w-64 rounded-md border border-accent-live/40 bg-bg-surface p-3 shadow-lg"
-        >
-          <p className="text-sm font-semibold text-text-primary">
-            ¿Borrar esta publicación?
-          </p>
-          <p className="mt-1 text-sm text-text-secondary">
-            Esta acción no se puede deshacer.
-          </p>
-          <div className="mt-3 flex flex-wrap gap-2">
-            <button
-              type="button"
-              onClick={(e) => void confirmDelete(e)}
-              disabled={deleting}
-              aria-busy={deleting}
-              className={DANGER_BUTTON}
-            >
-              Eliminar
-            </button>
-            <button
-              type="button"
-              onClick={cancelDelete}
-              disabled={deleting}
-              className={SECONDARY_BUTTON}
-            >
-              Cancelar
-            </button>
-          </div>
-        </div>
-      )}
+      {confirming &&
+        createPortal(
+          <dialog
+            ref={dialogRef}
+            aria-labelledby={headingId}
+            onCancel={(event) => {
+              event.preventDefault();
+              if (!deleting) setConfirming(false);
+            }}
+            className="fixed inset-0 m-auto max-h-[calc(100dvh-2rem)] w-[calc(100%-2rem)] max-w-sm overflow-y-auto rounded-md border border-accent-live/40 bg-bg-surface p-6 shadow-lg backdrop:bg-bg-base/80"
+          >
+            <p id={headingId} className="text-sm font-semibold text-text-primary">
+              ¿Borrar esta publicación?
+            </p>
+            <p className="mt-1 text-sm text-text-secondary">
+              Esta acción no se puede deshacer.
+            </p>
+            {errorText && (
+              <p role="alert" className="mt-3 text-sm text-accent-live">
+                {errorText}
+              </p>
+            )}
+            <div className="mt-3 flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={(e) => void confirmDelete(e)}
+                disabled={deleting}
+                aria-busy={deleting}
+                className={DANGER_BUTTON}
+              >
+                Eliminar
+              </button>
+              <button
+                type="button"
+                data-cancel
+                onClick={cancelDelete}
+                disabled={deleting}
+                className={SECONDARY_BUTTON}
+              >
+                Cancelar
+              </button>
+            </div>
+          </dialog>,
+          document.body,
+        )}
 
       {errorText && !confirming && (
         <p

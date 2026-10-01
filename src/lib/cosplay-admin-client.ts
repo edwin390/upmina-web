@@ -1,3 +1,4 @@
+import type { PrivilegedSessionIdentity } from "@/lib/privileged-session";
 import { supabase } from "@/lib/supabase";
 import {
   classifyPrivilegedFailure,
@@ -28,9 +29,22 @@ export class CosplayAdminClientError extends Error {
   }
 }
 
-async function authHeader(): Promise<string> {
+async function authHeader(identity?: PrivilegedSessionIdentity): Promise<string> {
   if (!supabase) throw new CosplayAdminClientError("Supabase no configurado");
-  const { data } = await supabase.auth.getSession();
+  const { data, error } = await supabase.auth.getSession();
+  if (
+    identity &&
+    (error ||
+      !identity.isActive() ||
+      !identity.userId ||
+      data.session?.user.id !== identity.userId)
+  )
+    throw new CosplayAdminClientError(
+      "Sesión no válida",
+      401,
+      undefined,
+      "unauthenticated",
+    );
   const token = data.session?.access_token;
   if (!token) throw new CosplayAdminClientError("Sin sesión", 401);
   return `Bearer ${token}`;
@@ -39,8 +53,16 @@ async function authHeader(): Promise<string> {
 async function request<T>(
   action: string,
   init: { method: "GET" | "POST"; body?: unknown; query?: Record<string, string> },
+  identity?: PrivilegedSessionIdentity,
 ): Promise<T> {
-  const auth = await authHeader();
+  const auth = await authHeader(identity);
+  if (identity && !identity.isActive())
+    throw new CosplayAdminClientError(
+      "Sesión no válida",
+      401,
+      undefined,
+      "unauthenticated",
+    );
   const query = init.query ? `?${new URLSearchParams(init.query).toString()}` : "";
 
   let response: Response;
@@ -127,10 +149,29 @@ export interface CosplayAdminPostDetail extends CosplayEditorPost {
 
 export async function getCosplayPostAdmin(
   postId: string,
+  ownDraft = false,
+  identity?: PrivilegedSessionIdentity,
 ): Promise<CosplayAdminPostDetail> {
-  return request<CosplayAdminPostDetail>("cosplay-post-get-admin", {
+  return request<CosplayAdminPostDetail>(
+    "cosplay-post-get-admin",
+    {
+      method: "GET",
+      query: { postId, ...(ownDraft ? { scope: "own-draft" } : {}) },
+    },
+    identity,
+  );
+}
+
+export interface CosplayOwnDraft {
+  id: string;
+  title: string;
+  updatedAt: string;
+}
+
+export async function listOwnCosplayDrafts(): Promise<{ items: CosplayOwnDraft[] }> {
+  return request("cosplay-post-list-admin", {
     method: "GET",
-    query: { postId },
+    query: { scope: "own-drafts" },
   });
 }
 
@@ -159,10 +200,12 @@ export interface SaveCosplayPostInput {
 
 export async function saveCosplayPost(
   input: SaveCosplayPostInput,
+  identity?: PrivilegedSessionIdentity,
 ): Promise<{ post: CosplayEditorPost; images: CosplayEditorSavedImage[] }> {
   return request<{ post: CosplayEditorPost; images: CosplayEditorSavedImage[] }>(
     "cosplay-post-save",
     { method: "POST", body: input },
+    identity,
   );
 }
 
@@ -177,24 +220,31 @@ export async function reorderCosplayImages(input: {
   });
 }
 
-export async function detachCosplayMedia(input: {
-  postId: string;
-  expectedVersion: number;
-  imageId: string;
-}): Promise<{ version: number; assetId: string; cleaned: boolean }> {
+export async function detachCosplayMedia(
+  input: {
+    postId: string;
+    expectedVersion: number;
+    imageId: string;
+  },
+  identity?: PrivilegedSessionIdentity,
+): Promise<{ version: number; assetId: string; cleaned: boolean }> {
   return request<{ version: number; assetId: string; cleaned: boolean }>(
     "cosplay-media-detach",
     { method: "POST", body: input },
+    identity,
   );
 }
 
-export async function deleteCosplayPost(input: {
-  postId: string;
-  expectedVersion: number;
-}): Promise<{
+export async function deleteCosplayPost(
+  input: {
+    postId: string;
+    expectedVersion: number;
+  },
+  identity?: PrivilegedSessionIdentity,
+): Promise<{
   postId: string;
   deletedAssets: { assetId: string; cleaned: boolean }[];
   allCleaned: boolean;
 }> {
-  return request("cosplay-post-delete", { method: "POST", body: input });
+  return request("cosplay-post-delete", { method: "POST", body: input }, identity);
 }

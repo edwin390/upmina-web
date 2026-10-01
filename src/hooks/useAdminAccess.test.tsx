@@ -66,6 +66,19 @@ afterEach(() => {
 });
 
 describe("useAdminAccess — estados", () => {
+  it("failed revalidation never returns previously cached recent MFA", async () => {
+    authFakes.session = session("u1");
+    const { result } = renderHook(() => useAdminAccess(), { wrapper });
+    await waitFor(() => expect(result.current.access?.mfaRecent).toBe(true));
+    (fetch as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new TypeError("offline"));
+    let refreshed: unknown;
+    await act(async () => {
+      refreshed = await result.current.refetch();
+    });
+    expect(refreshed).toBeNull();
+    await waitFor(() => expect(result.current.status).toBe("error"));
+    expect(result.current.access).toBeNull();
+  });
   it("mientras la sesión carga → loading, sin consultar", () => {
     authFakes.loading = true;
     authFakes.session = session("u1");

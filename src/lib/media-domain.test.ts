@@ -96,8 +96,9 @@ describe("targetWidthsForLongEdge — nunca upscaling", () => {
     expect(targetWidthsForLongEdge(1200)).toEqual([480, 960]);
   });
 
-  it("original más pequeño que el ancho nominal mínimo (480): UNA variante a su tamaño nativo", () => {
-    expect(targetWidthsForLongEdge(300)).toEqual([300]);
+  it("original más pequeño que 480: UNA identidad nominal 480, nunca el lado largo físico", () => {
+    expect(targetWidthsForLongEdge(300)).toEqual([480]);
+    expect(targetWidthsForLongEdge(468)).toEqual([480]);
   });
 
   it("nunca genera una lista vacía para una entrada válida", () => {

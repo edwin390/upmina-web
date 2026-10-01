@@ -69,7 +69,9 @@ export default function CosplayPhotoCard({
 
           {isFailed && (
             <p role="alert" className="mt-1 text-xs text-accent-live">
-              {photo.uploadErrorMessage ?? t("status.failed")}
+              {photo.privilegedFailure === "step_up_required"
+                ? t("mfaRetry")
+                : (photo.uploadErrorMessage ?? t("status.failed"))}
             </p>
           )}
 
@@ -133,7 +135,7 @@ export default function CosplayPhotoCard({
           <p className="mt-1 text-sm text-text-secondary">{t("removeConfirmBody")}</p>
           {detachFailed && (
             <p role="alert" className="mt-2 text-sm text-accent-live">
-              {t("removeConfirmBody")}
+              {t("removeFailed")}
             </p>
           )}
           <div className="mt-3 flex flex-wrap gap-2">

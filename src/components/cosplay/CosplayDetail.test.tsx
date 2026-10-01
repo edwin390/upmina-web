@@ -272,6 +272,11 @@ describe("/cosplay/:slug — media SIEMPRE visible, navegación entre FOTOS (nun
       "https://example.test/0.webp",
     );
     expect(screen.getByText("1 de 3")).toBeInTheDocument();
+    const nav = screen.getByRole("group", { name: "1 de 3" });
+    expect(nav).toContainElement(screen.getByRole("button", { name: "Foto anterior" }));
+    expect(nav).toContainElement(screen.getByRole("button", { name: "Foto siguiente" }));
+    expect(nav.querySelector("img")).toBeNull();
+    expect(nav.previousElementSibling?.tagName).toBe("IMG");
 
     fireEvent.click(screen.getByRole("button", { name: "Foto siguiente" }));
     expect(document.querySelector("img")).toHaveAttribute(

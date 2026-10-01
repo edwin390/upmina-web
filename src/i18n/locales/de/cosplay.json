@@ -28,7 +28,31 @@
     "backLink": "← Zurück zu Cosplay"
   },
   "admin": {
+    "feedback": {
+      "created": "Beitrag erfolgreich erstellt",
+      "updated": "Beitrag erfolgreich aktualisiert",
+      "deleted": "Beitrag erfolgreich gelöscht",
+      "draftSaved": "Entwurf erfolgreich gespeichert",
+      "draftFailed": "Der Entwurf konnte nicht gespeichert werden",
+      "publishFailed": "Veröffentlichung fehlgeschlagen",
+      "updateFailed": "Der Beitrag konnte nicht aktualisiert werden",
+      "deleteFailed": "Der Beitrag konnte nicht gelöscht werden",
+      "draftDeleted": "Entwurf erfolgreich gelöscht",
+      "draftDeleteFailed": "Der Entwurf konnte nicht gelöscht werden",
+      "deleteDraft": "Entwurf löschen",
+      "photoRemoved": "Foto erfolgreich gelöscht"
+    },
+    "drafts": {
+      "cancel": "Abbrechen",
+      "error": "Deine Entwürfe konnten nicht geladen werden.",
+      "retry": "Erneut versuchen",
+      "createNew": "Neuen Beitrag erstellen",
+      "title": "Deine Entwürfe",
+      "loading": "Entwürfe werden gesucht…",
+      "resume": "Entwurf fortsetzen"
+    },
     "newPost": "Neuer Beitrag",
+    "opening": "Öffnen…",
     "edit": "Bearbeiten",
     "delete": "Löschen",
     "cardMenu": {
@@ -45,6 +69,7 @@
       "series": "Serie / Franchise"
     },
     "photos": {
+      "removeFailed": "Das Foto konnte nicht gelöscht werden",
       "heading": "Fotos",
       "addPhotos": "Fotos hinzufügen",
       "remaining": "{count, plural, one {# Foto übrig} other {# Fotos übrig}}",
@@ -68,7 +93,8 @@
         "processing": "Wird verarbeitet…",
         "ready": "Bereit",
         "failed": "Fehlgeschlagen"
-      }
+      },
+      "mfaRetry": "Verifizierung erforderlich. Wähle danach Erneut versuchen, um den Upload fortzusetzen."
     },
     "actions": {
       "saveDraft": "Entwurf speichern",
@@ -114,6 +140,23 @@
       "body": "Du hast ungespeicherte Änderungen. Wenn du jetzt schließt, gehen sie verloren.",
       "discard": "Ohne Speichern schließen",
       "keepEditing": "Weiter bearbeiten"
+    },
+    "mfa": {
+      "heading": "Identität verifizieren",
+      "body": "Deine Arbeit bleibt in diesem Editor. Verifiziere deine Identität, um fortzufahren.",
+      "checking": "Verifizierung wird geprüft…",
+      "accessFailed": "Der Zugriff konnte nicht geprüft werden. Versuche es erneut.",
+      "enroll": "Authenticator einrichten",
+      "qr": "QR-Code für den Authenticator",
+      "code": "Verifizierungscode",
+      "verifying": "Wird verifiziert…",
+      "verify": "Verifizieren",
+      "invalidCode": "Falscher oder abgelaufener Code.",
+      "verificationFailed": "Die Verifizierung konnte nicht abgeschlossen werden. Versuche es erneut.",
+      "cancel": "Zurück zum Editor",
+      "verified": "Verifizierung abgeschlossen. Prüfe deinen Beitrag und veröffentliche ihn erneut.",
+      "sessionInvalid": "Deine Sitzung wurde geändert oder ist abgelaufen. Schließe den Editor und melde dich erneut an.",
+      "retryLoad": "Beitrag erneut laden"
     }
   }
 }

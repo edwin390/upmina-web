@@ -129,6 +129,8 @@ export interface SaveCommunityPostInput {
   expectedVersion: number | null;
   text: string | null;
   media: { assetId: string; position: number }[];
+  /** IDs de community_post_media, nunca IDs de assets. Omitido equivale a ninguna retirada. */
+  removedMediaIds?: string[];
 }
 
 export async function saveCommunityPost(

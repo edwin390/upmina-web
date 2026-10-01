@@ -153,7 +153,7 @@ describe("/community/post/:postId — like real (Fase 9J-2C)", () => {
 });
 
 describe("/community/post/:postId — media de vídeo (Fase 9J-3)", () => {
-  it("post solo-vídeo: <video> con controls, muted, playsInline (a diferencia del feed, aquí SÍ es interactivo)", async () => {
+  it("post solo-vídeo: <video> con controls y playsInline, SIN muted forzado (9J-FIX: intenta autoplay con sonido)", async () => {
     stubDetail({
       post: post({
         text: null,
@@ -175,7 +175,7 @@ describe("/community/post/:postId — media de vídeo (Fase 9J-3)", () => {
     const video = container.querySelector("video")!;
     expect(video).toHaveAttribute("src", "https://example.test/m1.mp4");
     expect(video).toHaveAttribute("controls");
-    expect(video).toHaveProperty("muted", true);
+    expect(video).not.toHaveAttribute("muted");
     expect(video).toHaveProperty("playsInline", true);
   });
 
@@ -213,9 +213,15 @@ describe("/community/post/:postId — media de vídeo (Fase 9J-3)", () => {
     );
 
     fireEvent.click(screen.getByRole("button", { name: "Siguiente" }));
+    // 9J-FIX2: el vídeo objetivo se prepara en una ranura oculta (aria-hidden) hasta que dispara
+    // "loadeddata" — solo entonces se completa el swap visual (staged swap, sin frame vacío).
+    const stagingVideoEl = container.querySelector('video[aria-hidden="true"]')!;
+    fireEvent(stagingVideoEl, new Event("loadeddata"));
 
-    expect(container.querySelectorAll("img, video")).toHaveLength(1);
-    expect(container.querySelector("video")).toHaveAttribute(
+    expect(
+      container.querySelectorAll("img:not([aria-hidden]), video:not([aria-hidden])"),
+    ).toHaveLength(1);
+    expect(container.querySelector("video:not([aria-hidden])")).toHaveAttribute(
       "src",
       "https://example.test/m2.mp4",
     );

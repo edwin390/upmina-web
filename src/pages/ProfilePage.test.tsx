@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClient, QueryClientProvider, QueryObserver } from "@tanstack/react-query";
+import { freshContentUrl } from "@/lib/content-freshness";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 
 // /@username (Fase 9J-2B, ampliado en 9J-2B.1): perfil público — estados de carga/no-encontrado/
@@ -73,6 +74,7 @@ vi.mock("@/hooks/useMediaUpload", () => ({
     addFiles: uploadMocks.addFiles,
     remove: uploadMocks.remove,
     retry: uploadMocks.retry,
+    release: vi.fn(),
   }),
 }));
 
@@ -142,8 +144,10 @@ function stubProfile(body: unknown, status = 200) {
   return fetchMock;
 }
 
-function renderProfile(entry = "/@edwin1") {
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+function renderProfile(
+  entry = "/@edwin1",
+  client = new QueryClient({ defaultOptions: { queries: { retry: false } } }),
+) {
   return render(
     <QueryClientProvider client={client}>
       <MemoryRouter initialEntries={[entry]}>
@@ -160,6 +164,12 @@ function renderProfile(entry = "/@edwin1") {
 }
 
 beforeEach(() => {
+  HTMLDialogElement.prototype.showModal = function () {
+    this.setAttribute("open", "");
+  };
+  HTMLDialogElement.prototype.close = function () {
+    this.removeAttribute("open");
+  };
   ownProfileFakes.profile = null;
   adminAccessFakes.status = "no-session";
   adminAccessFakes.role = null;
@@ -554,6 +564,35 @@ describe("/@username — dueño: controles propios", () => {
 });
 
 describe("/@username — Nueva publicación (dueño)", () => {
+  it("publicar actualiza un feed previamente fresh a través del callback real del perfil", async () => {
+    ownProfileFakes.profile = { username: "edwin1", displayName: null, bio: null };
+    communityClientMocks.saveCommunityPost.mockResolvedValue({
+      post: { id: "new" },
+      media: [],
+    });
+    stubProfile(profilePage());
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const observer = new QueryObserver(client, {
+      queryKey: ["community", "feed", "recent"],
+      staleTime: 60_000,
+      queryFn: async () =>
+        freshContentUrl(client, "community", "/api/content/community-feed").includes(
+          "_r=",
+        )
+          ? ["new"]
+          : [],
+    });
+    const unsubscribe = observer.subscribe(() => undefined);
+    await observer.refetch();
+    renderProfile("/@edwin1", client);
+    fireEvent.click(await screen.findByRole("button", { name: "Nueva publicación" }));
+    fireEvent.change(screen.getByPlaceholderText("¿Qué quieres compartir?"), {
+      target: { value: "Nueva" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Publicar" }));
+    await waitFor(() => expect(observer.getCurrentResult().data).toEqual(["new"]));
+    unsubscribe();
+  });
   it("abre el editor reutilizado y crea la publicación con la API existente", async () => {
     ownProfileFakes.profile = { username: "edwin1", displayName: null, bio: null };
     communityClientMocks.saveCommunityPost.mockResolvedValue({
@@ -577,7 +616,7 @@ describe("/@username — Nueva publicación (dueño)", () => {
     fireEvent.change(screen.getByPlaceholderText("¿Qué quieres compartir?"), {
       target: { value: "recién creada" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "Guardar" }));
+    fireEvent.click(screen.getByRole("button", { name: "Publicar" }));
 
     await waitFor(() =>
       expect(communityClientMocks.saveCommunityPost).toHaveBeenCalledWith({
@@ -585,6 +624,7 @@ describe("/@username — Nueva publicación (dueño)", () => {
         expectedVersion: null,
         text: "recién creada",
         media: [],
+        removedMediaIds: [],
       }),
     );
     // Tras guardar, el diálogo se cierra y se refresca la galería propia.
@@ -651,6 +691,13 @@ describe("/@username — gestión de publicaciones propias (⋯)", () => {
 
     expect(communityClientMocks.deleteCommunityPost).not.toHaveBeenCalled();
     expect(screen.getByText("¿Borrar esta publicación?")).toBeInTheDocument();
+    const dialog = screen.getByRole("dialog", { name: "¿Borrar esta publicación?" });
+    expect(dialog.parentElement).toBe(document.body);
+    expect(dialog.tagName).toBe("DIALOG");
+    expect(dialog).toHaveAttribute("open");
+    fireEvent.click(screen.getByRole("button", { name: "Cancelar" }));
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(communityClientMocks.deleteCommunityPost).not.toHaveBeenCalled();
   });
 
   it("confirmar Eliminar usa la API existente de borrado propio", async () => {

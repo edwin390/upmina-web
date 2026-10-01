@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { AdminAuthError, STEP_UP_REQUIRED_CODE } from "./admin-auth";
 
@@ -87,6 +87,8 @@ function resetMediaDb() {
 // media_assets_failure_code_presence (Fase 9I-2C) exige inspeccionar el PAYLOAD exacto que
 // setStatus() envía en cada transición, no solo el estado final de la fila.
 const mediaAssetsUpdateCalls: Row[] = [];
+let variantsInsertError: unknown = null;
+let assetReadyError: unknown = null;
 
 class FakeQueryBuilder {
   private filters: [string, unknown][] = [];
@@ -118,6 +120,21 @@ class FakeQueryBuilder {
   }
 
   private execute(): { data: unknown; error: unknown } {
+    if (
+      this.op === "insert" &&
+      this.table === mediaDb.media_asset_variants &&
+      variantsInsertError
+    ) {
+      return { data: null, error: variantsInsertError };
+    }
+    if (
+      this.op === "update" &&
+      this.table === mediaDb.media_assets &&
+      (this.payload as Row)?.status === "ready" &&
+      assetReadyError
+    ) {
+      return { data: null, error: assetReadyError };
+    }
     if (this.op === "insert") {
       const rows = (Array.isArray(this.payload) ? this.payload : [this.payload!]).map(
         (r) => ({
@@ -197,6 +214,10 @@ function makeRes(): VercelResponse & { _status?: number; _json?: unknown } {
 }
 
 beforeEach(() => {
+  r2Mocks.putPublicVariant.mockReset();
+  r2Mocks.putPublicVariant.mockResolvedValue(undefined);
+  variantsInsertError = null;
+  assetReadyError = null;
   resetMediaDb();
   isProductionEnvironmentMock.mockReturnValue(false);
   requireCapabilityMock.mockResolvedValue({
@@ -241,8 +262,76 @@ beforeEach(() => {
   });
 });
 
-afterEach(() => {
-  vi.unstubAllEnvs();
+describe("imágenes pequeñas — tier nominal y manejo de fallos", () => {
+  it.each(["community", "cosplay"])(
+    "%s: procesador real de imagen pequeña inserta tier 480 y publica w480",
+    async (domain) => {
+      const { default: sharp } = await import("sharp");
+      const { processImage } =
+        await vi.importActual<typeof import("./media-processing")>("./media-processing");
+      const source = await sharp({
+        create: { width: 468, height: 428, channels: 3, background: "red" },
+      })
+        .jpeg()
+        .toBuffer();
+      processImageMock.mockResolvedValueOnce(await processImage(source, "image/jpeg"));
+      const id = seedReserved();
+      Object.assign(mediaDb.media_assets[0]!, { domain, created_by: "admin-user-1" });
+      const res = makeRes();
+      await handleMediaComplete(makeReq({ assetId: id }), res);
+      expect(res._json).toMatchObject({
+        status: "ready",
+        variants: [{ variant: 480, width: 468, height: 428 }],
+      });
+      expect(mediaDb.media_asset_variants).toHaveLength(1);
+      expect(mediaDb.media_asset_variants[0]).toMatchObject({
+        asset_id: id,
+        variant: 480,
+        width: 468,
+        height: 428,
+        storage_key: `${domain}/${id}/w480.webp`,
+      });
+      expect(r2Mocks.putPublicVariant).toHaveBeenCalledWith(
+        `${domain}/${id}/w480.webp`,
+        expect.any(Buffer),
+        "image/webp",
+      );
+    },
+  );
+  function seedReserved(): string {
+    const id = "asset-small-image";
+    mediaDb.media_assets.push({
+      id,
+      domain: "cosplay",
+      status: "reserved",
+      source_mime: "image/jpeg",
+      source_bytes: 1000,
+      private_original_key: `staging/cosplay/${id}/original.jpg`,
+      multipart_upload_id: null,
+      processing_attempts: 0,
+    });
+    return id;
+  }
+  it.each(["variant_publish", "variant_db_insert", "asset_ready_update"] as const)(
+    "mantiene processing_failed y estado failed ante fallo de %s",
+    async (stage) => {
+      const error = { name: "PostgrestError", code: "23514" };
+      if (stage === "variant_publish")
+        r2Mocks.putPublicVariant.mockRejectedValueOnce(error);
+      if (stage === "variant_db_insert") variantsInsertError = error;
+      if (stage === "asset_ready_update") assetReadyError = error;
+      const id = seedReserved();
+      const res = makeRes();
+      await handleMediaComplete(makeReq({ assetId: id }), res);
+      expect(res._status).toBe(200);
+      expect(res._json).toEqual({
+        assetId: id,
+        status: "failed",
+        failureCode: "processing_failed",
+      });
+      expect(mediaDb.media_assets.find((row) => row.id === id)?.status).toBe("failed");
+    },
+  );
 });
 
 // ────────────────────────────────────────────────────────────────────────────────────────────

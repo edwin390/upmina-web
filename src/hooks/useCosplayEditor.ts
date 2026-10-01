@@ -1,3 +1,4 @@
+import type { PrivilegedSessionIdentity } from "@/lib/privileged-session";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   CosplayAdminClientError,
@@ -36,9 +37,9 @@ export interface EditorPhoto {
   /** Clave estable de React. */
   key: string;
   assetId: string | null;
-  /** Id de cosplay_post_images si esta foto YA estaba adjunta al cargar el editor. */
+  /** Id de cosplay_post_images para una foto ya persistida. */
   existingImageId: string | null;
-  /** localId de useMediaUpload si esta foto se añadió EN ESTA sesión del editor. */
+  /** localId de useMediaUpload mientras la foto siga sin persistir. */
   localId: string | null;
   fileName: string | null;
   /** "existing" = cargada del servidor, ya lista; si no, el estado real de la cola de subida. */
@@ -150,16 +151,25 @@ const NON_TERMINAL_UPLOAD_STATUSES: ReadonlySet<MediaItemStatus> = new Set([
 export type ConflictState = { kind: "version" } | null;
 
 export interface UseCosplayEditorOptions {
+  session?: {
+    invalidate?: () => void;
+    userId?: string | null;
+    isActive: () => boolean;
+    isCurrent: () => Promise<boolean>;
+  };
   /** null = crear una publicación nueva; un id = editar una existente. */
   initialPostId: string | null;
+  resumeDraft?: boolean;
   onClosed?: () => void;
-  /** Se invoca tras un guardado/publicación/borrado exitoso, para refrescar el listado público. */
-  onPostChanged?: () => void;
+  /** Notifica persistencia/borrado/detach; distingue drafts de contenido público. */
+  onPostChanged?: (status?: "draft" | "published") => void;
 }
 
 export function useCosplayEditor({
   initialPostId,
+  resumeDraft = false,
   onPostChanged,
+  session,
 }: UseCosplayEditorOptions) {
   const [postId, setPostId] = useState<string | null>(initialPostId);
   const [status, setStatus] = useState<"draft" | "published">("draft");
@@ -177,9 +187,59 @@ export function useCosplayEditor({
   const [detaching, setDetaching] = useState(false);
   const [detachErrorKey, setDetachErrorKey] = useState<string | null>(null);
 
-  const mediaUpload = useMediaUpload({ domain: "cosplay" });
+  const sessionRef = useRef(session);
+  sessionRef.current = session;
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
+  const blocked = useRef(false);
+  const operationPending = useRef(false);
+  const active = useCallback(
+    () => mounted.current && (!sessionRef.current || sessionRef.current.isActive()),
+    [],
+  );
+  const current = useCallback(
+    async () =>
+      active() &&
+      (!sessionRef.current || (await sessionRef.current.isCurrent())) &&
+      active(),
+    [active],
+  );
+  const identityArgs = useCallback(
+    (): [] | [PrivilegedSessionIdentity] =>
+      sessionRef.current
+        ? [{ userId: sessionRef.current.userId ?? null, isActive: active }]
+        : [],
+    [active],
+  );
+  const requestStepUp = useCallback(
+    (intent: PrivilegedIntent) => {
+      if (!active()) return;
+      blocked.current = true;
+      setPendingDetachKey(null);
+      setStepUpIntent(intent);
+    },
+    [active],
+  );
+  const privilegedSession = session
+    ? {
+        userId: session.userId ?? null,
+        isActive: active,
+        isCurrent: current,
+        isBlocked: () => blocked.current,
+        onInvalidSession: () => sessionRef.current?.invalidate?.(),
+        onStepUp: () => requestStepUp(initialPostId === null ? "create" : "edit"),
+      }
+    : undefined;
+  const mediaUpload = useMediaUpload({ domain: "cosplay", privilegedSession });
+  const [loadRetryRequired, setLoadRetryRequired] = useState(false);
+  const [loadAttempt, setLoadAttempt] = useState(0);
   const savedSnapshotRef = useRef<string>("");
-  const stepUpNavigatedForUploadRef = useRef(false);
+  const handledUploadFailures = useRef(new Set<string>());
 
   const markClean = useCallback((f: EditorFields, p: EditorPhoto[]) => {
     savedSnapshotRef.current = JSON.stringify({
@@ -199,9 +259,22 @@ export function useCosplayEditor({
     let cancelled = false;
     setLoading(true);
     setLoadError(null);
-    getCosplayPostAdmin(initialPostId)
-      .then((detail) => {
-        if (cancelled) return;
+    current()
+      .then((valid) => {
+        if (!valid || cancelled) throw new Error("Session invalid");
+        if (blocked.current) {
+          requestStepUp("edit");
+          throw new CosplayAdminClientError(
+            "Verification required",
+            403,
+            "step_up_required",
+            "step_up_required",
+          );
+        }
+        return getCosplayPostAdmin(initialPostId, resumeDraft, ...identityArgs());
+      })
+      .then(async (detail) => {
+        if (cancelled || !(await current())) return;
         const f: EditorFields = {
           title: detail.title,
           description: detail.description ?? "",
@@ -211,6 +284,7 @@ export function useCosplayEditor({
         const p = [...detail.images]
           .sort((a, b) => a.position - b.position)
           .map(photoFromExisting);
+        setLoadRetryRequired(false);
         setPostId(detail.id);
         setStatus(detail.status);
         setVersion(detail.version);
@@ -219,7 +293,20 @@ export function useCosplayEditor({
         markClean(f, p);
       })
       .catch((err: unknown) => {
-        if (cancelled) return;
+        if (cancelled || !active()) return;
+        if (
+          err instanceof CosplayAdminClientError &&
+          err.privilegedFailure === "unauthenticated"
+        )
+          sessionRef.current?.invalidate?.();
+        if (
+          err instanceof CosplayAdminClientError &&
+          err.privilegedFailure === "step_up_required"
+        ) {
+          setLoadRetryRequired(true);
+          requestStepUp("edit");
+          return;
+        }
         setLoadError(
           err instanceof CosplayAdminClientError ? err.message : "Error inesperado",
         );
@@ -231,7 +318,7 @@ export function useCosplayEditor({
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [initialPostId]);
+  }, [initialPostId, resumeDraft, loadAttempt]);
 
   // Sincroniza la cola de subida REAL con la lista de fotos del editor: nunca reemplaza metadata
   // editorial ya introducida, solo el estado/URL/errores derivados de la subida en curso.
@@ -254,23 +341,17 @@ export function useCosplayEditor({
     setDirty(true);
   }, [mediaUpload.items]);
 
-  // Endurecimiento global de MFA privilegiado (9G/9I): un 403 step_up_required DURANTE LA SUBIDA
-  // (el MFA venció con el editor ya abierto) debe enrutar al mismo step-up que
-  // guardar/detach/borrar — nunca quedarse como un simple mensaje de "No autorizado" en la
-  // tarjeta de la foto (bug real observado en un smoke test ADMIN). Mismo patrón que
-  // MediaHarnessPage (Fase 9I-2C): un ref, no solo el state `stepUpIntent`, porque este efecto
-  // reacciona a la COLA de subida (no a una única llamada) y el item sigue "failed" en renders
-  // posteriores — sin la guarda se repetiría la navegación. La subida fallida NUNCA se reintenta
-  // sola: al volver del MFA el editor se remonta vacío y el ADMIN decide si repite la subida.
+  // Handle each failed attempt once; clearing MFA does not replay a failed upload.
   useEffect(() => {
-    if (stepUpNavigatedForUploadRef.current) return;
-    const hasStepUpUpload = mediaUpload.items.some(
-      (item) => item.privilegedFailure === "step_up_required",
+    const failures = new Set(
+      mediaUpload.items
+        .filter((item) => item.privilegedFailure === "step_up_required")
+        .map((item) => item.localId),
     );
-    if (!hasStepUpUpload) return;
-    stepUpNavigatedForUploadRef.current = true;
-    setStepUpIntent(postId === null ? "create" : "edit");
-  }, [mediaUpload.items, postId]);
+    const newFailure = [...failures].some((id) => !handledUploadFailures.current.has(id));
+    handledUploadFailures.current = failures;
+    if (newFailure) requestStepUp(postId === null ? "create" : "edit");
+  }, [mediaUpload.items, postId, requestStepUp]);
 
   const remainingCapacity = MAX_COSPLAY_PHOTOS - photos.length;
 
@@ -343,21 +424,37 @@ export function useCosplayEditor({
       setPendingDetachKey(null);
       return;
     }
+    if (operationPending.current || !active()) return;
+    operationPending.current = true;
     setDetaching(true);
     setDetachErrorKey(null);
     try {
-      const result = await detachCosplayMedia({
-        postId,
-        expectedVersion: version,
-        imageId: photo.existingImageId,
-      });
+      if (!(await current())) return;
+      if (blocked.current) {
+        requestStepUp("edit");
+        return;
+      }
+      const result = await detachCosplayMedia(
+        {
+          postId,
+          expectedVersion: version,
+          imageId: photo.existingImageId,
+        },
+        ...identityArgs(),
+      );
+      if (!(await current())) return;
       setVersion(result.version);
       setPhotos((prev) => prev.filter((p) => p.key !== key));
       setPendingDetachKey(null);
+      onPostChanged?.(status);
+      return true;
     } catch (err) {
+      if (!active()) return;
       if (err instanceof CosplayAdminClientError) {
+        if (err.privilegedFailure === "unauthenticated")
+          sessionRef.current?.invalidate?.();
         if (err.privilegedFailure === "step_up_required") {
-          setStepUpIntent("edit");
+          requestStepUp("edit");
           setPendingDetachKey(null);
           return;
         }
@@ -371,9 +468,21 @@ export function useCosplayEditor({
       // propio 200, o un error real de red): la confirmación se mantiene abierta para reintentar.
       setDetachErrorKey(key);
     } finally {
-      setDetaching(false);
+      operationPending.current = false;
+      if (active()) setDetaching(false);
     }
-  }, [pendingDetachKey, photos, postId, version]);
+  }, [
+    pendingDetachKey,
+    photos,
+    postId,
+    version,
+    onPostChanged,
+    status,
+    current,
+    active,
+    requestStepUp,
+    identityArgs,
+  ]);
 
   const canSave = useMemo(() => {
     if (fields.title.trim().length === 0) return false;
@@ -409,37 +518,71 @@ export function useCosplayEditor({
 
   const save = useCallback(
     async (desiredStatus: "draft" | "published") => {
-      if (!canSave) return;
+      if (!canSave || operationPending.current || !active()) return;
+      operationPending.current = true;
       setSaving(desiredStatus);
       setSaveErrorCode(null);
       try {
-        const result = await saveCosplayPost({
-          postId,
-          expectedVersion: version,
-          status: desiredStatus,
-          title: fields.title.trim(),
-          description: emptyToNull(fields.description),
-          characterName: emptyToNull(fields.characterName),
-          series: emptyToNull(fields.series),
-          // Evento, Fecha (shotOn) y créditos del fotógrafo: eliminados del editor (Evento/Fecha
-          // en la Fase "COSPLAY DETAIL REDESIGN"; fotógrafo, ajuste UX posterior a 9I-3). Los tres
-          // siguen existiendo en el esquema/contrato (compatibilidad, sin migración) pero ya no se
-          // recogen del ADMIN, así que siempre se envían null.
-          event: null,
-          shotOn: null,
-          photographerCredit: null,
-          images: buildImagesPayload(),
-        });
+        if (!(await current())) return;
+        if (blocked.current) {
+          requestStepUp(postId === null ? "create" : "edit");
+          return;
+        }
+        const result = await saveCosplayPost(
+          {
+            postId,
+            expectedVersion: version,
+            status: desiredStatus,
+            title: fields.title.trim(),
+            description: emptyToNull(fields.description),
+            characterName: emptyToNull(fields.characterName),
+            series: emptyToNull(fields.series),
+            // Evento, Fecha (shotOn) y créditos del fotógrafo: eliminados del editor (Evento/Fecha
+            // en la Fase "COSPLAY DETAIL REDESIGN"; fotógrafo, ajuste UX posterior a 9I-3). Los tres
+            // siguen existiendo en el esquema/contrato (compatibilidad, sin migración) pero ya no se
+            // recogen del ADMIN, así que siempre se envían null.
+            event: null,
+            shotOn: null,
+            photographerCredit: null,
+            images: buildImagesPayload(),
+          },
+          ...identityArgs(),
+        );
+        if (!(await current())) return;
         setPostId(result.post.id);
         setStatus(result.post.status);
         setVersion(result.post.version);
-        markClean(fields, photos);
-        onPostChanged?.();
+        const persistedPhotos = photos.map((photo) => {
+          const image = result.images.find((image) => image.assetId === photo.assetId);
+          return image
+            ? {
+                ...photo,
+                existingImageId: image.id,
+                localId: null,
+                uploadStatus: "existing" as const,
+                isCover: image.isCover,
+              }
+            : photo;
+        });
+        setPhotos(persistedPhotos);
+        for (const photo of photos) {
+          if (
+            photo.localId &&
+            result.images.some((image) => image.assetId === photo.assetId)
+          ) {
+            mediaUpload.release(photo.localId);
+          }
+        }
+        markClean(fields, persistedPhotos);
+        onPostChanged?.(result.post.status);
         return result;
       } catch (err) {
+        if (!active()) return;
         if (err instanceof CosplayAdminClientError) {
+          if (err.privilegedFailure === "unauthenticated")
+            sessionRef.current?.invalidate?.();
           if (err.privilegedFailure === "step_up_required") {
-            setStepUpIntent(postId === null ? "create" : "edit");
+            requestStepUp(postId === null ? "create" : "edit");
             return;
           }
           if (err.code === "cosplay_version_conflict") {
@@ -451,10 +594,15 @@ export function useCosplayEditor({
         }
         setSaveErrorCode("generic");
       } finally {
-        setSaving(null);
+        operationPending.current = false;
+        if (active()) setSaving(null);
       }
     },
     [
+      current,
+      active,
+      requestStepUp,
+      identityArgs,
       canSave,
       postId,
       version,
@@ -462,6 +610,7 @@ export function useCosplayEditor({
       photos,
       buildImagesPayload,
       markClean,
+      mediaUpload,
       onPostChanged,
     ],
   );
@@ -471,16 +620,27 @@ export function useCosplayEditor({
 
   const confirmDelete = useCallback(async () => {
     if (postId === null || version === null) return false;
+    if (operationPending.current || !active()) return false;
+    operationPending.current = true;
     setDeleting(true);
     setDeleteErrorCode(null);
     try {
-      await deleteCosplayPost({ postId, expectedVersion: version });
-      onPostChanged?.();
+      if (!(await current())) return false;
+      if (blocked.current) {
+        requestStepUp("delete");
+        return false;
+      }
+      await deleteCosplayPost({ postId, expectedVersion: version }, ...identityArgs());
+      if (!(await current())) return false;
+      onPostChanged?.(status);
       return true;
     } catch (err) {
+      if (!active()) return false;
       if (err instanceof CosplayAdminClientError) {
+        if (err.privilegedFailure === "unauthenticated")
+          sessionRef.current?.invalidate?.();
         if (err.privilegedFailure === "step_up_required") {
-          setStepUpIntent("delete");
+          requestStepUp("delete");
           return false;
         }
         if (err.code === "cosplay_version_conflict") {
@@ -493,16 +653,31 @@ export function useCosplayEditor({
       setDeleteErrorCode("generic");
       return false;
     } finally {
-      setDeleting(false);
+      operationPending.current = false;
+      if (active()) setDeleting(false);
     }
-  }, [postId, version, onPostChanged]);
+  }, [
+    postId,
+    version,
+    onPostChanged,
+    status,
+    current,
+    active,
+    requestStepUp,
+    identityArgs,
+  ]);
 
   const reloadFromServer = useCallback(async () => {
-    if (postId === null) return;
+    if (postId === null || !(await current())) return;
+    if (blocked.current) {
+      requestStepUp("edit");
+      return;
+    }
     setConflict(null);
     setLoading(true);
     try {
-      const detail = await getCosplayPostAdmin(postId);
+      const detail = await getCosplayPostAdmin(postId, resumeDraft, ...identityArgs());
+      if (!(await current())) return;
       const f: EditorFields = {
         title: detail.title,
         description: detail.description ?? "",
@@ -518,13 +693,21 @@ export function useCosplayEditor({
       setPhotos(p);
       markClean(f, p);
     } catch (err) {
+      if (!active()) return;
+      if (
+        err instanceof CosplayAdminClientError &&
+        err.privilegedFailure === "step_up_required"
+      ) {
+        requestStepUp("edit");
+        return;
+      }
       setLoadError(
         err instanceof CosplayAdminClientError ? err.message : "Error inesperado",
       );
     } finally {
       setLoading(false);
     }
-  }, [postId, markClean]);
+  }, [postId, resumeDraft, markClean, active, current, requestStepUp, identityArgs]);
 
   const currentSnapshot = useMemo(
     () =>
@@ -544,11 +727,17 @@ export function useCosplayEditor({
     photos,
     loading,
     loadError,
+    loadRetryRequired,
+    retryInitialLoad: () => setLoadAttempt((attempt) => attempt + 1),
     saving,
     saveErrorCode,
     conflict,
     stepUpIntent,
-    clearStepUpIntent: () => setStepUpIntent(null),
+    clearStepUpIntent: () => {
+      blocked.current = false;
+      setStepUpIntent(null);
+    },
+    cancelStepUp: () => setStepUpIntent(null),
     isDirty,
     canSave,
     remainingCapacity,

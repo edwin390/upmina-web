@@ -582,14 +582,20 @@ export async function handleCosplayPostListAdmin(
   const actorId = await authorizeCosplayAdmin(req, res);
   if (actorId === null) return res;
 
+  const scope = req.query.scope;
+  if (scope !== undefined && scope !== "own-drafts")
+    return res.status(400).json(BAD_REQUEST_BODY);
+
   const client = getServiceRoleClient();
   if (!client) return res.status(500).json(GENERIC_ERROR_BODY);
 
   try {
-    const { data, error } = await client
+    let query = client
       .from("cosplay_posts")
-      .select("id, slug, status, title_es, version, published_at, updated_at")
-      .order("updated_at", { ascending: false });
+      .select("id, slug, status, title_es, version, published_at, updated_at");
+    if (scope === "own-drafts")
+      query = query.eq("created_by", actorId).eq("status", "draft");
+    const { data, error } = await query.order("updated_at", { ascending: false });
     if (error || !Array.isArray(data)) return res.status(500).json(GENERIC_ERROR_BODY);
 
     const rows = data as {
@@ -674,6 +680,10 @@ export async function handleCosplayPostGetAdmin(
   const actorId = await authorizeCosplayAdmin(req, res);
   if (actorId === null) return res;
 
+  const scope = req.query.scope;
+  if (scope !== undefined && scope !== "own-draft")
+    return res.status(400).json(BAD_REQUEST_BODY);
+
   const rawId = req.query.postId;
   const postId = Array.isArray(rawId) ? rawId[0] : rawId;
   if (!isUuid(postId)) return res.status(400).json(BAD_REQUEST_BODY);
@@ -682,11 +692,13 @@ export async function handleCosplayPostGetAdmin(
   if (!client) return res.status(500).json(GENERIC_ERROR_BODY);
 
   try {
-    const { data, error } = await client
+    let query = client
       .from("cosplay_posts")
       .select(ADMIN_SELECT_WITH_IMAGES)
-      .eq("id", postId)
-      .maybeSingle();
+      .eq("id", postId);
+    if (scope === "own-draft")
+      query = query.eq("created_by", actorId).eq("status", "draft");
+    const { data, error } = await query.maybeSingle();
     if (error) return res.status(500).json(GENERIC_ERROR_BODY);
     if (!data) return res.status(404).json(NOT_FOUND_BODY);
 
