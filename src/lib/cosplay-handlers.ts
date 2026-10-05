@@ -6,7 +6,7 @@ import {
   mapPostRowToDetail,
   mapPostRowToSummary,
 } from "./cosplay-domain.js";
-import { publicVariantUrl } from "./r2-client.js";
+import { cosplayPublicMediaUrl } from "./media-delivery-url.js";
 import type {
   CosplayPostImageRow,
   CosplayPostListPage,
@@ -36,7 +36,7 @@ const SELECT_WITH_IMAGES =
  *  el mismo error 500 genérico que cualquier otro fallo. Nunca se sirve un placeholder ni una URL
  *  de original privado: solo la variante pública canónica ya normalizada. */
 function buildImageUrl(storageKey: string): string {
-  return publicVariantUrl(storageKey);
+  return cosplayPublicMediaUrl(storageKey);
 }
 
 function getServiceRoleClient() {

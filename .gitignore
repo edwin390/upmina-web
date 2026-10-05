@@ -48,3 +48,10 @@ coverage/
 # Secreto de un solo uso generado por scripts/bootstrap-admin-invitation.mjs (Bloque 2B):
 # el enlace de activación bootstrap_admin en texto plano. Nunca debe entrar en Git.
 /scripts/.secrets/
+
+# Cloudflare Worker (R4-D3): estado local de wrangler y secretos de desarrollo
+.wrangler/
+.dev.vars
+
+# Supabase CLI: metadata local del proyecto enlazado (generado por `supabase link`, no es fuente de verdad)
+supabase/.temp/

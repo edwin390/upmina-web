@@ -5,6 +5,8 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { testQueryClient } from "@/test/query-client";
+import { showActionSuccess } from "@/lib/action-notice";
+vi.mock("@/lib/action-notice", () => ({ showActionSuccess: vi.fn() }));
 
 // Fija /admin/mfa (Bloque 3B, actualizado en 9G-3): la decisión "¿hace falta MFA?" la toma el
 // SERVIDOR (GET /api/admin/access → mfa.recent), NUNCA el AAL de la sesión: la página no llama a
@@ -164,13 +166,20 @@ function LocationProbe({ id }: { id: string }) {
   );
 }
 
-function renderMfaPage(entry = "/admin/mfa") {
+function renderMfaPage(
+  entry:
+    | string
+    | { pathname: string; search: string; state: { cancelTo: string } } = "/admin/mfa",
+) {
   return render(
     <QueryClientProvider client={testQueryClient}>
       <MemoryRouter initialEntries={[entry]}>
         <Routes>
           <Route path="/admin/mfa" element={<AdminMfaPage />} />
           <Route path="/admin" element={<LocationProbe id="admin" />} />
+          <Route path="/cosplay" element={<LocationProbe id="cosplay" />} />
+          <Route path="/admin/moderation" element={<LocationProbe id="moderation" />} />
+          <Route path="/@edwin1" element={<LocationProbe id="profile" />} />
           <Route path="/account" element={<LocationProbe id="account" />} />
           <Route path="/login" element={<LocationProbe id="login" />} />
         </Routes>
@@ -207,6 +216,129 @@ beforeEach(() => {
           },
       };
     }),
+  );
+});
+
+describe("moderation MFA success and cancellation destinations", () => {
+  it.each(["fatal", "no-session", "need-factor"])(
+    "Cancel remains accessible in %s",
+    async (state) => {
+      authenticated();
+      if (state === "fatal") accessFakes.status = 500;
+      if (state === "no-session") authFakes.session = null;
+      mfaFakes.factorsResult = { data: { all: [], totp: [] }, error: null };
+      renderMfaPage({
+        pathname: "/admin/mfa",
+        search: "?returnTo=/admin/moderation",
+        state: { cancelTo: "/@edwin1" },
+      });
+      if (state === "fatal") await screen.findByRole("alert");
+      else if (state === "no-session")
+        await screen.findByRole("link", { name: "Iniciar sesión" });
+      else await screen.findByRole("button", { name: "Configurar autenticador" });
+      fireEvent.click(screen.getByRole("link", { name: "Cancelar" }));
+      expect(await screen.findByTestId("profile")).toBeInTheDocument();
+      expect(mfaFakes.calls.verify).toHaveLength(0);
+    },
+  );
+  it("same-page verification announces once after server revalidation", async () => {
+    vi.mocked(showActionSuccess).mockClear();
+    authenticated();
+    mfaFakes.factorsResult = { data: { all: [], totp: [totpFactor()] }, error: null };
+    mfaFakes.challengeResult = { data: { id: "synthetic-challenge" }, error: null };
+    mfaFakes.verifyResult = { data: {}, error: null };
+    renderMfaPage({
+      pathname: "/admin/mfa",
+      search: "?returnTo=/cosplay?intent=delete",
+      state: { cancelTo: "/cosplay" },
+    });
+    fireEvent.change(await screen.findByLabelText("Código de verificación"), {
+      target: { value: "123456" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Verificar" }));
+    await waitFor(() => expect(showActionSuccess).toHaveBeenCalledTimes(1));
+    expect(accessFakes.calls).toBe(2);
+    expect(showActionSuccess).toHaveBeenCalledWith(
+      "Verificación completada. Ya puedes realizar acciones de administrador.",
+    );
+  });
+  it.each(["cancel", "failure", "already-recent"])(
+    "does not announce on %s",
+    async (outcome) => {
+      vi.mocked(showActionSuccess).mockClear();
+      authenticated();
+      accessFakes.recent = outcome === "already-recent";
+      mfaFakes.factorsResult = { data: { all: [], totp: [totpFactor()] }, error: null };
+      renderMfaPage({
+        pathname: "/admin/mfa",
+        search: "?returnTo=/admin",
+        state: { cancelTo: "/admin" },
+      });
+      if (outcome === "cancel")
+        fireEvent.click(await screen.findByRole("link", { name: "Cancelar" }));
+      else if (outcome === "failure") {
+        accessFakes.recentAfterVerify = false;
+        fireEvent.change(await screen.findByLabelText("Código de verificación"), {
+          target: { value: "123456" },
+        });
+        fireEvent.click(screen.getByRole("button", { name: "Verificar" }));
+        await screen.findByRole("alert");
+      } else await screen.findByTestId("admin");
+      expect(showActionSuccess).not.toHaveBeenCalled();
+    },
+  );
+  it.each(["/@edwin1", "https://evil.example", "//evil.example"])(
+    "cancel safely returns to origin (%s)",
+    async (cancelTo) => {
+      authenticated();
+      mfaFakes.factorsResult = { data: { all: [], totp: [totpFactor()] }, error: null };
+      renderMfaPage({
+        pathname: "/admin/mfa",
+        search: "?returnTo=/admin/moderation",
+        state: { cancelTo },
+      });
+      fireEvent.click(await screen.findByRole("link", { name: "Cancelar" }));
+      expect(
+        await screen.findByTestId(cancelTo === "/@edwin1" ? "profile" : "account"),
+      ).toBeInTheDocument();
+      expect(screen.queryByTestId("moderation")).toBeNull();
+      expect(mfaFakes.calls.challenge).toHaveLength(0);
+      expect(mfaFakes.calls.verify).toHaveLength(0);
+      expect(authFakes.signOutCalls).toBe(0);
+    },
+  );
+  it("direct-route cancellation uses account fallback", async () => {
+    authenticated();
+    mfaFakes.factorsResult = { data: { all: [], totp: [totpFactor()] }, error: null };
+    renderMfaPage("/admin/mfa?returnTo=/admin/moderation");
+    fireEvent.click(await screen.findByRole("link", { name: "Cancelar" }));
+    expect(await screen.findByTestId("account")).toBeInTheDocument();
+  });
+  it.each([true, false])(
+    "verified MFA returns to moderation, not origin (profile=%s)",
+    async (profile) => {
+      authenticated();
+      mfaFakes.factorsResult = { data: { all: [], totp: [totpFactor()] }, error: null };
+      mfaFakes.challengeResult = { data: { id: "challenge-1" }, error: null };
+      mfaFakes.verifyResult = { data: { access_token: "synthetic" }, error: null };
+      renderMfaPage(
+        profile
+          ? {
+              pathname: "/admin/mfa",
+              search: "?returnTo=/admin/moderation",
+              state: { cancelTo: "/@edwin1" },
+            }
+          : "/admin/mfa?returnTo=/admin/moderation",
+      );
+      fireEvent.change(await screen.findByLabelText("Código de verificación"), {
+        target: { value: "123456" },
+      });
+      fireEvent.click(screen.getByRole("button", { name: "Verificar" }));
+      expect(await screen.findByTestId("moderation")).toHaveTextContent(
+        "/admin/moderation [fromMfa]",
+      );
+      expect(screen.queryByTestId("profile")).toBeNull();
+    },
   );
 });
 
@@ -872,11 +1004,7 @@ describe("AdminMfaPage — sesión AAL1 sin factor TOTP", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /cancelar/i }));
 
-    await waitFor(() =>
-      expect(
-        screen.getByRole("button", { name: /configurar autenticador/i }),
-      ).toBeInTheDocument(),
-    );
+    expect(await screen.findByTestId("account")).toBeInTheDocument();
     expect(mfaFakes.calls.unenroll).toEqual([{ factorId: "factor-nuevo" }]);
   });
 

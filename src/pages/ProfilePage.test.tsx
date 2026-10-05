@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider, QueryObserver } from "@tanstack/react-query";
 import { freshContentUrl } from "@/lib/content-freshness";
-import { MemoryRouter, Route, Routes } from "react-router-dom";
+import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 
 // /@username (Fase 9J-2B, ampliado en 9J-2B.1): perfil público — estados de carga/no-encontrado/
 // error/vacío/contenido, jerarquía TikTok-style (avatar, display name, @username, bio, N
@@ -32,13 +32,18 @@ vi.mock("@/hooks/useOwnProfile", () => ({
 const adminAccessFakes = vi.hoisted(() => ({
   status: "no-session" as "no-session" | "ready",
   role: null as "admin" | "moderator" | "developer" | null,
+  capabilities: [] as string[],
 }));
 vi.mock("@/hooks/useAdminAccess", () => ({
   useAdminAccess: () => ({
     status: adminAccessFakes.status,
     access:
       adminAccessFakes.status === "ready"
-        ? { role: adminAccessFakes.role, capabilities: [], mfaRecent: false }
+        ? {
+            role: adminAccessFakes.role,
+            capabilities: adminAccessFakes.capabilities,
+            mfaRecent: false,
+          }
         : null,
     refetch: async () => null,
     invalidate: async () => {},
@@ -79,6 +84,13 @@ vi.mock("@/hooks/useMediaUpload", () => ({
 }));
 
 const { default: ProfilePage } = await import("./ProfilePage");
+vi.mock("@/lib/auth-context", () => ({
+  useAuth: () => ({
+    user: { id: "test-owner" },
+    session: { access_token: "synthetic" },
+    loading: false,
+  }),
+}));
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), {
@@ -120,6 +132,7 @@ function ownPost(id: string, overrides: Record<string, unknown> = {}) {
     updatedAt: "2026-03-02T10:00:00.000Z",
     media: [],
     likeCount: 0,
+    resolvedNoticeUnseen: false,
     ...overrides,
   };
 }
@@ -144,6 +157,19 @@ function stubProfile(body: unknown, status = 200) {
   return fetchMock;
 }
 
+function ModerationDestination() {
+  const location = useLocation();
+  return (
+    <p>
+      {location.pathname} cancel:{location.state?.cancelTo}
+    </p>
+  );
+}
+function PrivatePostDestination() {
+  const location = useLocation();
+  return <p>Private context: {location.state?.ownerProfilePostId ?? "none"}</p>;
+}
+
 function renderProfile(
   entry = "/@edwin1",
   client = new QueryClient({ defaultOptions: { queries: { retry: false } } }),
@@ -155,8 +181,25 @@ function renderProfile(
           <Route path="/:usernameParam" element={<ProfilePage />} />
           <Route path="/community" element={<p>Comunidad stub</p>} />
           <Route path="/account" element={<p>Account stub</p>} />
-          <Route path="/admin" element={<p>Admin stub</p>} />
-          <Route path="/community/post/:postId" element={<p>Post detail stub</p>} />
+          <Route
+            path="/admin"
+            element={
+              <>
+                <p>Admin stub</p>
+                <ModerationDestination />
+              </>
+            }
+          />
+          <Route path="/admin/moderation" element={<ModerationDestination />} />
+          <Route
+            path="/community/post/:postId"
+            element={
+              <>
+                <p>Post detail stub</p>
+                <PrivatePostDestination />
+              </>
+            }
+          />
         </Routes>
       </MemoryRouter>
     </QueryClientProvider>,
@@ -173,6 +216,7 @@ beforeEach(() => {
   ownProfileFakes.profile = null;
   adminAccessFakes.status = "no-session";
   adminAccessFakes.role = null;
+  adminAccessFakes.capabilities = [];
   communityClientMocks.listOwnCommunityPosts.mockReset();
   communityClientMocks.listOwnCommunityPosts.mockResolvedValue({ items: [] });
   communityClientMocks.saveCommunityPost.mockReset();
@@ -187,6 +231,99 @@ afterEach(() => {
 });
 
 describe("/@username — estados", () => {
+  it.each([
+    ["hidden_pending_review", "Publicación pausada"],
+    ["removed_pending_purge", "Retirada"],
+  ])("owner discovers %s privately with delete but no edit", async (status, label) => {
+    ownProfileFakes.profile = { username: "edwin1", displayName: null, bio: null };
+    communityClientMocks.listOwnCommunityPosts.mockResolvedValue({
+      items: [ownPost("private-post", { status })],
+    });
+    stubProfile(profilePage());
+    renderProfile();
+    await screen.findByText(label);
+    fireEvent.click(screen.getByRole("button", { name: "Gestionar esta publicación" }));
+    expect(screen.queryByRole("menuitem", { name: "Editar" })).toBeNull();
+    expect(screen.getByRole("menuitem", { name: "Eliminar" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("link", { name: /Publicación de texto/ }));
+    expect(await screen.findByText("Private context: private-post")).toBeInTheDocument();
+  });
+  it("R4-C: own Profile shows 'Caso resuelto' only for a published post with an unseen valid notice", async () => {
+    ownProfileFakes.profile = { username: "edwin1", displayName: null, bio: null };
+    communityClientMocks.listOwnCommunityPosts.mockResolvedValue({
+      items: [ownPost("resolved-post", { resolvedNoticeUnseen: true })],
+    });
+    stubProfile(profilePage());
+    renderProfile();
+    expect(await screen.findByText("Caso resuelto")).toBeInTheDocument();
+    expect(screen.queryByText("Retirada")).toBeNull();
+    expect(screen.queryByText("Publicación pausada")).toBeNull();
+  });
+  it("R4-C: seen notice or normal post (flag false) shows no 'Caso resuelto'", async () => {
+    ownProfileFakes.profile = { username: "edwin1", displayName: null, bio: null };
+    communityClientMocks.listOwnCommunityPosts.mockResolvedValue({
+      items: [ownPost("normal-post", { resolvedNoticeUnseen: false })],
+    });
+    stubProfile(profilePage());
+    renderProfile();
+    await screen.findByRole("link", { name: /Publicación de texto/ });
+    expect(screen.queryByText("Caso resuelto")).toBeNull();
+  });
+  it("R4-C: restrictive states take priority over the informative chip", async () => {
+    ownProfileFakes.profile = { username: "edwin1", displayName: null, bio: null };
+    communityClientMocks.listOwnCommunityPosts.mockResolvedValue({
+      items: [
+        ownPost("p1", { status: "removed_pending_purge", resolvedNoticeUnseen: true }),
+      ],
+    });
+    stubProfile(profilePage());
+    renderProfile();
+    await screen.findByText("Retirada");
+    expect(screen.queryByText("Caso resuelto")).toBeNull();
+  });
+  it("R4-C: a fresh own-posts read after the ACK no longer shows the chip", async () => {
+    ownProfileFakes.profile = { username: "edwin1", displayName: null, bio: null };
+    communityClientMocks.listOwnCommunityPosts
+      .mockResolvedValueOnce({ items: [ownPost("p1", { resolvedNoticeUnseen: true })] })
+      .mockResolvedValue({ items: [ownPost("p1", { resolvedNoticeUnseen: false })] });
+    stubProfile(profilePage());
+    const first = renderProfile();
+    await screen.findByText("Caso resuelto");
+    first.unmount();
+    stubProfile(profilePage());
+    renderProfile();
+    await screen.findByRole("link", { name: /Publicación de texto/ });
+    expect(screen.queryByText("Caso resuelto")).toBeNull();
+  });
+  it("R4-C: another user's profile never reads or renders the private flag", async () => {
+    ownProfileFakes.profile = { username: "otro-usuario", displayName: null, bio: null };
+    communityClientMocks.listOwnCommunityPosts.mockResolvedValue({
+      items: [ownPost("p1", { resolvedNoticeUnseen: true })],
+    });
+    stubProfile(
+      profilePage({
+        posts: {
+          items: [
+            post("p1", { resolvedNoticeUnseen: true, text: "publicación pública" }),
+          ],
+        },
+      }),
+    );
+    renderProfile();
+    await screen.findByText("publicación pública");
+    expect(screen.queryByText("Caso resuelto")).toBeNull();
+    expect(communityClientMocks.listOwnCommunityPosts).not.toHaveBeenCalled();
+  });
+  it("owner list failure does not claim empty profile", async () => {
+    ownProfileFakes.profile = { username: "edwin1", displayName: null, bio: null };
+    communityClientMocks.listOwnCommunityPosts.mockRejectedValue(
+      new Error("invalid_response"),
+    );
+    stubProfile(profilePage());
+    renderProfile();
+    await screen.findByText("No se pudieron cargar tus publicaciones.");
+    expect(screen.queryByText("Todavía no hay publicaciones")).toBeNull();
+  });
   it("carga: muestra un estado de carga", () => {
     vi.stubGlobal(
       "fetch",
@@ -523,7 +660,33 @@ describe("/@username — dueño: controles propios", () => {
     renderProfile();
     const link = await screen.findByRole("link", { name: "Panel de administración" });
     expect(link).toHaveAttribute("href", "/admin");
+    fireEvent.click(link);
+    expect(await screen.findByText("/admin cancel:/@edwin1")).toBeInTheDocument();
   });
+  it.each(["admin", "moderator", "developer"] as const)(
+    "own profile moderation shortcut is independent and stacked (%s)",
+    async (role) => {
+      ownProfileFakes.profile = { username: "edwin1", displayName: null, bio: null };
+      adminAccessFakes.status = "ready";
+      adminAccessFakes.role = role;
+      adminAccessFakes.capabilities = ["moderation"];
+      stubProfile(profilePage());
+      renderProfile();
+      const link = await screen.findByRole("link", { name: "Panel de moderación" });
+      expect(link).toHaveAttribute("href", "/admin/moderation");
+      expect(link.parentElement).toHaveClass("flex-col");
+      if (role === "admin")
+        expect(link.previousElementSibling).toHaveTextContent("Panel de administración");
+      else
+        expect(
+          screen.queryByRole("link", { name: "Panel de administración" }),
+        ).toBeNull();
+      fireEvent.click(link);
+      expect(
+        await screen.findByText("/admin/moderation cancel:/@edwin1"),
+      ).toBeInTheDocument();
+    },
+  );
 
   it("un usuario normal (no ADMIN) no ve el atajo", async () => {
     ownProfileFakes.profile = { username: "edwin1", displayName: null, bio: null };
@@ -533,6 +696,7 @@ describe("/@username — dueño: controles propios", () => {
     renderProfile();
     await screen.findByText("Todavía no hay publicaciones");
     expect(screen.queryByText(/panel de administración/i)).toBeNull();
+    expect(screen.queryByRole("link", { name: "Panel de moderación" })).toBeNull();
   });
 
   it("nunca inventa un panel de moderador o desarrollador", async () => {

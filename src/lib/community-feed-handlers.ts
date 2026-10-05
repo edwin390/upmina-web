@@ -15,7 +15,7 @@ import {
   type RawFeedMediaRow,
   type RawFeedPostRow,
 } from "./community-feed-domain.js";
-import { publicVariantUrl } from "./r2-client.js";
+import { communityPublicMediaUrl } from "./media-delivery-url.js";
 
 // Handler HTTP de lectura PÚBLICA del feed de Comunidad (Fase 9J-2A, ampliado en 9J-2C con el modo
 // "Populares"): listado paginado de publicaciones published. Público (sin Authorization): filtra
@@ -64,7 +64,7 @@ function getServiceRoleClient(): SupabaseClient | null {
  *  (r2-client.ts), nunca un segundo sistema. Nunca se sirve una clave de storage cruda ni un
  *  original privado: solo la variante pública canónica ya normalizada. */
 function buildImageUrl(storageKey: string): string {
-  return publicVariantUrl(storageKey);
+  return communityPublicMediaUrl(storageKey);
 }
 
 /** Perfiles del autor en una consulta aparte (community_posts no tiene una FK directa hacia

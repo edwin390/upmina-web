@@ -1,5 +1,6 @@
-import { useEffect, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useEffect, useId, useRef, useState } from "react";
+import { createPortal } from "react-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { useTranslations } from "use-intl";
 import {
   CosplayAdminClientError,
@@ -39,13 +40,33 @@ export default function CosplayCardAdminMenu({
 }: Props) {
   const t = useTranslations("cosplay.admin");
   const navigate = useNavigate();
+  const location = useLocation();
   const rootRef = useRef<HTMLDivElement>(null);
+  const dialogRef = useRef<HTMLDialogElement>(null);
+  const headingId = useId();
+  const deletingRef = useRef(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const [pendingVersion, setPendingVersion] = useState<number | null>(null);
   const [loadingVersion, setLoadingVersion] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [errorCode, setErrorCode] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!confirming) return;
+    const dialog = dialogRef.current;
+    if (!dialog) return;
+    const previousFocus = document.activeElement as HTMLElement | null;
+    dialog.showModal();
+    dialog.querySelector<HTMLButtonElement>("[data-cancel]")?.focus();
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      dialog.close();
+      document.body.style.overflow = previousOverflow;
+      if (previousFocus?.isConnected) previousFocus.focus();
+    };
+  }, [confirming]);
 
   useEffect(() => {
     if (!menuOpen) return;
@@ -70,7 +91,9 @@ export default function CosplayCardAdminMenu({
   };
 
   const goToStepUp = () => {
-    navigate(`/admin/mfa?returnTo=${encodeURIComponent("/cosplay?intent=delete")}`);
+    navigate(`/admin/mfa?returnTo=${encodeURIComponent("/cosplay?intent=delete")}`, {
+      state: { cancelTo: location.pathname + location.search },
+    });
   };
 
   const handleDeleteClick: React.MouseEventHandler = async (event) => {
@@ -105,7 +128,8 @@ export default function CosplayCardAdminMenu({
 
   const confirmDelete: React.MouseEventHandler = async (event) => {
     stop(event);
-    if (pendingVersion === null) return;
+    if (pendingVersion === null || deletingRef.current) return;
+    deletingRef.current = true;
     setDeleting(true);
     setErrorCode(null);
     try {
@@ -129,6 +153,7 @@ export default function CosplayCardAdminMenu({
       }
       setErrorCode("generic");
     } finally {
+      deletingRef.current = false;
       setDeleting(false);
     }
   };
@@ -183,46 +208,56 @@ export default function CosplayCardAdminMenu({
         </div>
       )}
 
-      {confirming && (
-        <div
-          role="group"
-          aria-label={t("deletePost.confirmHeading")}
-          className="absolute right-0 top-full z-20 mt-1 w-64 rounded-md border border-accent-live/40 bg-bg-surface p-3 shadow-lg"
-        >
-          <p className="text-sm font-semibold text-text-primary">
-            {t("deletePost.confirmHeading")}
-          </p>
-          <p className="mt-1 text-sm text-text-secondary">
-            {t("deletePost.confirmBody")}
-          </p>
-          {errorCode && (
-            <p role="alert" className="mt-2 text-sm text-accent-live">
-              {t("feedback.deleteFailed")}
-              {". "}
-              {t(`errors.${errorCode}` as never)}
+      {confirming &&
+        createPortal(
+          <dialog
+            ref={dialogRef}
+            aria-labelledby={headingId}
+            onCancel={(event) => {
+              event.preventDefault();
+              if (!deletingRef.current) {
+                setConfirming(false);
+                setPendingVersion(null);
+              }
+            }}
+            className="fixed inset-0 m-auto max-h-[calc(100dvh-2rem)] w-[calc(100%-2rem)] max-w-sm overflow-y-auto rounded-md border border-accent-live/40 bg-bg-surface p-6 shadow-lg backdrop:bg-bg-base/80"
+          >
+            <p id={headingId} className="text-sm font-semibold text-text-primary">
+              {t("deletePost.confirmHeading")}
             </p>
-          )}
-          <div className="mt-3 flex flex-wrap gap-2">
-            <button
-              type="button"
-              onClick={confirmDelete}
-              disabled={deleting}
-              aria-busy={deleting}
-              className={DANGER_BUTTON}
-            >
-              {t("deletePost.confirmAction")}
-            </button>
-            <button
-              type="button"
-              onClick={cancelDelete}
-              disabled={deleting}
-              className={SECONDARY_BUTTON}
-            >
-              {t("deletePost.cancel")}
-            </button>
-          </div>
-        </div>
-      )}
+            <p className="mt-1 text-sm text-text-secondary">
+              {t("deletePost.confirmBody")}
+            </p>
+            {errorCode && (
+              <p role="alert" className="mt-3 text-sm text-accent-live">
+                {t("feedback.deleteFailed")}
+                {". "}
+                {t(`errors.${errorCode}` as never)}
+              </p>
+            )}
+            <div className="mt-3 flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={confirmDelete}
+                disabled={deleting}
+                aria-busy={deleting}
+                className={DANGER_BUTTON}
+              >
+                {t("deletePost.confirmAction")}
+              </button>
+              <button
+                type="button"
+                data-cancel
+                onClick={cancelDelete}
+                disabled={deleting}
+                className={SECONDARY_BUTTON}
+              >
+                {t("deletePost.cancel")}
+              </button>
+            </div>
+          </dialog>,
+          document.body,
+        )}
 
       {errorCode && !confirming && (
         <p

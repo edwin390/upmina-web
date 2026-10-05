@@ -46,7 +46,10 @@ type PanelState =
 /** Estado del router al volver del step-up (ver AdminMfaPage). Solo UX anti-bucle. */
 function returnedFromMfa(state: unknown): boolean {
   return Boolean(
-    state && typeof state === "object" && (state as { fromMfa?: unknown }).fromMfa,
+    state &&
+    typeof state === "object" &&
+    ((state as { fromMfa?: unknown }).fromMfa ||
+      (state as { mfaCancelled?: unknown }).mfaCancelled),
   );
 }
 
@@ -176,7 +179,7 @@ function AdminDashboard() {
   }
 
   if (status === "no-session") {
-    return <Navigate to={LOGIN_PATH} replace />;
+    return <Navigate to={LOGIN_PATH} replace state={location.state} />;
   }
 
   if (status === "unauthenticated") {
@@ -225,6 +228,15 @@ function AdminDashboard() {
             ? "Tu acceso administrativo ya no está disponible."
             : "No tienes acceso al panel de administración."}
         </p>
+        {access.capabilities.includes("moderation") && (
+          <Link
+            to="/admin/moderation"
+            state={{ cancelTo: "/admin" }}
+            className="mt-4 inline-flex min-h-11 items-center font-semibold text-accent-primary hover:underline"
+          >
+            Abrir moderación
+          </Link>
+        )}
         <p className="mt-4 text-sm text-text-secondary">
           <Link to="/account" className="font-medium text-accent-primary hover:underline">
             Ir a mi cuenta
@@ -252,6 +264,7 @@ function AdminDashboard() {
             </button>
             <Link
               to={MFA_PATH}
+              state={location.state}
               className="inline-flex min-h-11 items-center rounded-md border border-accent-primary/60 px-5 py-2.5 text-sm font-semibold text-accent-primary hover:underline"
             >
               Verificar de nuevo
@@ -260,7 +273,13 @@ function AdminDashboard() {
         </AdminAuthCard>
       );
     }
-    return <Navigate to={MFA_PATH} replace />;
+    return (
+      <Navigate
+        to={MFA_PATH}
+        replace
+        state={hadPanelRef.current ? { cancelTo: "/admin" } : location.state}
+      />
+    );
   }
 
   // role admin + MFA reciente: la decisión final la toma GET /api/admin/me.
@@ -321,8 +340,17 @@ function AdminDashboard() {
           {panel.capabilities.includes("team_admin") ? <TeamMembersSection /> : null}
 
           <nav className="mt-8 grid gap-3" aria-label="Herramientas administrativas">
+            {panel.capabilities.includes("moderation") ? (
+              <Link
+                to="/admin/moderation"
+                state={{ cancelTo: "/admin" }}
+                className="rounded-md border border-border-subtle px-4 py-3 text-sm font-semibold text-text-secondary transition-colors hover:border-accent-primary/60 hover:text-text-primary"
+              >
+                Moderación
+              </Link>
+            ) : null}
             <span className="rounded-md border border-border-subtle px-4 py-3 text-sm text-text-secondary">
-              Próximamente: moderación y usuarios
+              Próximamente: usuarios
             </span>
           </nav>
 

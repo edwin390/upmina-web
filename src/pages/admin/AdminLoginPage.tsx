@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from "react";
-import { Link, Navigate, useSearchParams } from "react-router-dom";
+import { Link, Navigate, useLocation, useSearchParams } from "react-router-dom";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/lib/auth-context";
 import AdminAuthCard from "@/components/admin/AdminAuthCard";
@@ -35,6 +35,7 @@ function loginErrorMessage(error: unknown): string {
 }
 
 export default function AdminLoginPage() {
+  const location = useLocation();
   const { session, loading: sessionLoading, signOut } = useAuth();
   const [searchParams] = useSearchParams();
   const rawReturnTo = searchParams.get("returnTo");
@@ -86,7 +87,7 @@ export default function AdminLoginPage() {
   }
 
   if (session && returnTo) {
-    return <Navigate to={returnTo} replace />;
+    return <Navigate to={returnTo} replace state={location.state} />;
   }
 
   if (session) {
@@ -99,6 +100,7 @@ export default function AdminLoginPage() {
         <div className="mt-6 flex flex-wrap gap-3">
           <Link
             to="/admin"
+            state={{ cancelTo: "/admin/login" }}
             className="inline-flex min-h-11 items-center rounded-md border border-accent-primary/60 bg-accent-primary px-5 py-2.5 text-sm font-bold uppercase tracking-[0.18em] text-text-inverse shadow-glow-primary transition duration-200 ease-bounce hover:-translate-y-1 hover:bg-accent-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-secondary focus-visible:ring-offset-2 focus-visible:ring-offset-bg-surface"
           >
             Ir al panel de administración

@@ -1,0 +1,18 @@
+{
+  // R4-D3: Worker de TESTING/DEV (nunca Production). Secretos fuera de este archivo:
+  //   wrangler secret put MEDIA_CHECK_SHARED_SECRET
+  "name": "upmina-media-delivery-dev",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-09-01",
+  "workers_dev": true,
+  "r2_buckets": [
+    // Solo el bucket PÚBLICO DEV. Nunca se enlaza el bucket privado ni ningún bucket de Production.
+    { "binding": "MEDIA_BUCKET", "bucket_name": "upmina-media-dev-public" },
+  ],
+  "vars": {
+    "MEDIA_CAP_AUDIENCE": "upmina-media-testing",
+    "MEDIA_CAP_PUBLIC_KEYS": "{\"dev-1\":\"MCowBQYDK2VwAyEAiySPpPxAR3pNhb/pdUMIkmI0VEBDbNnhm/RcWD3ZRAo=\"}",
+    // Backend Testing aislado (proyecto Vercel upmina-web-testing, solo Preview, sin Git).
+    "MEDIA_CHECK_URL": "https://upmina-testing-backend.vercel.app/api/media/access",
+  },
+}

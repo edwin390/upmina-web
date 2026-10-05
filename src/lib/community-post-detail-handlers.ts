@@ -5,7 +5,7 @@ import {
   mapFeedPostRow,
   type RawFeedMediaRow,
 } from "./community-feed-domain.js";
-import { publicVariantUrl } from "./r2-client.js";
+import { communityPublicMediaUrl } from "./media-delivery-url.js";
 import type { CommunityFeedPost } from "../types/index.js";
 
 // Handler HTTP de lectura PÚBLICA de UNA publicación de Comunidad (Fase 9J-2B.1): /community/post/
@@ -52,7 +52,7 @@ function getServiceRoleClient(): SupabaseClient | null {
 }
 
 function buildImageUrl(storageKey: string): string {
-  return publicVariantUrl(storageKey);
+  return communityPublicMediaUrl(storageKey);
 }
 
 function firstQueryValue(raw: string | string[] | undefined): string | undefined {

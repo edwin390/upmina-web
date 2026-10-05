@@ -125,6 +125,7 @@ describe("handleCommunityFeed", () => {
     communityFeedDb.posts = [
       postRow({ id: "visible" }),
       postRow({ id: "oculta", status: "hidden" }),
+      postRow({ id: "preventiva", status: "hidden_pending_review" }),
     ];
     const { res, state } = mockRes();
     await handleCommunityFeed(req("GET"), res);
@@ -153,6 +154,34 @@ describe("handleCommunityFeed", () => {
     expect(media.kind).toBe("image");
     expect(media.url).toContain("community/asset-1/w1200.webp");
     expect(JSON.stringify(body)).not.toContain("private");
+  });
+
+  it("R4-D2: con entrega segura, la media published usa la URL del Worker SIN capability (jamás ?cap)", async () => {
+    vi.stubEnv("MEDIA_DELIVERY_BASE_URL", "https://media.synthetic.example");
+    const asset = "0b2ad7a0-1c0e-4a8d-9a11-0c4f59f0a001";
+    communityFeedDb.posts = [
+      postRow({
+        community_post_media: [
+          readyMediaRow({
+            media_assets: {
+              status: "ready",
+              kind: "image",
+              width: 1200,
+              height: 1600,
+              storage_key: `community/${asset}/w1600.webp`,
+              duration_seconds: null,
+            },
+          }),
+        ],
+      }),
+    ];
+    const { res, state } = mockRes();
+    await handleCommunityFeed(req("GET"), res);
+    const body = state.body as { items: { media: { url: string }[] }[] };
+    expect(body.items[0].media[0].url).toBe(
+      `https://media.synthetic.example/community/${asset}/w1600.webp`,
+    );
+    expect(JSON.stringify(body)).not.toMatch(/cap=|resolvedNoticeUnseen|noticeId/);
   });
 
   it("publicación con vídeo (9J-3): kind='video', durationSeconds expuesta, sin storage_key crudo", async () => {

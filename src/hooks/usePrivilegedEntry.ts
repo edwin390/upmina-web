@@ -1,5 +1,5 @@
 import { useCallback, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { useAdminAccess } from "@/hooks/useAdminAccess";
 
 // Entrada a una superficie de autoría privilegiada (Fase 9G/9I — endurecimiento global). Antes de
@@ -21,6 +21,7 @@ import { useAdminAccess } from "@/hooks/useAdminAccess";
 //     comprobar todo por sí mismo y no exige ningún rol concreto para enrolar/verificar TOTP.
 export function usePrivilegedEntry() {
   const navigate = useNavigate();
+  const location = useLocation();
   const { refetch } = useAdminAccess();
   const enteringRef = useRef(false);
   const [enteringTarget, setEnteringTarget] = useState<string | null>(null);
@@ -37,7 +38,9 @@ export function usePrivilegedEntry() {
           onReady();
           return;
         }
-        navigate(`/admin/mfa?returnTo=${encodeURIComponent(returnTo)}`);
+        navigate(`/admin/mfa?returnTo=${encodeURIComponent(returnTo)}`, {
+          state: { cancelTo: location.pathname + location.search },
+        });
       } catch {
         // A rejected access check never opens the surface; allow another explicit attempt.
         return;
@@ -46,7 +49,7 @@ export function usePrivilegedEntry() {
         setEnteringTarget(null);
       }
     },
-    [refetch, navigate],
+    [refetch, navigate, location.pathname, location.search],
   );
 
   return { enter, isEntering: enteringTarget !== null, enteringTarget };

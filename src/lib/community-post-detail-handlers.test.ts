@@ -107,22 +107,25 @@ describe("handleCommunityPostDetail", () => {
     expect(state.body).toEqual({ error: "No encontrado" });
   });
 
-  it("publicación hidden (no pública) → 404, idéntico a inexistente", async () => {
-    communityPostDetailDb.posts = [postRow({ status: "hidden" })];
-    communityPostDetailDb.profiles = [profileRow()];
-    const { res: resHidden, state: stateHidden } = mockRes();
-    await handleCommunityPostDetail(req("GET", { postId: POST_ID }), resHidden);
+  it.each(["hidden", "hidden_pending_review"])(
+    "publicación %s (no pública) → 404, idéntico a inexistente",
+    async (status) => {
+      communityPostDetailDb.posts = [postRow({ status })];
+      communityPostDetailDb.profiles = [profileRow()];
+      const { res: resHidden, state: stateHidden } = mockRes();
+      await handleCommunityPostDetail(req("GET", { postId: POST_ID }), resHidden);
 
-    const { res: resMissing, state: stateMissing } = mockRes();
-    await handleCommunityPostDetail(
-      req("GET", { postId: "22222222-2222-4222-8222-222222222222" }),
-      resMissing,
-    );
+      const { res: resMissing, state: stateMissing } = mockRes();
+      await handleCommunityPostDetail(
+        req("GET", { postId: "22222222-2222-4222-8222-222222222222" }),
+        resMissing,
+      );
 
-    expect(stateHidden.status).toBe(stateMissing.status);
-    expect(stateHidden.status).toBe(404);
-    expect(stateHidden.body).toEqual(stateMissing.body);
-  });
+      expect(stateHidden.status).toBe(stateMissing.status);
+      expect(stateHidden.status).toBe(404);
+      expect(stateHidden.body).toEqual(stateMissing.body);
+    },
+  );
 
   it("solo devuelve media ready, con URL pública canónica", async () => {
     communityPostDetailDb.posts = [

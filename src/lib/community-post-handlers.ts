@@ -3,7 +3,7 @@ import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { AdminAuthError, requireAuthenticated } from "./admin-auth.js";
 import { attemptMediaAssetCleanup } from "./cosplay-media-lifecycle.js";
 import { checkPostText, COMMUNITY_POST_MAX_MEDIA } from "./community-post-fields.js";
-import { publicVariantUrl } from "./r2-client.js";
+import { handleCommunityAuthorPosts } from "./community-author-handlers.js";
 
 // Handlers HTTP de publicaciones de Comunidad (Fase 9J-1C): crear/guardar, reordenar media,
 // desadjuntar media, borrar (propio) y listar las publicaciones propias. Despachados desde
@@ -33,6 +33,7 @@ const RPC_ERROR_MAP: Readonly<Record<string, { status: number; code: string }>> 
   invalid_argument: { status: 400, code: "validation" },
   no_profile: { status: 422, code: "profile_required" },
   not_owner: { status: 403, code: "forbidden" },
+  post_not_editable: { status: 409, code: "community_post_not_editable" },
   post_not_found: { status: 404, code: "not_found" },
   media_not_found: { status: 404, code: "not_found" },
   version_conflict: { status: 409, code: "community_version_conflict" },
@@ -200,7 +201,7 @@ interface RawPostRow {
   id: string;
   author_user_id: string;
   text: string | null;
-  status: "published" | "hidden";
+  status: "published" | "hidden_pending_review" | "hidden" | "removed_pending_purge";
   version: number;
   created_at: string;
   updated_at: string;
@@ -468,83 +469,6 @@ export async function handleCommunityPostDelete(
 
 // ────────────────────────────────────────────────────────────────────────────────────────────
 // GET /api/admin/community-post-list-own — lecturas del propio autor (nunca de otro usuario:
-// author_user_id sale SIEMPRE del JWT verificado, nunca de un query param). Sin RPC: una lectura
-// simple no necesita atomicidad multi-tabla (mismo criterio que cosplay-post-list-admin).
+// El actor sale del JWT verificado. R4-C delega la proyección privada y el reloj a la RPC de autor.
 
-const OWN_SELECT_WITH_MEDIA =
-  "id, text, status, version, created_at, updated_at, like_count, community_post_media(id, asset_id, position, media_assets(id, status, kind, width, height, storage_key, duration_seconds))";
-
-interface OwnMediaAssetRow {
-  id: string;
-  status: string;
-  kind: string;
-  width: number | null;
-  height: number | null;
-  storage_key: string | null;
-  duration_seconds: number | null;
-}
-
-interface OwnMediaRow {
-  id: string;
-  asset_id: string;
-  position: number;
-  media_assets: OwnMediaAssetRow | null;
-}
-
-interface OwnPostRow extends RawPostRow {
-  community_post_media?: OwnMediaRow[];
-}
-
-function mapOwnMediaRow(row: OwnMediaRow) {
-  const asset = row.media_assets;
-  return {
-    ...mapMediaRowNeutral(row),
-    assetStatus: asset?.status ?? null,
-    kind: asset?.kind === "video" ? ("video" as const) : ("image" as const),
-    width: asset?.width ?? null,
-    height: asset?.height ?? null,
-    durationSeconds: asset?.kind === "video" ? (asset.duration_seconds ?? null) : null,
-    url:
-      asset && asset.status === "ready" && asset.storage_key
-        ? publicVariantUrl(asset.storage_key)
-        : null,
-  };
-}
-
-export async function handleCommunityPostListOwn(
-  req: VercelRequest,
-  res: VercelResponse,
-): Promise<VercelResponse> {
-  if (req.method !== "GET") {
-    res.setHeader("Allow", "GET");
-    return res.status(405).json({ error: "Método no permitido" });
-  }
-
-  const actorId = await authorizeAuthenticated(req, res);
-  if (actorId === null) return res;
-
-  const client = getServiceRoleClient();
-  if (!client) return res.status(500).json(GENERIC_ERROR_BODY);
-
-  try {
-    const { data, error } = await client
-      .from("community_posts")
-      .select(OWN_SELECT_WITH_MEDIA)
-      .eq("author_user_id", actorId)
-      .order("created_at", { ascending: false });
-    if (error || !Array.isArray(data)) return res.status(500).json(GENERIC_ERROR_BODY);
-
-    const rows = data as unknown as OwnPostRow[];
-    const items = rows.map((row) => ({
-      ...mapPostRowNeutral(row),
-      media: (row.community_post_media ?? [])
-        .map(mapOwnMediaRow)
-        .sort((a, b) => a.position - b.position),
-    }));
-
-    res.setHeader("Cache-Control", "no-store");
-    return res.status(200).json({ items });
-  } catch {
-    return res.status(500).json(GENERIC_ERROR_BODY);
-  }
-}
+export const handleCommunityPostListOwn = handleCommunityAuthorPosts;

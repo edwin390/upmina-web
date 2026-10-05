@@ -3,7 +3,7 @@ import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { AdminAuthError, authErrorBody, requireCapability } from "./admin-auth.js";
 import { generateUniqueSlug, MAX_COSPLAY_PHOTOS, slugify } from "./cosplay-domain.js";
 import { attemptMediaAssetCleanup } from "./cosplay-media-lifecycle.js";
-import { publicVariantUrl } from "./r2-client.js";
+import { cosplayPublicMediaUrl } from "./media-delivery-url.js";
 
 // Handlers HTTP del editor ADMIN de Cosplay (Fase 9I-3, checkpoint 2): crear/guardar/publicar,
 // actualizar con concurrencia optimista, reordenar, desadjuntar y borrar en duro. Despachados
@@ -664,7 +664,8 @@ function mapAdminImageRow(row: AdminImageRow) {
     assetStatus: asset?.status ?? null,
     width: asset?.width ?? null,
     height: asset?.height ?? null,
-    url: asset && asset.status === "ready" ? publicVariantUrl(asset.storage_key) : null,
+    url:
+      asset && asset.status === "ready" ? cosplayPublicMediaUrl(asset.storage_key) : null,
   };
 }
 

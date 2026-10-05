@@ -35,13 +35,18 @@ import {
   headPrivateObject,
   presignPrivatePut,
   presignPrivateUploadPart,
-  publicVariantUrl,
   putPublicVariant,
   PRESIGN_TTL_MULTIPART_PART_SECONDS,
   PRESIGN_TTL_SINGLE_PUT_SECONDS,
   type CompletedPart,
 } from "./r2-client.js";
 import { processImage, ProcessingFailure } from "./media-processing.js";
+import {
+  cosplayPublicMediaUrl,
+  creatorPreviewMediaUrl,
+  loadMediaUrlContext,
+  type MediaUrlContext,
+} from "./media-delivery-url.js";
 
 // Handlers HTTP del pipeline de medios (Fase 9I-2B): reserva, completar subida (verificar +
 // procesar) y abortar. Privilegiado: cada handler exige ADMIN + capacidad cosplay_admin + MFA
@@ -423,12 +428,31 @@ type ReadyResponseBody =
       durationSeconds: number | null;
     };
 
+type UrlFor = (storageKey: string) => Promise<string>;
+
+/** URL de entrega de la respuesta de `complete`. Community: capability `creator-preview` (el
+ *  creador ya fue verificado como dueño de la fila); en modo legado, la URL legada (sin cutover).
+ *  Cosplay: URL pública, sin capability. */
+function urlForDomain(domain: string, assetId: string, context: MediaUrlContext): UrlFor {
+  return async (storageKey) => {
+    if (domain !== "community") return cosplayPublicMediaUrl(storageKey);
+    const url = await creatorPreviewMediaUrl(context, {
+      storageKey,
+      assetId,
+      nowMs: Date.now(),
+    });
+    if (!url) throw new Error("Creator preview unavailable");
+    return url;
+  };
+}
+
 /** Reintento idempotente de un asset YA ready (sección 20/28): para imagen relee las variantes
  *  WebP (media_asset_variants); para vídeo (Fase 9J-3, SIN variantes: un único objeto público)
  *  relee directamente la fila ya canónica de media_assets. */
 async function readyResponseBody(
   client: SupabaseClient,
   row: { id: string; kind: MediaKind },
+  urlFor: UrlFor,
 ): Promise<ReadyResponseBody> {
   if (row.kind === "video") {
     const { data } = await client
@@ -447,7 +471,7 @@ async function readyResponseBody(
       assetId: row.id,
       status: "ready",
       kind: "video",
-      url: publicVariantUrl(asset.storage_key),
+      url: await urlFor(asset.storage_key),
       width: asset.width,
       height: asset.height,
       bytes: asset.bytes,
@@ -470,13 +494,15 @@ async function readyResponseBody(
     assetId: row.id,
     status: "ready",
     kind: "image",
-    variants: rows.map((v) => ({
-      variant: v.variant,
-      width: v.width,
-      height: v.height,
-      bytes: v.bytes,
-      url: publicVariantUrl(v.storage_key),
-    })),
+    variants: await Promise.all(
+      rows.map(async (v) => ({
+        variant: v.variant,
+        width: v.width,
+        height: v.height,
+        bytes: v.bytes,
+        url: await urlFor(v.storage_key),
+      })),
+    ),
   };
 }
 
@@ -520,9 +546,22 @@ export async function handleMediaComplete(
   const auth = await authorizeForAssetRow(req, authn.identity, row);
   if ("status" in auth) return res.status(auth.status).json(auth.body);
 
+  // R4-D2: el contexto de URLs se resuelve ANTES de cambiar ningún estado. Una configuración
+  // segura incompleta (base definida pero sin clave de firma) falla aquí, nunca después de dejar el
+  // asset procesado.
+  let urlFor: UrlFor;
+  try {
+    const urlContext = await loadMediaUrlContext();
+    if (row.domain === "community" && urlContext.base && !urlContext.signing)
+      throw new Error("Incomplete secure delivery configuration");
+    urlFor = urlForDomain(row.domain, assetId, urlContext);
+  } catch {
+    return res.status(500).json(GENERIC_ERROR_BODY);
+  }
+
   // Idempotencia (sección 20/28): un reintento del MISMO request nunca reprocesa ni duplica.
   if (row.status === "ready")
-    return res.status(200).json(await readyResponseBody(client, row));
+    return res.status(200).json(await readyResponseBody(client, row, urlFor));
   if (row.status === "processing" || row.status === "verifying") {
     return res.status(200).json({ assetId, status: row.status });
   }
@@ -651,7 +690,7 @@ export async function handleMediaComplete(
         assetId,
         status: "ready",
         kind: "video",
-        url: publicVariantUrl(publicKey),
+        url: await urlFor(publicKey),
         width: row.source_width,
         height: row.source_height,
         bytes: row.source_bytes,
@@ -748,13 +787,15 @@ export async function handleMediaComplete(
       assetId,
       status: "ready",
       kind: "image",
-      variants: uploaded.map((u) => ({
-        variant: u.variant,
-        width: u.width,
-        height: u.height,
-        bytes: u.bytes,
-        url: publicVariantUrl(u.storageKey),
-      })),
+      variants: await Promise.all(
+        uploaded.map(async (u) => ({
+          variant: u.variant,
+          width: u.width,
+          height: u.height,
+          bytes: u.bytes,
+          url: await urlFor(u.storageKey),
+        })),
+      ),
     });
   } catch (err) {
     if (err instanceof ProcessingFailure) {

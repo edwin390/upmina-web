@@ -1,14 +1,23 @@
 import { useMfaVerification } from "@/hooks/useMfaVerification";
-import { Link, Navigate, useSearchParams } from "react-router-dom";
+import {
+  Link,
+  Navigate,
+  useSearchParams,
+  useLocation,
+  useNavigate,
+} from "react-router-dom";
 import { useAuth } from "@/lib/auth-context";
 import {
   parseSafeReturnTo,
   parseSafeReturnToWithRoutes,
   type ReturnRoutes,
+  safeMfaCancelTo,
 } from "@/lib/safe-return-to";
 import AdminAuthCard from "@/components/admin/AdminAuthCard";
 import AdminAuthField from "@/components/admin/AdminAuthField";
 import { buildTotpQrImageSrc } from "@/lib/mfa-qr";
+import { useEffect, useRef } from "react";
+import { showActionSuccess } from "@/lib/action-notice";
 
 // /admin/mfa (Bloque 3B). Enrolamiento y verificación TOTP mediante la API oficial de
 // MFA de Supabase Auth (`supabase.auth.mfa`). Este contexto solo importa para UX y
@@ -60,6 +69,13 @@ function resolveReturnTo(raw: string) {
 export default function AdminMfaPage() {
   const { signOut } = useAuth();
   const [searchParams] = useSearchParams();
+  const location = useLocation();
+  const navigate = useNavigate();
+  const origin = location.state?.cancelTo;
+  const cancelTo =
+    (import.meta.env.DEV && typeof origin === "string" && DEV_RETURN_ROUTES
+      ? parseSafeReturnToWithRoutes(origin, DEV_RETURN_ROUTES)?.path
+      : null) ?? safeMfaCancelTo(origin);
 
   // Destino tras un MFA reciente: null si no hay returnTo; un returnTo presente pero inválido
   // (externo, protocol-relative, malformado, fuera de la allowlist…) cae en /account.
@@ -70,6 +86,7 @@ export default function AdminMfaPage() {
 
   const {
     step,
+    didVerify,
     code,
     setCode,
     formError,
@@ -80,6 +97,26 @@ export default function AdminMfaPage() {
     cancelEnrollment,
     submitCode,
   } = useMfaVerification();
+  const announced = useRef(false);
+  useEffect(() => {
+    if (step.kind !== "verified" || !didVerify || announced.current) return;
+    announced.current = true;
+    if (destination?.split("?")[0] === cancelTo.split("?")[0]) {
+      showActionSuccess(
+        "Verificación completada. Ya puedes realizar acciones de administrador.",
+      );
+    }
+  }, [step.kind, didVerify, destination, cancelTo]);
+  const cancelLink = (
+    <Link
+      to={cancelTo}
+      replace
+      state={{ mfaCancelled: true }}
+      className="mt-4 inline-flex min-h-11 items-center text-sm text-text-secondary underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent-primary"
+    >
+      Cancelar
+    </Link>
+  );
 
   if (step.kind === "checking") {
     return (
@@ -87,6 +124,7 @@ export default function AdminMfaPage() {
         <p className="text-sm text-text-secondary" role="status">
           Comprobando tu sesión…
         </p>
+        {cancelLink}
       </AdminAuthCard>
     );
   }
@@ -98,6 +136,7 @@ export default function AdminMfaPage() {
         footer={
           <Link
             to={safeReturnTo ? `/login?returnTo=${safeReturnTo}` : "/login"}
+            state={{ cancelTo }}
             className="font-medium text-accent-primary hover:underline"
           >
             Iniciar sesión
@@ -107,6 +146,7 @@ export default function AdminMfaPage() {
         <p className="text-sm text-text-secondary">
           Inicia sesión para configurar o completar la verificación en dos pasos.
         </p>
+        {cancelLink}
       </AdminAuthCard>
     );
   }
@@ -124,6 +164,7 @@ export default function AdminMfaPage() {
         >
           Cerrar sesión
         </button>
+        {cancelLink}
       </AdminAuthCard>
     );
   }
@@ -134,6 +175,7 @@ export default function AdminMfaPage() {
         <p role="alert" className="text-sm text-accent-live">
           {step.message}
         </p>
+        {cancelLink}
       </AdminAuthCard>
     );
   }
@@ -142,7 +184,7 @@ export default function AdminMfaPage() {
     // MFA reciente confirmado por el servidor. Con returnTo se continúa con el router interno; el
     // estado `fromMfa` solo permite a /admin evitar un bucle si el servidor discrepara.
     if (destination) {
-      return <Navigate to={destination} replace state={{ fromMfa: true }} />;
+      return <Navigate to={destination} replace state={{ fromMfa: true, cancelTo }} />;
     }
     return (
       <AdminAuthCard title="Verificación en dos pasos">
@@ -184,6 +226,7 @@ export default function AdminMfaPage() {
         >
           {isSubmitting ? "Iniciando…" : "Configurar autenticador"}
         </button>
+        {!isSubmitting && cancelLink}
       </AdminAuthCard>
     );
   }
@@ -264,7 +307,11 @@ export default function AdminMfaPage() {
             </button>
             <button
               type="button"
-              onClick={() => void cancelEnrollment(factorId)}
+              onClick={() => {
+                void cancelEnrollment(factorId).then(() => {
+                  navigate(cancelTo, { replace: true, state: { mfaCancelled: true } });
+                });
+              }}
               disabled={isSubmitting}
               className="inline-flex min-h-11 items-center justify-center rounded-md border border-border-subtle px-5 py-2.5 text-sm font-semibold text-text-secondary transition-colors duration-200 ease-smooth hover:border-accent-primary/60 hover:text-text-primary disabled:pointer-events-none disabled:opacity-50"
             >
@@ -315,6 +362,7 @@ export default function AdminMfaPage() {
           {isSubmitting ? "Verificando…" : "Verificar"}
         </button>
       </form>
+      {!isSubmitting && cancelLink}
     </AdminAuthCard>
   );
 }

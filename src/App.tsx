@@ -40,6 +40,7 @@ const AdminSignupPage = lazy(() => import("./pages/admin/AdminSignupPage"));
 const AdminMfaPage = lazy(() => import("./pages/admin/AdminMfaPage"));
 const AdminActivatePage = lazy(() => import("./pages/admin/AdminActivatePage"));
 const AdminDashboardPage = lazy(() => import("./pages/admin/AdminDashboardPage"));
+const AdminModerationPage = lazy(() => import("./pages/admin/AdminModerationPage"));
 
 function SectionFallback() {
   return (
@@ -149,6 +150,7 @@ function AppShell() {
             <Route path="/:usernameParam" element={<ProfilePage />} />
             <Route element={<AdminAuthLayout />}>
               <Route path="/admin" element={<AdminDashboardPage />} />
+              <Route path="/admin/moderation" element={<AdminModerationPage />} />
               <Route path="/admin/login" element={<AdminLoginPage />} />
               <Route path="/admin/signup" element={<AdminSignupPage />} />
               <Route path="/admin/mfa" element={<AdminMfaPage />} />

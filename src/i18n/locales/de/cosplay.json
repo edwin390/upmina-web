@@ -130,7 +130,7 @@
       "reload": "Beitrag neu laden"
     },
     "deletePost": {
-      "confirmHeading": "Diesen Beitrag löschen?",
+      "confirmHeading": "Diesen Cosplay-Beitrag löschen?",
       "confirmBody": "Dies löscht den Beitrag und seine Fotos dauerhaft. Das kann nicht rückgängig gemacht werden.",
       "confirmAction": "Löschen bestätigen",
       "cancel": "Abbrechen"
@@ -154,7 +154,7 @@
       "invalidCode": "Falscher oder abgelaufener Code.",
       "verificationFailed": "Die Verifizierung konnte nicht abgeschlossen werden. Versuche es erneut.",
       "cancel": "Zurück zum Editor",
-      "verified": "Verifizierung abgeschlossen. Prüfe deinen Beitrag und veröffentliche ihn erneut.",
+      "verified": "Verifizierung abgeschlossen. Administratoraktionen sind jetzt verfügbar. Prüfe deinen Beitrag, bevor du fortfährst.",
       "sessionInvalid": "Deine Sitzung wurde geändert oder ist abgelaufen. Schließe den Editor und melde dich erneut an.",
       "retryLoad": "Beitrag erneut laden"
     }

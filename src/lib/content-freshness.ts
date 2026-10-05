@@ -17,15 +17,22 @@ export function freshContentUrl(client: QueryClient, domain: Domain, url: string
 
 export async function refreshCommunityContent(
   client: QueryClient,
-  username: string,
+  username: string | undefined,
   postId?: string,
   deleted = false,
 ) {
+  await client.cancelQueries({ queryKey: ["community"] });
   advance(client, "community");
   if (deleted && postId) client.setQueryData(["community", "post-detail", postId], null);
   await Promise.all([
     client.invalidateQueries({ queryKey: ["community", "own-posts"] }),
-    client.invalidateQueries({ queryKey: ["community", "profile", username] }),
+    client.invalidateQueries({ queryKey: ["community", "author-detail"] }),
+    client.invalidateQueries({
+      queryKey:
+        username === undefined
+          ? ["community", "profile"]
+          : ["community", "profile", username],
+    }),
     client.invalidateQueries({ queryKey: ["community", "feed"] }),
     ...(postId
       ? [client.invalidateQueries({ queryKey: ["community", "post-detail", postId] })]

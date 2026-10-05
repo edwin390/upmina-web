@@ -156,6 +156,7 @@ function PostTile({ tile, ownerPost, onEdit, onDeleted }: PostTileProps) {
       <div className="group relative aspect-square w-full rounded-md border border-border-subtle bg-bg-surface">
         <Link
           to={`/community/post/${tile.id}`}
+          state={ownerPost ? { ownerProfilePostId: tile.id } : undefined}
           aria-label={postTileLabel(tile)}
           className="absolute inset-0 z-0 rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-secondary"
         />
@@ -192,6 +193,18 @@ function PostTile({ tile, ownerPost, onEdit, onDeleted }: PostTileProps) {
           {/* Fase 9J-2C: solo lectura a nivel de galería (sección 13 del checkpoint) — el like en
               sí ocurre en el feed o en el detalle, nunca aquí. */}
           <CommunityLikeCountBadge count={tile.likeCount} />
+          {ownerPost?.status === "hidden_pending_review" ||
+          ownerPost?.status === "removed_pending_purge" ? (
+            <span className="absolute inset-x-1 bottom-8 rounded bg-bg-base/90 px-1 py-1 text-center text-xs text-text-primary">
+              {ownerPost.status === "hidden_pending_review"
+                ? "Publicación pausada"
+                : "Retirada"}
+            </span>
+          ) : ownerPost?.status === "published" && ownerPost.resolvedNoticeUnseen ? (
+            <span className="absolute inset-x-1 bottom-8 rounded border border-accent-secondary/60 bg-bg-base/90 px-1 py-1 text-center text-xs text-accent-secondary">
+              Caso resuelto
+            </span>
+          ) : null}
         </div>
         {ownerPost && onEdit && onDeleted ? (
           <div className="absolute inset-x-1.5 top-1.5 z-20 has-[[aria-expanded=true]]:z-30">
@@ -345,18 +358,34 @@ export default function ProfilePage() {
               </div>
             ) : null}
 
-            {showAdminShortcut ? (
-              <Link
-                to="/admin"
-                className="mt-1 text-sm font-semibold text-accent-primary underline decoration-accent-primary/40 underline-offset-4 hover:decoration-accent-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-secondary"
-              >
-                Panel de administración
-              </Link>
-            ) : null}
+            <div className="flex flex-col items-center gap-1">
+              {showAdminShortcut ? (
+                <Link
+                  to="/admin"
+                  state={{ cancelTo: `/@${username}` }}
+                  className="mt-1 text-sm font-semibold text-accent-primary underline decoration-accent-primary/40 underline-offset-4 hover:decoration-accent-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-secondary"
+                >
+                  Panel de administración
+                </Link>
+              ) : null}
+              {isOwnProfile &&
+              adminStatus === "ready" &&
+              adminAccess?.capabilities.includes("moderation") ? (
+                <Link
+                  to="/admin/moderation"
+                  state={{ cancelTo: `/@${username}` }}
+                  className="inline-flex min-h-11 items-center text-sm font-semibold text-accent-primary underline decoration-accent-primary/40 underline-offset-4 hover:decoration-accent-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-secondary"
+                >
+                  Panel de moderación
+                </Link>
+              ) : null}
+            </div>
           </header>
 
           <div className="mt-6 border-t border-border-subtle pt-6">
-            {tiles.length === 0 ? (
+            {isOwnProfile && ownPosts.isError ? (
+              <p role="alert">No se pudieron cargar tus publicaciones.</p>
+            ) : tiles.length === 0 ? (
               <div className="rounded-lg border border-border-subtle bg-bg-surface px-6 py-16 text-center">
                 <p className="font-display text-lg tracking-wide text-text-primary">
                   Todavía no hay publicaciones

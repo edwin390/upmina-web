@@ -39,6 +39,25 @@ vi.mock("@supabase/supabase-js", () => ({
       },
     },
     from(table: string) {
+      if (table === "media_assets")
+        return {
+          select: () => ({
+            in: async () => ({
+              data: fake.ownListResult.data.flatMap((v) => {
+                const row = v as {
+                  community_post_media?: { media_assets: Record<string, unknown> }[];
+                };
+                return (row.community_post_media ?? []).map((m) => ({
+                  domain: "community",
+                  kind: "image",
+                  duration_seconds: null,
+                  ...m.media_assets,
+                }));
+              }),
+              error: null,
+            }),
+          }),
+        };
       if (table === "community_posts") {
         const builder: Record<string, unknown> = {
           eq() {
@@ -54,6 +73,48 @@ vi.mock("@supabase/supabase-js", () => ({
     },
     async rpc(name: string, args: Record<string, unknown>) {
       fake.rpcCalls.push({ name, args });
+      if (name === "community_author_posts_read" && fake.rpcResult) return fake.rpcResult;
+      if (name === "community_author_posts_read")
+        return {
+          error: fake.ownListResult.error,
+          data: {
+            serverNow: "2026-10-04T18:00:00Z",
+            noticeId: null,
+            items: (fake.ownListResult.data ?? []).map((v) => {
+              const row = v as {
+                id: string;
+                text: string | null;
+                status: string;
+                version: number;
+                created_at: string;
+                updated_at: string;
+                like_count?: number;
+                community_post_media?: {
+                  id: string;
+                  asset_id: string;
+                  position: number;
+                }[];
+              };
+              return {
+                id: row.id,
+                text: row.text,
+                status: row.status,
+                version: row.version,
+                createdAt: row.created_at,
+                updatedAt: row.updated_at,
+                likeCount: row.like_count ?? 0,
+                resolvedNoticeUnseen: false,
+                author: { username: "author_test", displayName: null },
+                moderation: { kind: "none", deadline: null, message: null },
+                media: (row.community_post_media ?? []).map((m) => ({
+                  id: m.id,
+                  assetId: m.asset_id,
+                  position: m.position,
+                })),
+              };
+            }),
+          },
+        };
       return (
         fake.rpcResult ?? {
           data: null,
@@ -124,6 +185,113 @@ async function call(
 }
 
 const ok = (data: unknown) => ({ data, error: null });
+const { handleCommunityAuthorPosts, handleCommunityAuthorNoticeAck } =
+  await import("./community-author-handlers");
+describe("R4-C authenticated author HTTP boundary", () => {
+  const listItem = (overrides: Record<string, unknown> = {}) => ({
+    id: POST_ID,
+    text: "x",
+    status: "published",
+    version: 1,
+    createdAt: "2026-10-04T17:00:00Z",
+    updatedAt: "2026-10-04T17:00:00Z",
+    likeCount: 0,
+    resolvedNoticeUnseen: false,
+    author: { username: "author_test", displayName: null },
+    moderation: { kind: "none", deadline: null, message: null },
+    media: [],
+    ...overrides,
+  });
+  const listRpc = (items: unknown[], noticeId: string | null = null) =>
+    ok({ items, serverNow: "2026-10-04T18:00:00Z", noticeId });
+  it("list passes the private resolvedNoticeUnseen flag to the owner, never a noticeId", async () => {
+    fake.rpcResult = listRpc([listItem({ resolvedNoticeUnseen: true })]);
+    const result = await call(handleCommunityAuthorPosts, req({ method: "GET" }));
+    expect(result.status).toBe(200);
+    const body = result.body as {
+      items: { resolvedNoticeUnseen: boolean }[];
+      noticeId: null;
+    };
+    expect(body.items[0].resolvedNoticeUnseen).toBe(true);
+    expect(body.noticeId).toBeNull();
+    expect(fake.rpcCalls[0].args).toMatchObject({
+      p_actor_user_id: USER_ID,
+      p_post_id: null,
+    });
+  });
+  it("list response that tries to include a noticeId is rejected", async () => {
+    fake.rpcResult = listRpc([listItem({ resolvedNoticeUnseen: true })], MEDIA_ID);
+    expect((await call(handleCommunityAuthorPosts, req({ method: "GET" }))).status).toBe(
+      500,
+    );
+  });
+  it("malformed or incompatible flag fails closed", async () => {
+    for (const bad of [
+      listItem({ resolvedNoticeUnseen: "true" }),
+      listItem({ resolvedNoticeUnseen: undefined }),
+      listItem({
+        status: "hidden_pending_review",
+        resolvedNoticeUnseen: true,
+        moderation: { kind: "paused", deadline: null, message: null },
+      }),
+    ]) {
+      fake.rpcResult = listRpc([bad]);
+      expect(
+        (await call(handleCommunityAuthorPosts, req({ method: "GET" }))).status,
+      ).toBe(500);
+    }
+  });
+  it("unauthenticated detail rejected before RPC", async () => {
+    expect(
+      (
+        await call(
+          handleCommunityAuthorPosts,
+          req({ method: "GET", token: null, query: { postId: POST_ID } }),
+        )
+      ).status,
+    ).toBe(401);
+    expect(fake.rpcCalls).toHaveLength(0);
+  });
+  it("ack actor comes from verified JWT, not body", async () => {
+    fake.rpcResult = ok({ acknowledged: true, storage_key: "private" });
+    const result = await call(
+      handleCommunityAuthorNoticeAck,
+      req({ body: { postId: POST_ID, noticeId: MEDIA_ID, actor: OTHER_USER_ID } }),
+    );
+    expect(result.status).toBe(200);
+    expect(result.body).toEqual({ acknowledged: true });
+    expect(fake.rpcCalls[0].args.p_actor_user_id).toBe(USER_ID);
+  });
+  it("GET cannot acknowledge", async () => {
+    expect(
+      (await call(handleCommunityAuthorNoticeAck, req({ method: "GET" }))).status,
+    ).toBe(405);
+    expect(fake.rpcCalls).toHaveLength(0);
+  });
+  it("malformed ack fails controlled without raw details", async () => {
+    fake.rpcResult = ok({ acknowledged: false, storage_key: "private" });
+    const result = await call(
+      handleCommunityAuthorNoticeAck,
+      req({ body: { postId: POST_ID, noticeId: MEDIA_ID } }),
+    );
+    expect(result.status).toBe(500);
+    expect(result.body).toEqual({
+      error: "No se pudo completar la solicitud",
+      code: "internal_failure",
+    });
+  });
+  it("ownership failure is generic unavailable", async () => {
+    fake.rpcResult = { data: null, error: { message: "not_found" } };
+    expect(
+      (
+        await call(
+          handleCommunityAuthorNoticeAck,
+          req({ body: { postId: POST_ID, noticeId: MEDIA_ID } }),
+        )
+      ).status,
+    ).toBe(404);
+  });
+});
 const rpcError = (message: string) => ({ data: null, error: { code: "P0001", message } });
 
 beforeEach(() => {
@@ -362,6 +530,7 @@ describe("handleCommunityPostSave", () => {
     ["not_owner", 403, "forbidden"],
     ["post_not_found", 404, "not_found"],
     ["version_conflict", 409, "community_version_conflict"],
+    ["post_not_editable", 409, "community_post_not_editable"],
     ["too_many_media", 400, "too_many_media"],
     ["too_many_videos", 400, "too_many_videos"],
     ["duplicate_asset_id", 400, "duplicate_asset_id"],
@@ -645,11 +814,11 @@ describe("handleCommunityPostListOwn", () => {
           like_count: 0,
           community_post_media: [
             {
-              id: "media-video",
-              asset_id: "asset-video",
+              id: "b94ec8fc-5fd3-4cdd-a961-e9dfea366b4f",
+              asset_id: "00000000-0000-4000-8000-000000000002",
               position: 0,
               media_assets: {
-                id: "asset-video",
+                id: "00000000-0000-4000-8000-000000000002",
                 status: "ready",
                 kind: "video",
                 width: 1280,
@@ -697,8 +866,8 @@ describe("handleCommunityPostListOwn", () => {
           text: null,
           status: "published",
           version: 1,
-          created_at: "x",
-          updated_at: "x",
+          created_at: "2026-01-01T00:00:00Z",
+          updated_at: "2026-01-01T00:00:00Z",
           community_post_media: [
             {
               id: MEDIA_ID,

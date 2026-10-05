@@ -604,7 +604,7 @@ describe("ADMIN (cosplay_admin + MFA reciente) — menú contextual por tarjeta"
     fireEvent.click(await screen.findByRole("menuitem", { name: /^eliminar$/i }));
 
     // Confirmación explícita: el DELETE NUNCA se dispara solo por pulsar "Eliminar" en el menú.
-    const confirmGroup = await screen.findByRole("group", {
+    const confirmGroup = await screen.findByRole("dialog", {
       name: /eliminar esta publicación/i,
     });
     expect(
@@ -644,7 +644,7 @@ describe("ADMIN (cosplay_admin + MFA reciente) — menú contextual por tarjeta"
       await screen.findByRole("button", { name: /más acciones para publicación 1/i }),
     );
     fireEvent.click(screen.getByRole("menuitem", { name: "Eliminar" }));
-    const group = await screen.findByRole("group", {
+    const group = await screen.findByRole("dialog", {
       name: /eliminar esta publicación/i,
     });
     fireEvent.click(within(group).getByRole("button", { name: "Confirmar eliminación" }));
@@ -668,7 +668,7 @@ describe("ADMIN (cosplay_admin + MFA reciente) — menú contextual por tarjeta"
       await screen.findByRole("button", { name: /más acciones para publicación 1/i }),
     );
     fireEvent.click(await screen.findByRole("menuitem", { name: /^eliminar$/i }));
-    await screen.findByRole("group", { name: /eliminar esta publicación/i });
+    await screen.findByRole("dialog", { name: /eliminar esta publicación/i });
 
     fireEvent.click(screen.getByRole("button", { name: /^cancelar$/i }));
     await waitFor(() =>

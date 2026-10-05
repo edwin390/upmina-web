@@ -55,6 +55,11 @@ it.each([true, false])(
     fireEvent.click(screen.getByRole("button", { name: "Eliminar" }));
     if (ok) {
       await waitFor(() => expect(deleted).toHaveBeenCalledTimes(1));
+      expect(mocks.remove).toHaveBeenCalledTimes(1);
+      expect(mocks.remove).toHaveBeenCalledWith({
+        postId: post.id,
+        expectedVersion: post.version,
+      });
       expect(mocks.success).toHaveBeenCalledTimes(1);
       expect(mocks.success).toHaveBeenCalledWith("Publicación eliminada correctamente");
     } else {
@@ -64,5 +69,25 @@ it.each([true, false])(
       expect(mocks.success).not.toHaveBeenCalled();
       expect(deleted).not.toHaveBeenCalled();
     }
+  },
+);
+
+it.each(["cancel", "escape"])(
+  "%s closes the native body dialog without deleting",
+  (action) => {
+    render(<CommunityPostTileMenu post={post} onEdit={vi.fn()} onDeleted={vi.fn()} />);
+    const trigger = screen.getByRole("button", { name: "Gestionar esta publicación" });
+    trigger.focus();
+    fireEvent.click(trigger);
+    fireEvent.click(screen.getByRole("menuitem", { name: "Eliminar" }));
+    const dialog = screen.getByRole("dialog", { name: "¿Borrar esta publicación?" });
+    expect(dialog.parentElement).toBe(document.body);
+    expect(screen.getByRole("button", { name: "Cancelar" })).toHaveFocus();
+    if (action === "cancel")
+      fireEvent.click(screen.getByRole("button", { name: "Cancelar" }));
+    else fireEvent(dialog, new Event("cancel", { cancelable: true }));
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(trigger).toHaveFocus();
+    expect(mocks.remove).not.toHaveBeenCalled();
   },
 );

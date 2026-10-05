@@ -1,5 +1,11 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import { Link, Navigate, useNavigate, useSearchParams } from "react-router-dom";
+import {
+  Link,
+  Navigate,
+  useLocation,
+  useNavigate,
+  useSearchParams,
+} from "react-router-dom";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/lib/auth-context";
 import AdminAuthCard from "@/components/admin/AdminAuthCard";
@@ -32,6 +38,7 @@ function loginErrorMessage(error: unknown): string {
 export default function LoginPage() {
   const { session, loading: sessionLoading } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
   const [searchParams] = useSearchParams();
   const rawReturnTo = searchParams.get("returnTo");
   const destination =
@@ -76,7 +83,7 @@ export default function LoginPage() {
         return;
       }
       // La sesión llega al Header y al resto vía onAuthStateChange (AuthProvider).
-      navigate(destination, { replace: true });
+      navigate(destination, { replace: true, state: location.state });
     } catch (err) {
       if (isMountedRef.current) setError(loginErrorMessage(err));
     } finally {
@@ -98,7 +105,7 @@ export default function LoginPage() {
   }
 
   if (session) {
-    return <Navigate to={destination} replace />;
+    return <Navigate to={destination} replace state={location.state} />;
   }
 
   return (

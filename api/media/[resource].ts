@@ -1,4 +1,5 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
+import { handleMediaAccess } from "../../src/lib/media-access-handler.js";
 import {
   handleMediaAbort,
   handleMediaComplete,
@@ -22,6 +23,8 @@ import {
 //              objeto en R2, lo copia a almacenamiento privado permanente, ejecuta el procesado
 //              canónico (sharp/libheif-js) y publica las variantes WebP.
 //   "abort"    (POST) — cancela una reserva en curso (nunca un asset ya listo) y limpia R2.
+//   "access"   (POST) — R4-D1: consulta firmada (HMAC) del Worker de entrega; la ÚNICA acción de
+//              este despachador que no usa sesión de usuario. Solo responde { public: boolean }.
 export default function handler(req: VercelRequest, res: VercelResponse) {
   switch (req.query.resource) {
     case "reserve":
@@ -30,6 +33,8 @@ export default function handler(req: VercelRequest, res: VercelResponse) {
       return handleMediaComplete(req, res);
     case "abort":
       return handleMediaAbort(req, res);
+    case "access":
+      return handleMediaAccess(req, res);
     default:
       return res.status(404).json({ error: "No encontrado" });
   }

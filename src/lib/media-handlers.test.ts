@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { AdminAuthError, STEP_UP_REQUIRED_CODE } from "./admin-auth";
 
@@ -1154,6 +1154,146 @@ describe("kind='video' (9J-3): solo domain='community', sin processImage", () =>
         height: 1080,
         durationSeconds: 30,
       }),
+    );
+  });
+});
+
+describe("R4-D2: creator-preview delivery for Community uploads", () => {
+  const OWNER = "community-user-1";
+  const ASSET = "0b2ad7a0-1c0e-4a8d-9a11-0c4f59f0a001";
+  let signingKey = "";
+
+  beforeAll(async () => {
+    const pair = (await crypto.subtle.generateKey("Ed25519", true, [
+      "sign",
+      "verify",
+    ])) as CryptoKeyPair;
+    signingKey = Buffer.from(
+      await crypto.subtle.exportKey("pkcs8", pair.privateKey),
+    ).toString("base64");
+  });
+  beforeEach(() => {
+    requireCapabilityMock.mockRejectedValue(new AdminAuthError("No autorizado", 403));
+    requireAuthenticatedMock.mockResolvedValue({
+      userId: OWNER,
+      aal: "aal1",
+      mfaVerifiedAt: null,
+    });
+    for (const name of [
+      "MEDIA_DELIVERY_BASE_URL",
+      "MEDIA_CAP_SIGNING_PRIVATE_KEY",
+      "MEDIA_CAP_KEY_ID",
+      "MEDIA_CAP_AUDIENCE",
+    ])
+      vi.stubEnv(name, "");
+  });
+  function secure() {
+    vi.stubEnv("MEDIA_DELIVERY_BASE_URL", "https://media.synthetic.example");
+    vi.stubEnv("MEDIA_CAP_SIGNING_PRIVATE_KEY", signingKey);
+    vi.stubEnv("MEDIA_CAP_KEY_ID", "k1");
+    vi.stubEnv("MEDIA_CAP_AUDIENCE", "upmina-media-synthetic");
+  }
+  function seed(overrides: Row = {}) {
+    mediaDb.media_assets.push({
+      id: ASSET,
+      domain: "community",
+      status: "reserved",
+      source_mime: "image/jpeg",
+      source_bytes: 1000,
+      private_original_key: `staging/community/${ASSET}/original.jpg`,
+      multipart_upload_id: null,
+      processing_attempts: 0,
+      created_by: OWNER,
+      ...overrides,
+    });
+  }
+  const payloadOf = (url: string) =>
+    JSON.parse(
+      Buffer.from(
+        new URL(url).searchParams.get("cap")!.split(".")[1],
+        "base64url",
+      ).toString(),
+    );
+
+  it("secure mode: complete returns creator-preview capability URLs, never a public URL", async () => {
+    secure();
+    seed();
+    const res = makeRes();
+    await handleMediaComplete(makeReq({ assetId: ASSET }), res);
+    const body = (res.json as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    expect(body.status).toBe("ready");
+    for (const variant of body.variants) {
+      expect(variant.url.startsWith("https://media.synthetic.example/community/")).toBe(
+        true,
+      );
+      expect(variant.url).not.toContain("pub-test.r2.dev");
+      const payload = payloadOf(variant.url);
+      expect(payload).toMatchObject({ a: ASSET, s: "creator-preview" });
+      expect(payload.e - Math.floor(Date.now() / 1000)).toBeLessThanOrEqual(3600);
+    }
+  });
+  it("secure mode: an idempotent retry of an already-ready asset also returns a capability URL", async () => {
+    secure();
+    seed({ status: "ready" });
+    mediaDb.media_asset_variants.push({
+      asset_id: ASSET,
+      variant: 480,
+      width: 480,
+      height: 360,
+      bytes: 100,
+      storage_key: `community/${ASSET}/w480.webp`,
+    });
+    const res = makeRes();
+    await handleMediaComplete(makeReq({ assetId: ASSET }), res);
+    const body = (res.json as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    expect(payloadOf(body.variants[0].url)).toMatchObject({ s: "creator-preview" });
+  });
+  it("another user never receives a preview capability (ownership checked first)", async () => {
+    secure();
+    seed({ created_by: "someone-else" });
+    const res = makeRes();
+    await handleMediaComplete(makeReq({ assetId: ASSET }), res);
+    expect(res.status).toHaveBeenCalledWith(404);
+    expect(
+      JSON.stringify((res.json as ReturnType<typeof vi.fn>).mock.calls),
+    ).not.toContain("cap=");
+  });
+  it("legacy mode keeps the existing preview URL so the editor keeps working before cutover", async () => {
+    seed();
+    const res = makeRes();
+    await handleMediaComplete(makeReq({ assetId: ASSET }), res);
+    const body = (res.json as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    expect(body.variants[0].url).toContain("pub-test.r2.dev");
+    expect(body.variants[0].url).not.toContain("cap=");
+  });
+  it("secure base without a signing key fails BEFORE any state change", async () => {
+    vi.stubEnv("MEDIA_DELIVERY_BASE_URL", "https://media.synthetic.example");
+    seed();
+    const res = makeRes();
+    await handleMediaComplete(makeReq({ assetId: ASSET }), res);
+    expect(res.status).toHaveBeenCalledWith(500);
+    expect(processImageMock).not.toHaveBeenCalled();
+    expect(mediaDb.media_assets.find((r) => r.id === ASSET)?.status).toBe("reserved");
+  });
+  it("Cosplay never gets a capability, even with secure delivery configured", async () => {
+    secure();
+    requireCapabilityMock.mockResolvedValue({ userId: "admin-1", aal: "aal2" });
+    requireAuthenticatedMock.mockResolvedValue({ userId: "admin-1", aal: "aal2" });
+    seed({
+      id: "0b2ad7a0-1c0e-4a8d-9a11-0c4f59f0a777",
+      domain: "cosplay",
+      private_original_key:
+        "staging/cosplay/0b2ad7a0-1c0e-4a8d-9a11-0c4f59f0a777/original.jpg",
+      created_by: "admin-1",
+    });
+    const res = makeRes();
+    await handleMediaComplete(
+      makeReq({ assetId: "0b2ad7a0-1c0e-4a8d-9a11-0c4f59f0a777" }),
+      res,
+    );
+    const body = (res.json as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    expect(body.variants[0].url).toMatch(
+      /^https:\/\/media\.synthetic\.example\/cosplay\/0b2ad7a0-1c0e-4a8d-9a11-0c4f59f0a777\/w\d+\.webp$/,
     );
   });
 });

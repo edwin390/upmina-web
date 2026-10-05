@@ -36,6 +36,7 @@ export type ReturnRoutes = Readonly<Record<string, ReturnRoute>>;
  */
 export const RETURN_ROUTES: ReturnRoutes = Object.freeze({
   "/admin": Object.freeze({ allowsIntent: false }),
+  "/admin/moderation": Object.freeze({ allowsIntent: false }),
   "/admin/activate": Object.freeze({ allowsIntent: false }),
   "/account": Object.freeze({ allowsIntent: false }),
   "/community": Object.freeze({ allowsIntent: false }),
@@ -68,6 +69,13 @@ function findRoute(routes: ReturnRoutes, pathname: string): ReturnRoute | null {
  */
 export function parseSafeReturnTo(raw: unknown): SafeReturnTo | null {
   return parseSafeReturnToWithRoutes(raw, RETURN_ROUTES);
+}
+
+/** MFA cancellation is navigation only: allow a profile origin or a known internal route. */
+export function safeMfaCancelTo(raw: unknown): string {
+  if (raw === "/admin/login") return "/admin/login";
+  if (typeof raw === "string" && /^\/@[a-zA-Z0-9_]{1,32}$/.test(raw)) return raw;
+  return parseSafeReturnTo(raw)?.path ?? "/account";
 }
 
 /**

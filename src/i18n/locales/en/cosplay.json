@@ -130,7 +130,7 @@
       "reload": "Reload post"
     },
     "deletePost": {
-      "confirmHeading": "Delete this post?",
+      "confirmHeading": "Delete this Cosplay post?",
       "confirmBody": "This permanently deletes the post and its photos. This can't be undone.",
       "confirmAction": "Confirm deletion",
       "cancel": "Cancel"
@@ -154,7 +154,7 @@
       "invalidCode": "Incorrect or expired code.",
       "verificationFailed": "Verification could not be completed. Please try again.",
       "cancel": "Return to editor",
-      "verified": "Verification completed. Review your post and publish again.",
+      "verified": "Verification completed. Administrator actions are now available. Review your post before continuing.",
       "sessionInvalid": "Your session changed or expired. Close the editor and sign in again.",
       "retryLoad": "Load post again"
     }

@@ -19,6 +19,7 @@ interface Props {
   post: CommunityOwnPost;
   onEdit: (post: CommunityOwnPost) => void;
   onDeleted: () => void;
+  allowEdit?: boolean;
 }
 
 const MENU_ITEM =
@@ -28,7 +29,12 @@ const DANGER_BUTTON =
 const SECONDARY_BUTTON =
   "inline-flex min-h-9 items-center rounded-md border border-border-subtle px-3 py-1.5 text-sm font-semibold text-text-secondary transition-colors hover:border-accent-primary/60 hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-secondary disabled:pointer-events-none disabled:opacity-50";
 
-export default function CommunityPostTileMenu({ post, onEdit, onDeleted }: Props) {
+export default function CommunityPostTileMenu({
+  post,
+  onEdit,
+  onDeleted,
+  allowEdit = true,
+}: Props) {
   const rootRef = useRef<HTMLDivElement>(null);
   const dialogRef = useRef<HTMLDialogElement>(null);
   const headingId = useId();
@@ -140,14 +146,16 @@ export default function CommunityPostTileMenu({ post, onEdit, onDeleted }: Props
           aria-label="Gestionar esta publicación"
           className="absolute right-0 top-full z-20 mt-1 w-32 max-w-full rounded-md border border-border-subtle bg-bg-surface p-1 shadow-lg"
         >
-          <button
-            type="button"
-            role="menuitem"
-            onClick={handleEditClick}
-            className={MENU_ITEM}
-          >
-            Editar
-          </button>
+          {allowEdit && post.status === "published" && (
+            <button
+              type="button"
+              role="menuitem"
+              onClick={handleEditClick}
+              className={MENU_ITEM}
+            >
+              Editar
+            </button>
+          )}
           <button
             type="button"
             role="menuitem"

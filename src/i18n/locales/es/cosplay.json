@@ -130,7 +130,7 @@
       "reload": "Recargar publicación"
     },
     "deletePost": {
-      "confirmHeading": "¿Eliminar esta publicación?",
+      "confirmHeading": "¿Eliminar esta publicación de Cosplay?",
       "confirmBody": "Esta acción borra la publicación y sus fotos de forma permanente. No se puede deshacer.",
       "confirmAction": "Confirmar eliminación",
       "cancel": "Cancelar"
@@ -154,7 +154,7 @@
       "invalidCode": "Código incorrecto o expirado.",
       "verificationFailed": "No se pudo completar la verificación. Inténtalo de nuevo.",
       "cancel": "Volver al editor",
-      "verified": "Verificación completada. Revisa tu publicación y vuelve a publicar.",
+      "verified": "Verificación completada. Ya puedes realizar acciones de administrador. Revisa tu publicación antes de continuar.",
       "sessionInvalid": "Tu sesión cambió o caducó. Cierra el editor e inicia sesión de nuevo.",
       "retryLoad": "Volver a cargar publicación"
     }

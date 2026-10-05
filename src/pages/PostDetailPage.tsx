@@ -1,4 +1,5 @@
-import { Link, useParams } from "react-router-dom";
+import { Link, useParams, useLocation } from "react-router-dom";
+import CommunityAuthorDetail from "@/components/community/CommunityAuthorDetail";
 import { useCommunityPostDetail } from "@/hooks/useCommunityPostDetail";
 import { useCommunityLikedByMe } from "@/hooks/useCommunityLikedByMe";
 import CommunityLikeButton from "@/components/community/CommunityLikeButton";
@@ -32,6 +33,17 @@ function AuthorAvatarPlaceholder({ username }: { username: string }) {
 }
 
 export default function PostDetailPage() {
+  const { postId } = useParams<{ postId: string }>();
+  const location = useLocation();
+  if (postId && location.state?.ownerProfilePostId === postId)
+    return (
+      <div className="mx-auto max-w-2xl px-4 py-16">
+        <CommunityAuthorDetail key={postId} postId={postId} />
+      </div>
+    );
+  return <PublicPostDetail />;
+}
+function PublicPostDetail() {
   const { postId } = useParams<{ postId: string }>();
   const { data: post, isLoading, isError, refetch } = useCommunityPostDetail(postId);
   const notFound = !isLoading && !isError && post === null;

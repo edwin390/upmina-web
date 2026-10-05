@@ -154,6 +154,21 @@ function signIn(userId = "u1", token = "at-sintetico") {
 
 const PANEL_TEXT = "Sesión administrativa verificada.";
 
+describe("9K-2 discoverability", () => {
+  it.each(["moderator", "developer"])(
+    "%s gets moderation shortcut without admin panel access",
+    async (role) => {
+      signIn();
+      routeFetch({ "/api/admin/access": () => access(role, false) });
+      renderPage();
+      expect(
+        await screen.findByRole("link", { name: "Abrir moderación" }),
+      ).toHaveAttribute("href", "/admin/moderation");
+      expect(screen.queryByText(PANEL_TEXT)).toBeNull();
+    },
+  );
+});
+
 beforeEach(() => {
   testQueryClient.clear();
   authFakes.session = null;
@@ -478,6 +493,14 @@ describe("/admin — /api/admin/me (guard estricto)", () => {
 });
 
 describe("/admin — volver de un MFA (anti-bucle)", () => {
+  it("cancelar hacia el mismo panel no vuelve a abrir MFA ni concede acceso", async () => {
+    signIn();
+    routeFetch({ "/api/admin/access": () => access("admin", false) });
+    renderPage({ pathname: "/admin", state: { mfaCancelled: true } });
+    await screen.findByRole("alert");
+    expect(screen.queryByTestId("mfa")).toBeNull();
+    expect(screen.queryByText(PANEL_TEXT)).toBeNull();
+  });
   const fromMfa = { pathname: "/admin", state: { fromMfa: true } };
 
   it("vuelve del MFA y el servidor YA lo reconoce → panel", async () => {
@@ -685,6 +708,32 @@ describe("/admin — contenido del panel (presentación por capacidades de /me)"
     expect(
       await screen.findByRole("heading", { name: "Miembros del equipo" }),
     ).toBeInTheDocument();
+  });
+
+  it("capacidad moderation en /me (Fase 9K-1) → enlace 'Moderación' a /admin/moderation", async () => {
+    signIn();
+    routeFetch({
+      "/api/admin/access": () => access("admin", true),
+      "/api/admin/me": () => okMe({ role: "admin", capabilities: ["moderation"] }),
+      "/api/admin/social-status": () => socialOk(),
+    });
+    renderPage();
+
+    const link = await screen.findByRole("link", { name: "Moderación" });
+    expect(link).toHaveAttribute("href", "/admin/moderation");
+  });
+
+  it("sin capacidad moderation en /me → el enlace 'Moderación' NO se muestra", async () => {
+    signIn();
+    routeFetch({
+      "/api/admin/access": () => access("admin", true),
+      "/api/admin/me": () => okMe({ role: "admin", capabilities: ["social_admin"] }),
+      "/api/admin/social-status": () => socialOk(),
+    });
+    renderPage();
+
+    await screen.findByRole("heading", { name: "Redes sociales" });
+    expect(screen.queryByRole("link", { name: "Moderación" })).toBeNull();
   });
 
   it.each([

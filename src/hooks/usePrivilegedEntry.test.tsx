@@ -34,9 +34,11 @@ vi.mock("@/lib/supabase", () => ({
 }));
 
 let lastLocation = "";
+let lastState: unknown;
 function LocationProbe() {
   const location = useLocation();
   lastLocation = location.pathname + location.search;
+  lastState = location.state;
   return null;
 }
 
@@ -108,6 +110,7 @@ describe("usePrivilegedEntry", () => {
     });
 
     expect(onReady).not.toHaveBeenCalled();
+    expect(lastState).toEqual({ cancelTo: "/some-surface" });
     // No hay ruta /admin/mfa montada en este árbol de prueba: solo importa que NO se llamó a
     // onReady (el destino exacto ya lo cubre CosplaySection.admin.test.tsx con una ruta real).
   });

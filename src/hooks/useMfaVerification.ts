@@ -61,6 +61,7 @@ export function useMfaVerification(
   const [formError, setFormError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSecretVisible, setIsSecretVisible] = useState(false);
+  const [didVerify, setDidVerify] = useState(false);
 
   // Carga los factores TOTP para decidir entre challenge y enrolamiento. NO consulta el AAL: la
   // decisión "¿hace falta MFA?" ya la tomó el servidor (MFA reciente vía /access).
@@ -270,6 +271,7 @@ export function useMfaVerification(
         (!options.explicit || refreshed.capabilities.includes("cosplay_admin"))
       ) {
         verified.current = true;
+        setDidVerify(true);
         setStep({ kind: "verified" });
       } else {
         setFormError("No se pudo confirmar la verificación. Inténtalo de nuevo.");
@@ -284,6 +286,7 @@ export function useMfaVerification(
 
   return {
     step,
+    didVerify,
     code,
     setCode,
     formError,

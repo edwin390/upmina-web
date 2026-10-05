@@ -15,6 +15,10 @@ import {
 } from "@/lib/community-post-handlers";
 
 const fake = vi.hoisted(() => ({ rpc: vi.fn(), abort: vi.fn(), success: vi.fn() }));
+vi.mock("@/lib/r2-client.js", async () => ({
+  ...(await vi.importActual<typeof import("@/lib/r2-client")>("@/lib/r2-client")),
+  publicVariantUrl: (key: string) => `https://cdn.fixture.test/${key}`,
+}));
 vi.mock("@/lib/cosplay-media-lifecycle.js", () => ({
   attemptMediaAssetCleanup: async (assetId: string) => ({ assetId, cleaned: false }),
 }));
@@ -57,12 +61,54 @@ vi.mock("@supabase/supabase-js", () => ({
         error: null,
       }),
     },
-    from: () => ({
-      select: () => ({
-        eq: () => ({ order: async () => ({ data: [row], error: null }) }),
-      }),
-    }),
-    rpc: (...args: unknown[]) => fake.rpc(...args),
+    from: (table: string) => {
+      if (table !== "media_assets") throw new Error(`Unexpected table: ${table}`);
+      return {
+        select: () => ({
+          in: async () => ({
+            data: row.community_post_media.map((m) => ({
+              domain: "community",
+              duration_seconds: null,
+              ...m.media_assets,
+              storage_key: `community/${m.asset_id}.webp`,
+            })),
+            error: null,
+          }),
+        }),
+      };
+    },
+    // Explicit dispatch: the R4-C owner read path legitimately calls community_author_posts_read.
+    // Any other RPC still goes through fake.rpc, which asserts community_post_save_atomic.
+    rpc: async (name: string, ...rest: unknown[]) => {
+      if (name === "community_author_posts_read")
+        return {
+          error: null,
+          data: {
+            serverNow: "2026-10-04T18:00:00Z",
+            noticeId: null,
+            items: [
+              {
+                id: row.id,
+                text: row.text,
+                status: row.status,
+                version: row.version,
+                createdAt: "2026-10-04T17:00:00Z",
+                updatedAt: "2026-10-04T17:00:00Z",
+                likeCount: row.like_count,
+                resolvedNoticeUnseen: false,
+                author: { username: "author_test", displayName: null },
+                moderation: { kind: "none", deadline: null, message: null },
+                media: row.community_post_media.map((m) => ({
+                  id: m.id,
+                  assetId: m.asset_id,
+                  position: m.position,
+                })),
+              },
+            ],
+          },
+        };
+      return fake.rpc(name, ...rest);
+    },
   }),
 }));
 vi.mock("@/lib/supabase", () => ({
@@ -121,6 +167,7 @@ beforeEach(async () => {
       const request = {
         method: init.method,
         headers: { authorization: "Bearer fixture" },
+        query: {},
         body: init.body,
       } as VercelRequest;
       if (url === "/api/admin/community-post-list-own")
@@ -200,4 +247,11 @@ it("real remove B → client → handler → PostgreSQL succeeds; omission alone
   expect((await db.query("select version from community_posts")).rows[0].version).toBe(3);
   expect(fake.success).toHaveBeenCalledWith("Publicación actualizada correctamente");
   expect(fake.abort).not.toHaveBeenCalled();
+});
+
+it("the Supabase mock still rejects any RPC other than the two legitimate ones", async () => {
+  const { createClient } = await import("@supabase/supabase-js");
+  await expect(
+    createClient("https://fixture.test", "fixture").rpc("unexpected_rpc"),
+  ).rejects.toThrow();
 });

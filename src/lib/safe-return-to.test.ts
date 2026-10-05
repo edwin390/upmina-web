@@ -2,9 +2,32 @@ import { describe, expect, it } from "vitest";
 import {
   RETURN_ROUTES,
   parseSafeReturnTo,
+  safeMfaCancelTo,
   parseSafeReturnToWithRoutes,
   type ReturnRoutes,
 } from "./safe-return-to";
+
+describe("MFA cancellation origin", () => {
+  it.each(["/@edwin1", "/cosplay", "/admin/moderation", "/account", "/admin/login"])(
+    "accepts %s",
+    (origin) => {
+      expect(safeMfaCancelTo(origin)).toBe(origin);
+    },
+  );
+  it.each([
+    "https://evil.example",
+    "//evil.example",
+    "/\\evil.example",
+    "/@edwin1?next=//evil.example",
+    "/admin/../account",
+    "/%2fexample",
+    null,
+    {},
+    "\n/account",
+  ])("rejects unsafe origin %s", (origin) => {
+    expect(safeMfaCancelTo(origin)).toBe("/account");
+  });
+});
 
 // Rutas SOLO de prueba para ejercitar `intent` genérico sin depender de una ruta real concreta.
 const FIXTURE_ROUTES: ReturnRoutes = {
@@ -13,11 +36,12 @@ const FIXTURE_ROUTES: ReturnRoutes = {
 };
 
 describe("allowlist inicial", () => {
-  it("contiene exactamente /admin, /admin/activate, /account, /community y /cosplay", () => {
+  it("contiene las rutas privilegiadas permitidas, incluida moderación", () => {
     expect(Object.keys(RETURN_ROUTES).sort()).toEqual([
       "/account",
       "/admin",
       "/admin/activate",
+      "/admin/moderation",
       "/community",
       "/cosplay",
     ]);

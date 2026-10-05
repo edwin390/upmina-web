@@ -168,6 +168,7 @@ describe("handleCommunityProfile", () => {
     communityProfileDb.posts = [
       postRow({ id: "mine", like_count: 3 }),
       postRow({ id: "mine-hidden", status: "hidden", like_count: 100 }),
+      postRow({ id: "mine-hpr", status: "hidden_pending_review", like_count: 100 }),
       postRow({ id: "not-mine", author_user_id: "other", like_count: 100 }),
     ];
     const { res, state } = mockRes();
@@ -218,6 +219,7 @@ describe("handleCommunityProfile", () => {
     communityProfileDb.posts = [
       postRow({ id: "mine-visible" }),
       postRow({ id: "mine-hidden", status: "hidden" }),
+      postRow({ id: "mine-hpr", status: "hidden_pending_review" }),
       postRow({ id: "not-mine", author_user_id: "other" }),
     ];
     const { res, state } = mockRes();

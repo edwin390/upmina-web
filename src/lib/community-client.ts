@@ -1,5 +1,10 @@
 import { supabase } from "@/lib/supabase";
 import {
+  parseAuthorAck,
+  parseAuthorPostsResponse,
+  type AuthorPostsResponse,
+} from "./community-author-contract";
+import {
   classifyPrivilegedFailure,
   type PrivilegedFailure,
 } from "@/lib/privileged-response";
@@ -88,12 +93,14 @@ async function request<T>(
 export interface CommunityPost {
   id: string;
   text: string | null;
-  status: "published" | "hidden";
+  status: "published" | "hidden_pending_review" | "hidden" | "removed_pending_purge";
   version: number;
   createdAt: string;
   updatedAt: string;
   /** Recuento REAL de likes (Fase 9J-2C). */
   likeCount: number;
+  /** R4-C: solo en lecturas del propio autor (nunca en superficies públicas). */
+  resolvedNoticeUnseen?: boolean;
 }
 
 export interface CommunityPostMedia {
@@ -118,10 +125,56 @@ export interface CommunityOwnPost extends CommunityPost {
   media: CommunityOwnPostMedia[];
 }
 
-export async function listOwnCommunityPosts(): Promise<{ items: CommunityOwnPost[] }> {
-  return request<{ items: CommunityOwnPost[] }>("community-post-list-own", {
-    method: "GET",
-  });
+export async function listOwnCommunityPosts(): Promise<AuthorPostsResponse> {
+  try {
+    return parseAuthorPostsResponse(
+      await request<unknown>("community-post-list-own", { method: "GET" }),
+    );
+  } catch (e) {
+    if (e instanceof CommunityClientError) throw e;
+    throw new CommunityClientError("Respuesta inválida", 200, "invalid_response");
+  }
+}
+
+export async function fetchAuthorPost(
+  postId: string,
+  profileEntry: boolean,
+): Promise<AuthorPostsResponse | null> {
+  try {
+    const parsed = parseAuthorPostsResponse(
+      await request<unknown>("community-author-post", {
+        method: "GET",
+        query: { postId, profileEntry: String(profileEntry) },
+      }),
+    );
+    if (
+      parsed.items.length !== 1 ||
+      parsed.items[0].id !== postId ||
+      parsed.items[0].status === "hidden" ||
+      (!profileEntry && parsed.noticeId !== null)
+    )
+      throw new Error("Invalid detail context");
+    return parsed;
+  } catch (e) {
+    if (e instanceof CommunityClientError) {
+      if (e.status === 404) return null;
+      throw e;
+    }
+    throw new CommunityClientError("Respuesta inválida", 200, "invalid_response");
+  }
+}
+export async function acknowledgeAuthorNotice(postId: string, noticeId: string) {
+  try {
+    return parseAuthorAck(
+      await request<unknown>("community-author-notice-ack", {
+        method: "POST",
+        body: { postId, noticeId },
+      }),
+    );
+  } catch (e) {
+    if (e instanceof CommunityClientError) throw e;
+    throw new CommunityClientError("Respuesta inválida", 200, "invalid_response");
+  }
 }
 
 export interface SaveCommunityPostInput {

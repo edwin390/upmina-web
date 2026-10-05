@@ -206,7 +206,7 @@ async function verify() {
   );
   fireEvent.click(screen.getByRole("button", { name: "Verificar" }));
   await screen.findByText(
-    "Verificación completada. Revisa tu publicación y vuelve a publicar.",
+    "Verificación completada. Ya puedes realizar acciones de administrador. Revisa tu publicación antes de continuar.",
   );
 }
 function addFile(container: HTMLElement) {

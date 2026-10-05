@@ -164,7 +164,9 @@ function MediaHarnessContent() {
     );
     if (!needsStepUp) return;
     navigatedToMfaRef.current = true;
-    navigate("/admin/mfa?returnTo=/dev/media-harness");
+    navigate("/admin/mfa?returnTo=/dev/media-harness", {
+      state: { cancelTo: "/dev/media-harness" },
+    });
   }, [items, navigate]);
 
   return (

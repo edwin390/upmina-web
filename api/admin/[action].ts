@@ -1,4 +1,10 @@
+import { handleModerationCaseDecision } from "../../src/lib/moderation-decision-handlers.js";
+import {
+  handleCommunityAuthorPosts,
+  handleCommunityAuthorNoticeAck,
+} from "../../src/lib/community-author-handlers.js";
 import type { VercelRequest, VercelResponse } from "@vercel/node";
+import { handleModerationCases } from "../../src/lib/moderation-case-handlers.js";
 import {
   handleAdminAccess,
   handleAdminActivate,
@@ -35,6 +41,12 @@ import {
   handleCommunityPostLikedByMe,
   handleCommunityPostSetLike,
 } from "../../src/lib/community-like-handlers.js";
+import {
+  handleModerationReport,
+  handleModerationReportCreate,
+  handleModerationReports,
+  handleModerationReportStatus,
+} from "../../src/lib/moderation-handlers.js";
 
 // Despachador de acciones admin server-side por segmento dinámico `action`. Mismo
 // patrón que api/instagram/[resource].ts y api/tiktok/[resource].ts: un único
@@ -83,10 +95,23 @@ import {
 // arriba, NO son privilegiadas: solo requireAuthenticated, sin perfil de Comunidad requerido (dar
 // like no es "gestionar contenido propio"), sin MFA, sin rol — cualquier usuario autenticado,
 // incluido el propio autor de la publicación. Lógica en src/lib/community-like-handlers.ts.
+// "moderation-report-create" (Fase 9K-1 — cualquier usuario AUTENTICADO reporta una publicación de
+// Community; NO privilegiada, igual criterio que community-post-set-like). "moderation-reports"
+// (cola, GET), "moderation-report" (detalle de uno, GET ?id=) y "moderation-report-status" (cambia
+// su estado, POST) SÍ son privilegiadas: capacidad `moderation` (moderator/developer/admin) + MFA
+// reciente, vía requireCapability. Lógica en src/lib/moderation-handlers.ts.
 // La lógica de cada una vive en src/lib/admin-handlers.ts, no aquí, siguiendo el mismo
 // patrón que los otros dos dispatchers.
 export default function handler(req: VercelRequest, res: VercelResponse) {
   switch (req.query.action) {
+    case "community-author-post":
+      return handleCommunityAuthorPosts(req, res);
+    case "community-author-notice-ack":
+      return handleCommunityAuthorNoticeAck(req, res);
+    case "moderation-case-decision":
+      return handleModerationCaseDecision(req, res);
+    case "moderation-cases":
+      return handleModerationCases(req, res);
     case "activate":
       return handleAdminActivate(req, res);
     case "me":
@@ -135,6 +160,14 @@ export default function handler(req: VercelRequest, res: VercelResponse) {
       return handleCommunityPostSetLike(req, res);
     case "community-post-liked-by-me":
       return handleCommunityPostLikedByMe(req, res);
+    case "moderation-report-create":
+      return handleModerationReportCreate(req, res);
+    case "moderation-reports":
+      return handleModerationReports(req, res);
+    case "moderation-report":
+      return handleModerationReport(req, res);
+    case "moderation-report-status":
+      return handleModerationReportStatus(req, res);
     default:
       return res.status(404).json({ error: "No encontrado" });
   }

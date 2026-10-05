@@ -72,7 +72,10 @@ function captureTokenFromHash(): TokenCapture {
 /** Estado del router al volver del step-up (ver AdminMfaPage). Solo UX anti-bucle. */
 function returnedFromMfa(state: unknown): boolean {
   return Boolean(
-    state && typeof state === "object" && (state as { fromMfa?: unknown }).fromMfa,
+    state &&
+    typeof state === "object" &&
+    ((state as { fromMfa?: unknown }).fromMfa ||
+      (state as { mfaCancelled?: unknown }).mfaCancelled),
   );
 }
 
@@ -297,7 +300,7 @@ export default function AdminActivatePage() {
 
   if (!userId) {
     // Sin sesión: se autentica con el login normal. El token NO viaja: sigue en memoria.
-    return <Navigate to={LOGIN_PATH} replace />;
+    return <Navigate to={LOGIN_PATH} replace state={location.state} />;
   }
 
   if (bindState?.userId !== userId || status === "loading") {
@@ -362,6 +365,7 @@ export default function AdminActivatePage() {
             </button>
             <Link
               to={MFA_PATH}
+              state={location.state}
               className="inline-flex min-h-11 items-center rounded-md border border-accent-primary/60 px-5 py-2.5 text-sm font-semibold text-accent-primary hover:underline"
             >
               Verificar de nuevo
@@ -370,7 +374,7 @@ export default function AdminActivatePage() {
         </AdminAuthCard>
       );
     }
-    return <Navigate to={MFA_PATH} replace />;
+    return <Navigate to={MFA_PATH} replace state={location.state} />;
   }
 
   // Sesión + token asociado + MFA reciente: la activación exige un clic explícito.
@@ -389,7 +393,11 @@ export default function AdminActivatePage() {
             </Link>
           ) : null}
           {activationError.action === "mfa" ? (
-            <Link to={MFA_PATH} className="font-medium underline">
+            <Link
+              to={MFA_PATH}
+              state={{ cancelTo: ACTIVATE_PATH }}
+              className="font-medium underline"
+            >
               Ir a verificación en dos pasos
             </Link>
           ) : null}
