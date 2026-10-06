@@ -658,8 +658,9 @@ describe("R4-B grouped decisions", () => {
           status: "removed_pending_purge",
           quarantineCycleId: null,
           removalDecisionId: testId(5, 1),
-          removedAt: "2026-10-03T00:00:00Z",
-          purgeAfter: "2026-10-06T00:00:00Z",
+          // far future: the window must still be open whatever the wall clock says
+          removedAt: "2099-10-03T00:00:00Z",
+          purgeAfter: "2099-10-06T00:00:00Z",
         });
       }
       if (state === "attribution") item.post!.quarantineCycleId = testId(3, 2);
@@ -799,4 +800,110 @@ it("malformed successful detail remains a controlled detail error", async () => 
   await screen.findByText(/No se pudo cargar este caso/);
   expect(card(1)).toBeInTheDocument();
   expect(screen.queryByText("<script>secret</script>")).toBeNull();
+});
+
+describe("R4-E4 purged history", () => {
+  const purgedCase = (): ModerationCaseItem => ({
+    ...makeCase(1),
+    caseStatus: "closed",
+    cycleStatus: "closed",
+    closureKind: "decision",
+    closedAt: "2026-10-02T00:00:00Z",
+    post: null,
+    decision: {
+      decisionId: testId(5, 1),
+      result: "content_actioned",
+      resolutionMessage: "Mensaje del moderador conservado",
+      createdAt: "2026-10-02T00:00:00Z",
+    },
+    audit: [
+      {
+        id: testId(6, 1),
+        action: "post_purged",
+        actorKind: "system",
+        createdAt: "2026-10-05T00:00:00Z",
+        states: {
+          fromPostStatus: null,
+          toPostStatus: null,
+          fromReportStatus: null,
+          toReportStatus: null,
+        },
+      },
+    ],
+  });
+  async function openHistory(item: ModerationCaseItem, name: RegExp) {
+    setupCases({ items: [item] });
+    renderPage();
+    fireEvent.click(await screen.findByRole("button", { name: "Historial" }));
+    fireEvent.click(await screen.findByRole("button", { name }));
+    await screen.findByRole("region", { name: "Detalle del caso" });
+  }
+  it("a physically purged case stays in History, opens and renders a neutral deleted state", async () => {
+    await openHistory(purgedCase(), /Publicación eliminada definitivamente/);
+    expect(screen.getByText(/fue eliminada definitivamente el/)).toBeInTheDocument();
+    expect(
+      screen.getByText(/No se conserva una captura de su texto/),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Decisión: Procede")).toBeInTheDocument();
+    expect(screen.getByText("Mensaje del moderador conservado")).toBeInTheDocument();
+    // audit entry: neutral label with timestamp, no raw action name, no state arrows
+    const audit = screen.getByRole("region", { name: "Auditoría reciente" });
+    expect(audit).toHaveTextContent("Publicación eliminada definitivamente · Sistema");
+    expect(audit).not.toHaveTextContent("post_purged");
+    expect(audit).not.toHaveTextContent("→");
+    expect(screen.getByText("<script>secret</script>")).toBeInTheDocument(); // report detail kept
+  });
+  it("a purged case offers no mutating action and exposes no technical ids beyond the case header", async () => {
+    await openHistory(purgedCase(), /Publicación eliminada definitivamente/);
+    for (const name of [/^Procede$/, /^No procede$/, /Confirmar decisión/, /Restaurar/])
+      expect(screen.queryByRole("button", { name })).toBeNull();
+    const text = document.body.textContent ?? "";
+    expect(text).not.toContain(testId(5, 1)); // decision id
+    expect(text).not.toMatch(/assets?_|storage|community\//i);
+  });
+  it("a purged case never appears in Active", async () => {
+    setupCases({ items: [] });
+    renderPage();
+    expect(
+      await screen.findByText("No hay casos activos por ahora."),
+    ).toBeInTheDocument();
+  });
+  it("expired removed post whose row still exists: explicit expiry, no 'sin texto', no current-content claim", async () => {
+    const item = purgedCase();
+    item.post = {
+      text: null,
+      status: "removed_pending_purge",
+      version: 5,
+      updatedAt: "2026-10-02T00:00:00Z",
+      authorUsername: "author",
+      quarantineCycleId: null,
+      removalDecisionId: testId(5, 1),
+      removedAt: "2026-10-02T00:00:00Z",
+      purgeAfter: "2026-10-05T00:00:00Z",
+    };
+    item.audit = [];
+    await openHistory(item, /Contenido expirado/);
+    expect(screen.getByText(/ya expiró y no está disponible/)).toBeInTheDocument();
+    expect(screen.queryByText("Publicación sin texto")).toBeNull();
+    expect(screen.queryByText(/Se muestra el contenido actual/)).toBeNull();
+    expect(screen.getByText("Mensaje del moderador conservado")).toBeInTheDocument();
+  });
+  it("a post removed inside the window still shows its content to the moderator", async () => {
+    const item = purgedCase();
+    item.post = {
+      text: "Contenido aún vigente",
+      status: "removed_pending_purge",
+      version: 5,
+      updatedAt: "2026-10-02T00:00:00Z",
+      authorUsername: "author",
+      quarantineCycleId: null,
+      removalDecisionId: testId(5, 1),
+      removedAt: new Date(Date.now() - 3_600_000).toISOString(),
+      purgeAfter: new Date(Date.now() + 71 * 3_600_000).toISOString(),
+    };
+    item.audit = [];
+    await openHistory(item, /Contenido aún vigente/);
+    expect(screen.getAllByText("Contenido aún vigente").length).toBeGreaterThan(0);
+    expect(screen.queryByText(/ya expiró/)).toBeNull();
+  });
 });

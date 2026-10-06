@@ -169,71 +169,156 @@ beforeEach(() => {
   deletePrivateObjectMock.mockReset().mockResolvedValue(undefined);
 });
 
+const A1 = "0a000000-0000-4000-8000-000000000001";
+const A2 = "0a000000-0000-4000-8000-000000000002";
+const A3 = "0a000000-0000-4000-8000-000000000003";
+const A4 = "0a000000-0000-4000-8000-000000000004";
+const A5 = "0a000000-0000-4000-8000-000000000005";
+const VIDEO = "0a000000-0000-4000-8000-000000000006";
+const FOREIGN = "0a000000-0000-4000-8000-0000000000ff";
+
 describe("attemptMediaAssetCleanup", () => {
   it("limpia variantes públicas + original privado y borra la fila SOLO tras confirmar ambos", async () => {
-    fake.mediaAssets.set("a1", {
+    fake.mediaAssets.set(A1, {
+      id: A1,
       status: "deleting",
-      private_original_key: "objects/a1/original.jpg",
+      domain: "cosplay",
+      storage_key: `cosplay/${A1}/w960.webp`,
+      private_original_key: `objects/cosplay/${A1}/original.jpg`,
     });
-    fake.variants.set("a1", [
-      { storage_key: "cosplay/a1/w480.webp" },
-      { storage_key: "cosplay/a1/w960.webp" },
+    fake.variants.set(A1, [
+      { storage_key: `cosplay/${A1}/w480.webp` },
+      { storage_key: `cosplay/${A1}/w960.webp` },
     ]);
 
-    const result = await attemptMediaAssetCleanup("a1");
+    const result = await attemptMediaAssetCleanup(A1);
 
-    expect(result).toEqual({ assetId: "a1", cleaned: true });
+    expect(result).toEqual({ assetId: A1, cleaned: true });
     expect(deletePublicVariantsMock).toHaveBeenCalledWith([
-      "cosplay/a1/w480.webp",
-      "cosplay/a1/w960.webp",
+      `cosplay/${A1}/w480.webp`,
+      `cosplay/${A1}/w960.webp`,
     ]);
-    expect(deletePrivateObjectMock).toHaveBeenCalledWith("objects/a1/original.jpg");
-    expect(fake.mediaAssets.has("a1")).toBe(false);
+    expect(deletePrivateObjectMock).toHaveBeenCalledWith(
+      `objects/cosplay/${A1}/original.jpg`,
+    );
+    expect(fake.mediaAssets.has(A1)).toBe(false);
   });
 
   it("sin original privado residual: no intenta borrarlo, pero sí limpia variantes", async () => {
-    fake.mediaAssets.set("a2", { status: "deleting", private_original_key: null });
-    fake.variants.set("a2", [{ storage_key: "cosplay/a2/w480.webp" }]);
+    fake.mediaAssets.set(A2, {
+      id: A2,
+      status: "deleting",
+      domain: "cosplay",
+      storage_key: null,
+      private_original_key: null,
+    });
+    fake.variants.set(A2, [{ storage_key: `cosplay/${A2}/w480.webp` }]);
 
-    const result = await attemptMediaAssetCleanup("a2");
+    const result = await attemptMediaAssetCleanup(A2);
 
     expect(result.cleaned).toBe(true);
     expect(deletePrivateObjectMock).not.toHaveBeenCalled();
   });
 
   it("si el borrado de variantes públicas falla: NUNCA borra la fila, deja 'deleting' para reintento", async () => {
-    fake.mediaAssets.set("a3", { status: "deleting", private_original_key: null });
-    fake.variants.set("a3", [{ storage_key: "cosplay/a3/w480.webp" }]);
+    fake.mediaAssets.set(A3, {
+      id: A3,
+      status: "deleting",
+      domain: "cosplay",
+      storage_key: null,
+      private_original_key: null,
+    });
+    fake.variants.set(A3, [{ storage_key: `cosplay/${A3}/w480.webp` }]);
     deletePublicVariantsMock.mockRejectedValue(new Error("R2 caído"));
 
-    const result = await attemptMediaAssetCleanup("a3");
+    const result = await attemptMediaAssetCleanup(A3);
 
-    expect(result).toEqual({ assetId: "a3", cleaned: false });
-    expect(fake.mediaAssets.has("a3")).toBe(true);
-    expect(fake.mediaAssets.get("a3")!.status).toBe("deleting");
+    expect(result).toEqual({ assetId: A3, cleaned: false });
+    expect(fake.mediaAssets.has(A3)).toBe(true);
+    expect(fake.mediaAssets.get(A3)!.status).toBe("deleting");
+  });
+
+  it("R4-E2: un DeleteObjects con errores parciales (error por clave) NO borra la fila", async () => {
+    fake.mediaAssets.set(A3, {
+      id: A3,
+      status: "deleting",
+      domain: "cosplay",
+      storage_key: null,
+      private_original_key: null,
+    });
+    fake.variants.set(A3, [{ storage_key: `cosplay/${A3}/w480.webp` }]);
+    deletePublicVariantsMock.mockRejectedValue(
+      Object.assign(new Error("partial"), { name: "R2PartialDeleteError" }),
+    );
+    expect((await attemptMediaAssetCleanup(A3)).cleaned).toBe(false);
+    expect(fake.mediaAssets.has(A3)).toBe(true);
+  });
+
+  it("R4-E2 VÍDEO: el objeto público es storage_key (sin variantes) y se elimina", async () => {
+    fake.mediaAssets.set(VIDEO, {
+      id: VIDEO,
+      status: "deleting",
+      domain: "community",
+      storage_key: `community/${VIDEO}/original.mp4`,
+      private_original_key: null,
+    });
+    const result = await attemptMediaAssetCleanup(VIDEO);
+    expect(result.cleaned).toBe(true);
+    expect(deletePublicVariantsMock).toHaveBeenCalledWith([
+      `community/${VIDEO}/original.mp4`,
+    ]);
+    expect(fake.mediaAssets.has(VIDEO)).toBe(false);
+  });
+
+  it("R4-E2: una clave que no pertenece al asset aborta TODO el borrado (nada se elimina)", async () => {
+    fake.mediaAssets.set(A5, {
+      id: A5,
+      status: "deleting",
+      domain: "community",
+      storage_key: `community/${A5}/w960.webp`,
+      private_original_key: `objects/community/${FOREIGN}/original.png`,
+    });
+    fake.variants.set(A5, [{ storage_key: `community/${A5}/w480.webp` }]);
+    const result = await attemptMediaAssetCleanup(A5);
+    expect(result.cleaned).toBe(false);
+    expect(deletePublicVariantsMock).not.toHaveBeenCalled();
+    expect(deletePrivateObjectMock).not.toHaveBeenCalled();
+    expect(fake.mediaAssets.has(A5)).toBe(true);
   });
 
   it("un reintento posterior (misma llamada) SÍ completa la limpieza si R2 ya responde", async () => {
-    fake.mediaAssets.set("a4", { status: "deleting", private_original_key: null });
-    fake.variants.set("a4", [{ storage_key: "cosplay/a4/w480.webp" }]);
+    fake.mediaAssets.set(A4, {
+      id: A4,
+      status: "deleting",
+      domain: "cosplay",
+      storage_key: null,
+      private_original_key: null,
+    });
+    fake.variants.set(A4, [{ storage_key: `cosplay/${A4}/w480.webp` }]);
     deletePublicVariantsMock
       .mockRejectedValueOnce(new Error("caído"))
       .mockResolvedValue(undefined);
 
-    const first = await attemptMediaAssetCleanup("a4");
+    const first = await attemptMediaAssetCleanup(A4);
     expect(first.cleaned).toBe(false);
 
-    const second = await attemptMediaAssetCleanup("a4");
+    const second = await attemptMediaAssetCleanup(A4);
     expect(second.cleaned).toBe(true);
-    expect(fake.mediaAssets.has("a4")).toBe(false);
+    expect(fake.mediaAssets.has(A4)).toBe(false);
   });
 
   it("un asset que no está 'deleting' (p. ej. todavía 'ready') nunca se toca", async () => {
-    fake.mediaAssets.set("a5", { status: "ready", private_original_key: null });
-    const result = await attemptMediaAssetCleanup("a5");
+    fake.mediaAssets.set(A5, {
+      id: A5,
+      status: "ready",
+      domain: "cosplay",
+      storage_key: null,
+      private_original_key: null,
+    });
+    const result = await attemptMediaAssetCleanup(A5);
     expect(result.cleaned).toBe(false);
     expect(deletePublicVariantsMock).not.toHaveBeenCalled();
-    expect(fake.mediaAssets.has("a5")).toBe(true);
+    expect(fake.mediaAssets.has(A5)).toBe(true);
   });
 
   it("un asset inexistente: cleaned false, sin lanzar", async () => {

@@ -51,6 +51,7 @@ export interface ModerationCaseItem {
   media: CommunityFeedMediaItem[];
   audit: {
     id: string;
+    /** Includes the system `post_purged` (physical purge); its raw metadata is never projected. */
     action: string;
     actorKind: "human" | "system";
     createdAt: string;

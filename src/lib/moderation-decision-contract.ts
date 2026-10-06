@@ -93,12 +93,13 @@ export function groupedDecisionInputFromCase(
   resolutionMessage: string | null = null,
 ): GroupedDecisionInput {
   const snapshot = object(item);
-  if (!Object.hasOwn(snapshot, "post")) throw new Error("Missing post snapshot");
+  if (!Object.prototype.hasOwnProperty.call(snapshot, "post"))
+    throw new Error("Missing post snapshot");
   const post = snapshot.post === null ? null : object(snapshot.post);
   if (
     post !== null &&
-    (!Object.hasOwn(post, "status") ||
-      !Object.hasOwn(post, "version") ||
+    (!Object.prototype.hasOwnProperty.call(post, "status") ||
+      !Object.prototype.hasOwnProperty.call(post, "version") ||
       !["published", "hidden_pending_review", "hidden"].includes(post.status as string))
   )
     throw new Error("Invalid post snapshot");

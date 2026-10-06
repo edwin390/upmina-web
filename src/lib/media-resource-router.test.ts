@@ -2,12 +2,18 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import router from "../../api/media/[resource]";
 import * as handlers from "./media-handlers";
+import { handleMediaGc } from "./media-gc-handler";
 
 // Fija el despachador de medios (api/media/[resource].ts, Fase 9I-2B — función 12/12 del plan
 // Hobby): solo comprueba que el `resource` correcto llega al handler correcto y que uno
 // desconocido no llama a ninguno. La lógica de cada handler ya está cubierta por
 // media-handlers.test.ts.
 
+vi.mock("./media-gc-handler", () => ({
+  handleMediaGc: vi.fn(async (_req: VercelRequest, res: VercelResponse) =>
+    res.status(200).json("gc"),
+  ),
+}));
 vi.mock("./media-handlers", () => ({
   handleMediaReserve: vi.fn(async (_req: VercelRequest, res: VercelResponse) =>
     res.status(200).json("reserve"),
@@ -84,5 +90,13 @@ describe("api/media/[resource]", () => {
     const { res, state } = mockRes();
     await router(req(undefined), res);
     expect(state.status).toBe(404);
+  });
+
+  it("gc → handleMediaGc (R4-E2), y solo POST interno vía ese resource", async () => {
+    const { res, state } = mockRes();
+    await router(req("gc"), res);
+    expect(handleMediaGc).toHaveBeenCalledTimes(1);
+    expect(handlers.handleMediaReserve).not.toHaveBeenCalled();
+    expect(state.body).toBe("gc");
   });
 });

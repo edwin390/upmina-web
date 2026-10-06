@@ -200,12 +200,9 @@ async function fetchPostPreviews(
       updated_at?: unknown;
     };
     if (typeof row.id !== "string") continue;
-    const text =
-      typeof row.text === "string"
-        ? fullText
-          ? row.text
-          : row.text.slice(0, MAX_PREVIEW_CHARS)
-        : null;
+    // R4-E4: a post that is removed (pending purge or already expired) has no previewable
+    // content, and one malformed/unknown row must not fail the unrelated rows of the page.
+    // Both cases yield NO preview (postPreview: null); the report row itself is still returned.
     if (
       (row.status !== "published" &&
         row.status !== "hidden_pending_review" &&
@@ -214,7 +211,13 @@ async function fetchPostPreviews(
       Number(row.version) < 1 ||
       typeof row.updated_at !== "string"
     )
-      throw new Error("Invalid post context");
+      continue;
+    const text =
+      typeof row.text === "string"
+        ? fullText
+          ? row.text
+          : row.text.slice(0, MAX_PREVIEW_CHARS)
+        : null;
     const status = row.status;
     const authorUsername =
       typeof row.author_user_id === "string"
@@ -431,7 +434,13 @@ export async function handleModerationReport(
         )
         .map((m) => mapFeedMediaRow(m, (key) => mediaUrls.get(key)!))
         .filter((m): m is CommunityFeedMediaItem => m !== null),
-      audit,
+      // R4-E4: post_purged metadata carries technical ids (post, decision, asset counts): the
+      // moderator only needs to know WHEN it happened, so the metadata is never forwarded.
+      audit: (audit as ModerationReportDetail["audit"]).map((a) =>
+        a && typeof a === "object" && a.action === "post_purged"
+          ? { ...a, metadata: {} }
+          : a,
+      ),
     };
 
     res.setHeader("Cache-Control", "no-store");
@@ -517,7 +526,10 @@ export async function handleModerationReportCreate(
     });
     if (error) {
       const businessError = rpcBusinessError(error);
-      if (businessError && Object.hasOwn(CREATE_KNOWN_ERRORS, businessError)) {
+      if (
+        businessError &&
+        Object.prototype.hasOwnProperty.call(CREATE_KNOWN_ERRORS, businessError)
+      ) {
         return res
           .status(CREATE_KNOWN_ERRORS[businessError]!)
           .json({ error: "No se pudo crear el reporte", code: businessError });

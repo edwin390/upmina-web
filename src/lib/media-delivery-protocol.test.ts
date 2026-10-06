@@ -9,6 +9,8 @@ import {
   importCapabilityPublicKey,
   parseMediaPath,
   signAccessRequest,
+  signGcRequest,
+  verifyGcRequest,
   signCapability,
   toBase64Url,
   verifyAccessRequest,
@@ -390,5 +392,90 @@ describe("parseMediaPath", () => {
     "/",
   ])("rejects %j", (path) => {
     expect(parseMediaPath(path)).toBeNull();
+  });
+});
+
+describe("GC request signing (R4-E2) — domain separated from access", () => {
+  const SECRET = "synthetic-gc-secret";
+  const input = {
+    method: "POST",
+    path: "/api/media/gc",
+    timestampSeconds: 1_800_000_000,
+  };
+  it("round-trips and is bound to method, path and timestamp", async () => {
+    const { timestamp, signature } = await signGcRequest(SECRET, input);
+    const base = {
+      method: "POST",
+      path: "/api/media/gc",
+      timestamp,
+      signature,
+      nowSeconds: 1_800_000_000,
+    };
+    expect((await verifyGcRequest(SECRET, base)).ok).toBe(true);
+    for (const tampered of [
+      { ...base, method: "GET" },
+      { ...base, path: "/api/media/access" },
+      { ...base, timestamp: String(Number(timestamp) + 1) },
+    ])
+      expect((await verifyGcRequest(SECRET, tampered)).ok).toBe(false);
+    expect((await verifyGcRequest("other-secret", base)).ok).toBe(false);
+  });
+  it("±30 s freshness window", async () => {
+    const { timestamp, signature } = await signGcRequest(SECRET, input);
+    const at = (nowSeconds: number) =>
+      verifyGcRequest(SECRET, {
+        method: "POST",
+        path: "/api/media/gc",
+        timestamp,
+        signature,
+        nowSeconds,
+      });
+    expect((await at(1_800_000_030)).ok).toBe(true);
+    expect((await at(1_799_999_970)).ok).toBe(true);
+    expect(await at(1_800_000_031)).toEqual({ ok: false, reason: "timestamp" });
+    expect(await at(1_799_999_969)).toEqual({ ok: false, reason: "timestamp" });
+  });
+  it("an access signature never verifies as a GC signature, nor the reverse (same secret)", async () => {
+    const access = await signAccessRequest(SECRET, { ...input, assetId: "" });
+    expect(
+      (
+        await verifyGcRequest(SECRET, {
+          method: "POST",
+          path: "/api/media/gc",
+          timestamp: access.timestamp,
+          signature: access.signature,
+          nowSeconds: 1_800_000_000,
+        })
+      ).ok,
+    ).toBe(false);
+    const gc = await signGcRequest(SECRET, input);
+    expect(
+      (
+        await verifyAccessRequest(SECRET, {
+          method: "POST",
+          path: "/api/media/gc",
+          timestamp: gc.timestamp,
+          signature: gc.signature,
+          assetId: "",
+          nowSeconds: 1_800_000_000,
+        })
+      ).ok,
+    ).toBe(false);
+  });
+  it("malformed input is rejected as malformed", async () => {
+    for (const bad of [
+      { timestamp: undefined, signature: "AAAA" },
+      { timestamp: "12x", signature: "AAAA" },
+      { timestamp: "1800000000", signature: "AAAA" },
+      { timestamp: "1800000000", signature: undefined },
+    ])
+      expect(
+        await verifyGcRequest(SECRET, {
+          method: "POST",
+          path: "/api/media/gc",
+          nowSeconds: 1_800_000_000,
+          ...bad,
+        }),
+      ).toEqual({ ok: false, reason: "malformed" });
   });
 });

@@ -230,6 +230,7 @@ export function parseModerationCase(value: unknown): ModerationCaseItem {
           "content_actioned",
           "strike_applied",
           "strike_revoked",
+          "post_purged",
         ]),
         actorKind: choice(x.actorKind, ["human", "system"]),
         createdAt: timestamp(x.createdAt),

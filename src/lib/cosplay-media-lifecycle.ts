@@ -1,13 +1,13 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
-import { deletePrivateObject, deletePublicVariants } from "./r2-client.js";
+import { deleteMediaAssetObjects, deriveAssetObjects } from "./media-gc.js";
 
 // Ciclo de vida seguro de medios de Cosplay (Fase 9I-3, checkpoint 2): primitivas reutilizables
 // para la limpieza real en R2 de un media_asset ya transicionado a status='deleting' (por
 // cosplay_admin_detach_image o cosplay_admin_delete_post — ver la migración 20261002120000), y
 // para IDENTIFICAR (nunca borrar automáticamente) assets 'ready' de Cosplay huérfanos (sin
-// publicación que los referencie). Nada aquí se invoca desde ningún cron ni desde ningún endpoint
-// HTTP en este checkpoint: son primitivas para uso manual/futuro, exactamente como pide la
-// sección 13 del checkpoint ("Do NOT schedule it. Do NOT globally sweep").
+// publicación que los referencie). R4-E2: la limpieza inline comparte la primitiva física y la
+// validación de claves de media-gc.ts (el GC programado, vía /api/media/gc, procesa los assets que
+// esta limpieza inmediata no logre completar). Nada aquí barre assets 'ready' ni programa nada.
 
 function getServiceRoleClient(): SupabaseClient | null {
   const url = process.env.VITE_SUPABASE_URL?.trim();
@@ -24,17 +24,17 @@ export interface MediaAssetCleanupResult {
 }
 
 /**
- * Intenta limpiar en R2 y borrar definitivamente la fila de un media_asset que YA está en
- * status='deleting'. Idempotente y seguro de reintentar:
+ * Limpieza INLINE (mejor esfuerzo inmediato) de un media_asset que YA está en status='deleting'.
+ * R4-E2: usa la MISMA primitiva física y la MISMA validación de propiedad de claves que el motor
+ * GC (media-gc.ts); si algo falla, el asset sigue 'deleting' y el GC programado lo recoge.
  *   - si la fila no existe o no está en 'deleting', no hace nada (cleaned: false, sin error);
- *   - borra las variantes públicas (deletePublicVariants) y, si quedara, el original privado
- *     residual (deletePrivateObject) — ambas primitivas YA EXISTENTES de r2-client.ts, nunca
- *     reimplementadas aquí;
- *   - SOLO si ambas confirmaciones de R2 tienen éxito se borra la fila de media_assets (que
- *     cascada sobre media_asset_variants);
- *   - si CUALQUIER borrado de R2 falla, la fila permanece en 'deleting' (estado recuperable) y
- *     esta función devuelve cleaned:false — nunca se afirma limpieza que no se confirmó, y un
- *     reintento posterior (llamar de nuevo con el mismo assetId) puede completarla.
+ *   - las claves se derivan de las filas del propio asset (variantes + storage_key + original
+ *     privado residual): imagen = variantes; vídeo = storage_key (sin variantes);
+ *   - una clave que no pertenece al asset/dominio aborta TODO el borrado de ese asset;
+ *   - DeleteObjects con errores parciales (Errors[]) cuenta como fallo, no como éxito;
+ *   - SOLO si todos los borrados tuvieron éxito (o ya estaban ausentes) se borra la fila de
+ *     media_assets (que cascada sobre media_asset_variants);
+ *   - nunca toca las columnas purge_* (eso es del motor GC).
  */
 export async function attemptMediaAssetCleanup(
   assetId: string,
@@ -44,11 +44,17 @@ export async function attemptMediaAssetCleanup(
 
   const { data: assetRow, error: assetError } = await client
     .from("media_assets")
-    .select("id, status, private_original_key")
+    .select("id, status, domain, storage_key, private_original_key")
     .eq("id", assetId)
     .maybeSingle();
   if (assetError || !assetRow) return { assetId, cleaned: false };
-  const row = assetRow as { status: string; private_original_key: string | null };
+  const row = assetRow as {
+    id: string;
+    status: string;
+    domain: string;
+    storage_key: string | null;
+    private_original_key: string | null;
+  };
   if (row.status !== "deleting") return { assetId, cleaned: false };
 
   const { data: variantRows, error: variantError } = await client
@@ -56,18 +62,15 @@ export async function attemptMediaAssetCleanup(
     .select("storage_key")
     .eq("asset_id", assetId);
   if (variantError || !Array.isArray(variantRows)) return { assetId, cleaned: false };
-  const variantKeys = (variantRows as { storage_key: string }[]).map(
-    (v) => v.storage_key,
-  );
 
-  try {
-    await deletePublicVariants(variantKeys);
-    if (row.private_original_key) {
-      await deletePrivateObject(row.private_original_key);
-    }
-  } catch {
-    return { assetId, cleaned: false };
-  }
+  const { objects, rejected } = deriveAssetObjects(
+    { ...row, id: row.id ?? assetId },
+    (variantRows as { storage_key: string }[]).map((v) => v.storage_key),
+  );
+  if (rejected > 0) return { assetId, cleaned: false };
+
+  const deleted = await deleteMediaAssetObjects(objects);
+  if (!deleted.ok) return { assetId, cleaned: false };
 
   const { error: deleteError } = await client
     .from("media_assets")

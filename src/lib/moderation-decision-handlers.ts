@@ -68,7 +68,10 @@ export async function handleModerationCaseDecision(
       p_resolution_message: input.resolutionMessage,
     });
     if (error) {
-      if (error.code === "P0001" && Object.hasOwn(errors, error.message))
+      if (
+        error.code === "P0001" &&
+        Object.prototype.hasOwnProperty.call(errors, error.message)
+      )
         return res
           .status(errors[error.message]!)
           .json({ error: "No se pudo completar la moderación", code: error.message });

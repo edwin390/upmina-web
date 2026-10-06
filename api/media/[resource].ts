@@ -1,5 +1,6 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { handleMediaAccess } from "../../src/lib/media-access-handler.js";
+import { handleMediaGc } from "../../src/lib/media-gc-handler.js";
 import {
   handleMediaAbort,
   handleMediaComplete,
@@ -25,6 +26,8 @@ import {
 //   "abort"    (POST) — cancela una reserva en curso (nunca un asset ya listo) y limpia R2.
 //   "access"   (POST) — R4-D1: consulta firmada (HMAC) del Worker de entrega; la ÚNICA acción de
 //              este despachador que no usa sesión de usuario. Solo responde { public: boolean }.
+//   "gc"       (POST) — R4-E2: lote INTERNO de GC físico de medios; HMAC de dominio propio
+//              (MEDIA_GC_SHARED_SECRET), cuerpo vacío, sin parámetros del llamador. Solo recuentos.
 export default function handler(req: VercelRequest, res: VercelResponse) {
   switch (req.query.resource) {
     case "reserve":
@@ -35,6 +38,8 @@ export default function handler(req: VercelRequest, res: VercelResponse) {
       return handleMediaAbort(req, res);
     case "access":
       return handleMediaAccess(req, res);
+    case "gc":
+      return handleMediaGc(req, res);
     default:
       return res.status(404).json({ error: "No encontrado" });
   }

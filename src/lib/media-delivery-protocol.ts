@@ -309,6 +309,75 @@ export async function verifyAccessRequest(
 }
 
 // ────────────────────────────────────────────────────────────────────────────────────────────
+// 2b. Petición firmada del scheduler → backend (/api/media/gc) — R4-E2
+//
+// Separación de dominio: prefijo canónico propio ("UPMINA-MEDIA-GC-V1"), secreto propio
+// (MEDIA_GC_SHARED_SECRET) y SIN assetId: una firma de /api/media/access (canónico
+// "UPMINA-MEDIA-ACCESS-V1…") nunca verifica aquí, ni viceversa. El cuerpo debe ser vacío; la
+// petición no elige assets, claves, buckets ni límites. Replay: ventana de ±30 s; una repetición
+// dentro de ella solo vuelve a ejecutar un lote GC idempotente decidido por la BD.
+
+export const GC_REQUEST_PATH = "/api/media/gc";
+export const GC_REQUEST_METHOD = "POST";
+export const GC_TOLERANCE_SECONDS = 30;
+
+function canonicalGcRequest(input: {
+  method: string;
+  path: string;
+  timestamp: string;
+}): Uint8Array {
+  return encoder.encode(
+    ["UPMINA-MEDIA-GC-V1", input.method.toUpperCase(), input.path, input.timestamp].join(
+      "\n",
+    ),
+  );
+}
+
+export async function signGcRequest(
+  secret: string,
+  input: { method: string; path: string; timestampSeconds: number },
+): Promise<{ timestamp: string; signature: string }> {
+  const timestamp = String(input.timestampSeconds);
+  const signature = new Uint8Array(
+    await crypto.subtle.sign(
+      "HMAC",
+      await hmacKey(secret, "sign"),
+      canonicalGcRequest({ ...input, timestamp }) as BytesInput,
+    ),
+  );
+  return { timestamp, signature: toBase64Url(signature) };
+}
+
+export async function verifyGcRequest(
+  secret: string,
+  input: {
+    method: string;
+    path: string;
+    timestamp: string | undefined;
+    signature: string | undefined;
+    nowSeconds: number;
+  },
+): Promise<{ ok: true } | { ok: false; reason: AccessRequestFailure }> {
+  if (!input.timestamp || !input.signature || !/^\d{1,12}$/.test(input.timestamp))
+    return { ok: false, reason: "malformed" };
+  const signature = fromBase64Url(input.signature);
+  if (!signature || signature.length !== 32) return { ok: false, reason: "malformed" };
+  if (Math.abs(input.nowSeconds - Number(input.timestamp)) > GC_TOLERANCE_SECONDS)
+    return { ok: false, reason: "timestamp" };
+  const valid = await crypto.subtle.verify(
+    "HMAC",
+    await hmacKey(secret, "verify"),
+    signature as BytesInput,
+    canonicalGcRequest({
+      method: input.method,
+      path: input.path,
+      timestamp: input.timestamp,
+    }) as BytesInput,
+  );
+  return valid ? { ok: true } : { ok: false, reason: "signature" };
+}
+
+// ────────────────────────────────────────────────────────────────────────────────────────────
 // 3. Rutas de medios
 
 export const COMMUNITY_VARIANT_WIDTHS = [480, 960, 1600, 2560] as const;

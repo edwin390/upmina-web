@@ -71,11 +71,28 @@ function date(iso: string | null) {
       )
     : "—";
 }
+/** R4-E4: when the post was physically purged (system `post_purged` audit row), or null. */
+function purgedAt(item: ModerationCaseItem): string | null {
+  return item.audit.find((a) => a.action === "post_purged")?.createdAt ?? null;
+}
+/** R4-E4: removed post whose 72 h window ended but whose row still exists. The server already
+ *  hides its text/media; this only selects the neutral wording (cosmetic, not a security gate). */
+function contentExpired(item: ModerationCaseItem) {
+  return (
+    item.post?.status === "removed_pending_purge" &&
+    !!item.post.purgeAfter &&
+    Date.parse(item.post.purgeAfter) <= Date.now()
+  );
+}
 function postState(item: ModerationCaseItem) {
   return !item.post
-    ? "Publicación no disponible"
+    ? purgedAt(item)
+      ? "Publicación eliminada definitivamente"
+      : "Publicación no disponible"
     : item.post.status === "removed_pending_purge"
-      ? "Retirada por moderación"
+      ? contentExpired(item)
+        ? "Retirada por moderación · contenido expirado"
+        : "Retirada por moderación"
       : item.post.status === "hidden_pending_review"
         ? "Oculta preventivamente"
         : item.post.status === "hidden"
@@ -357,12 +374,21 @@ function AdminModeration() {
                   : "Autor no disponible"}{" "}
                 · Versión de publicación {detail.item.post.version}
               </p>
-              <p className="whitespace-pre-wrap break-words [overflow-wrap:anywhere]">
-                {detail.item.post.text ?? "Publicación sin texto"}
-              </p>
-              <p className="text-sm text-text-muted">
-                Se muestra el contenido actual, no una captura histórica del reporte.
-              </p>
+              {contentExpired(detail.item) ? (
+                <p>
+                  El contenido de esta publicación ya expiró y no está disponible. No se
+                  conserva una captura de su texto o media.
+                </p>
+              ) : (
+                <>
+                  <p className="whitespace-pre-wrap break-words [overflow-wrap:anywhere]">
+                    {detail.item.post.text ?? "Publicación sin texto"}
+                  </p>
+                  <p className="text-sm text-text-muted">
+                    Se muestra el contenido actual, no una captura histórica del reporte.
+                  </p>
+                </>
+              )}
               {detail.item.firstReportAt &&
                 Date.parse(detail.item.post.updatedAt) >
                   Date.parse(detail.item.firstReportAt) && (
@@ -393,8 +419,10 @@ function AdminModeration() {
             </>
           ) : (
             <p>
-              La publicación original ya no está disponible. No se conserva una captura de
-              su texto o media.
+              {purgedAt(detail.item)
+                ? `La publicación fue eliminada definitivamente el ${date(purgedAt(detail.item))}. `
+                : "La publicación original ya no está disponible. "}
+              No se conserva una captura de su texto o media.
             </p>
           )}
           <h2 className="font-semibold">Estado del ciclo</h2>
@@ -525,13 +553,19 @@ function AdminModeration() {
             <ul>
               {detail.item.audit.map((a) => (
                 <li key={a.id} className="mt-2 break-words text-sm">
-                  {a.action} · {a.actorKind === "system" ? "Sistema" : "Acción humana"} ·{" "}
+                  {a.action === "post_purged"
+                    ? "Publicación eliminada definitivamente"
+                    : a.action}{" "}
+                  · {a.actorKind === "system" ? "Sistema" : "Acción humana"} ·{" "}
                   {date(a.createdAt)}
-                  <span className="block">
-                    Publicación: {a.states.fromPostStatus ?? "—"} →{" "}
-                    {a.states.toPostStatus ?? "—"} · Reporte:{" "}
-                    {a.states.fromReportStatus ?? "—"} → {a.states.toReportStatus ?? "—"}
-                  </span>
+                  {a.action !== "post_purged" && (
+                    <span className="block">
+                      Publicación: {a.states.fromPostStatus ?? "—"} →{" "}
+                      {a.states.toPostStatus ?? "—"} · Reporte:{" "}
+                      {a.states.fromReportStatus ?? "—"} →{" "}
+                      {a.states.toReportStatus ?? "—"}
+                    </span>
+                  )}
                 </li>
               ))}
             </ul>
@@ -640,10 +674,14 @@ function AdminModeration() {
                       </span>
                       <Reasons item={item} />
                       <span className="line-clamp-2 break-words [overflow-wrap:anywhere] text-sm">
-                        {item.post?.text ??
-                          (item.post
-                            ? "Publicación sin texto"
-                            : "Publicación original no disponible")}
+                        {contentExpired(item)
+                          ? "Contenido expirado"
+                          : (item.post?.text ??
+                            (item.post
+                              ? "Publicación sin texto"
+                              : purgedAt(item)
+                                ? "Publicación eliminada definitivamente"
+                                : "Publicación original no disponible"))}
                       </span>
                       <span className="text-xs text-text-muted">
                         {item.post?.authorUsername

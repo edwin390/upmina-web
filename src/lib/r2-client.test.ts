@@ -191,3 +191,51 @@ describe("publicVariantUrl — usa la base pública activa según el entorno", (
     expect(publicVariantUrl("k.webp")).toBe("https://media.upminaa-web.com/k.webp");
   });
 });
+
+describe("deletePublicVariants — DeleteObjects responde 200 con errores por clave (R4-E2)", () => {
+  const KEYS = ["community/a/w480.webp", "community/a/w960.webp"];
+  async function withSend(response: unknown) {
+    stubAllRequiredVars();
+    vi.stubEnv("VERCEL_ENV", "preview");
+    const { S3Client } = await import("@aws-sdk/client-s3");
+    return vi
+      .spyOn(S3Client.prototype, "send")
+      .mockImplementation(async () => response as never);
+  }
+  afterEach(() => vi.restoreAllMocks());
+
+  it("la llamada HTTP resuelve PERO Errors[] trae una clave → lanza R2PartialDeleteError (un éxito HTTP no es un éxito de borrado)", async () => {
+    await withSend({
+      Deleted: [{ Key: KEYS[0] }],
+      Errors: [{ Key: KEYS[1], Code: "InternalError", Message: "provider body" }],
+    });
+    const { deletePublicVariants, R2PartialDeleteError } = await import("./r2-client");
+    const failure = await deletePublicVariants(KEYS).catch((e) => e);
+    expect(failure).toBeInstanceOf(R2PartialDeleteError);
+    expect((failure as { failedCount: number }).failedCount).toBe(1);
+    expect(String(failure.message)).not.toMatch(/provider body|community\//);
+  });
+
+  it("NoSuchKey por clave es éxito idempotente (el objeto ya no existe)", async () => {
+    await withSend({ Deleted: [], Errors: [{ Key: KEYS[0], Code: "NoSuchKey" }] });
+    const { deletePublicVariants } = await import("./r2-client");
+    await expect(deletePublicVariants(KEYS)).resolves.toBeUndefined();
+  });
+
+  it("sin Errors (todo borrado) y lista vacía: éxito; la lista vacía ni llama a R2", async () => {
+    const send = await withSend({ Deleted: KEYS.map((Key) => ({ Key })) });
+    const { deletePublicVariants } = await import("./r2-client");
+    await expect(deletePublicVariants(KEYS)).resolves.toBeUndefined();
+    send.mockClear();
+    await expect(deletePublicVariants([])).resolves.toBeUndefined();
+    expect(send).not.toHaveBeenCalled();
+  });
+
+  it("un fallo de red (la promesa rechaza) también propaga", async () => {
+    stubAllRequiredVars();
+    const { S3Client } = await import("@aws-sdk/client-s3");
+    vi.spyOn(S3Client.prototype, "send").mockRejectedValue(new Error("network"));
+    const { deletePublicVariants } = await import("./r2-client");
+    await expect(deletePublicVariants(KEYS)).rejects.toThrow("network");
+  });
+});

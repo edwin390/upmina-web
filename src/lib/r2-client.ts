@@ -360,15 +360,31 @@ export async function putPublicVariant(
   );
 }
 
+/** DeleteObjects responde 200 aunque algunas claves fallen: el fallo viaja en `Errors[]`. Un éxito
+ *  HTTP NO es un éxito de borrado (R4-E2). Solo expone un recuento: nunca claves ni el cuerpo del
+ *  proveedor. */
+export class R2PartialDeleteError extends Error {
+  readonly failedCount: number;
+  constructor(failedCount: number) {
+    super("R2 DeleteObjects reported per-key errors");
+    this.name = "R2PartialDeleteError";
+    this.failedCount = failedCount;
+  }
+}
+
+/** Borra objetos del bucket PÚBLICO. Una clave ya inexistente (NoSuchKey) es éxito idempotente;
+ *  cualquier otro error por clave lanza R2PartialDeleteError. */
 export async function deletePublicVariants(keys: string[]): Promise<void> {
   if (keys.length === 0) return;
   const { client, publicBucket } = getActiveR2Config();
-  await client.send(
+  const response = await client.send(
     new DeleteObjectsCommand({
       Bucket: publicBucket,
-      Delete: { Objects: keys.map((Key) => ({ Key })) },
+      Delete: { Objects: keys.map((Key) => ({ Key })), Quiet: false },
     }),
   );
+  const failed = (response.Errors ?? []).filter((e) => e.Code !== "NoSuchKey");
+  if (failed.length > 0) throw new R2PartialDeleteError(failed.length);
 }
 
 /** URL pública derivada SIEMPRE de la base pública configurada server-side (R2_DEV_PUBLIC_BASE_URL

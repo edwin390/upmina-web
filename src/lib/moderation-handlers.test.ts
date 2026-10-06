@@ -95,6 +95,7 @@ const fake = vi.hoisted(() => ({
   profiles: [] as Row[],
   rpcCalls: [] as { name: string; args: Record<string, unknown> }[],
   rpcResult: undefined as { data: unknown; error: unknown } | undefined,
+  auditRows: [] as unknown[],
   attachments: [] as Row[],
   assets: [] as Row[],
   assetLookups: [] as string[][],
@@ -227,7 +228,8 @@ vi.mock("@supabase/supabase-js", () => ({
     },
     async rpc(name: string, args: Record<string, unknown>) {
       fake.rpcCalls.push({ name, args });
-      if (name === "community_moderation_audit") return { data: [], error: null };
+      if (name === "community_moderation_audit")
+        return { data: fake.auditRows, error: null };
       return (
         fake.rpcResult ?? {
           data: null,
@@ -712,6 +714,7 @@ beforeEach(() => {
   fake.profiles = [];
   fake.rpcCalls = [];
   fake.rpcResult = undefined;
+  fake.auditRows = [];
   fake.attachments = [];
   fake.assets = [];
   fake.assetLookups = [];
@@ -849,6 +852,103 @@ describe("handleModerationReports — cola de reportes", () => {
     expect(body.reports[0]?.postPreview).toBeNull();
   });
 
+  it("R4-E4: la cola legacy no expone el texto de un post removed_pending_purge y NO falla (preview null)", async () => {
+    fake.reports = [
+      {
+        id: REPORT_ID,
+        post_id: POST_ID,
+        version: 1,
+        reason: "spam",
+        status: "open",
+        created_at: "2026-03-01T00:00:00.000Z",
+      },
+    ];
+    fake.posts = [
+      {
+        id: POST_ID,
+        text: "texto-que-no-debe-salir",
+        status: "removed_pending_purge",
+        author_user_id: USER_ID,
+        version: 3,
+        updated_at: "2026-03-01T00:00:00.000Z",
+      },
+    ];
+    fake.profiles = [{ user_id: USER_ID, username: "kirito" }];
+    const state = await call(handleModerationReports, req({}));
+    expect(JSON.stringify(state.body)).not.toContain("texto-que-no-debe-salir");
+    expect(state.status).toBe(200);
+    const body = state.body as { reports: { id: string; postPreview: unknown }[] };
+    expect(body.reports).toHaveLength(1);
+    expect(body.reports[0]?.postPreview).toBeNull();
+  });
+
+  it("R4-E4: un post removido, uno vencido-ausente y uno malformado no hacen fallar las filas ajenas", async () => {
+    const OTHER = "0b2ad7a0-1c0e-4a8d-9a11-0c4f59f0a0aa";
+    const MISSING = "0b2ad7a0-1c0e-4a8d-9a11-0c4f59f0a0bb";
+    const BAD = "0b2ad7a0-1c0e-4a8d-9a11-0c4f59f0a0cc";
+    const mkReport = (id: string, post: string, at: string) => ({
+      id,
+      post_id: post,
+      version: 1,
+      reason: "spam",
+      status: "open",
+      created_at: at,
+    });
+    fake.reports = [
+      mkReport(
+        "0c000000-0000-4000-8000-000000000001",
+        POST_ID,
+        "2026-03-04T00:00:00.000Z",
+      ),
+      mkReport("0c000000-0000-4000-8000-000000000002", OTHER, "2026-03-03T00:00:00.000Z"),
+      mkReport(
+        "0c000000-0000-4000-8000-000000000003",
+        MISSING,
+        "2026-03-02T00:00:00.000Z",
+      ),
+      mkReport("0c000000-0000-4000-8000-000000000004", BAD, "2026-03-01T00:00:00.000Z"),
+    ];
+    fake.posts = [
+      {
+        id: POST_ID,
+        text: "removed-secret-text",
+        status: "removed_pending_purge",
+        author_user_id: USER_ID,
+        version: 3,
+        updated_at: "2026-03-01T00:00:00.000Z",
+      },
+      {
+        id: OTHER,
+        text: "visible-text",
+        status: "published",
+        author_user_id: USER_ID,
+        version: 1,
+        updated_at: "2026-03-01T00:00:00.000Z",
+      },
+      {
+        id: BAD,
+        text: "bad-row-text",
+        status: "some_unknown_status",
+        author_user_id: USER_ID,
+        version: 1,
+        updated_at: "2026-03-01T00:00:00.000Z",
+      },
+    ];
+    fake.profiles = [{ user_id: USER_ID, username: "kirito" }];
+    const state = await call(handleModerationReports, req({}));
+    expect(state.status).toBe(200);
+    const body = state.body as {
+      reports: { postId: string; postPreview: { text: string } | null }[];
+    };
+    expect(body.reports).toHaveLength(4);
+    const byPost = new Map(body.reports.map((r) => [r.postId, r.postPreview]));
+    expect(byPost.get(OTHER)?.text).toBe("visible-text");
+    expect(byPost.get(POST_ID)).toBeNull();
+    expect(byPost.get(MISSING)).toBeNull();
+    expect(byPost.get(BAD)).toBeNull();
+    expect(JSON.stringify(state.body)).not.toMatch(/removed-secret-text|bad-row-text/);
+  });
+
   it("Cache-Control: no-store", async () => {
     const state = await call(handleModerationReports, req({}));
     expect(state.headers["Cache-Control"]).toBe("no-store");
@@ -892,6 +992,51 @@ describe("handleModerationReport — detalle", () => {
       req({ token: "jwt-user-aal2", query: { id: REPORT_ID } }),
     );
     expect(state.status).toBe(403);
+  });
+
+  it("R4-E4: la auditoría post_purged se devuelve sin metadata técnica y el detalle sobrevive al post ausente", async () => {
+    fake.reports = [
+      {
+        id: REPORT_ID,
+        post_id: POST_ID,
+        version: 1,
+        reason: "spam",
+        detail: "motivo del reporte",
+        status: "resolved",
+        created_at: "2026-03-01T00:00:00.000Z",
+        updated_at: "2026-03-02T00:00:00.000Z",
+      },
+    ];
+    fake.posts = []; // physically purged
+    fake.auditRows = [
+      {
+        id: "0a000000-0000-4000-8000-000000000001",
+        actor_user_id: null,
+        action: "post_purged",
+        metadata: { post_id: POST_ID, removal_decision_id: "x", assets_marked: 3 },
+        created_at: "2026-03-05T00:00:00.000Z",
+      },
+      {
+        id: "0a000000-0000-4000-8000-000000000002",
+        actor_user_id: MOD_ID,
+        action: "post_hidden",
+        metadata: { reason: "kept" },
+        created_at: "2026-03-02T00:00:00.000Z",
+      },
+    ];
+    const state = await call(handleModerationReport, req({ query: { id: REPORT_ID } }));
+    expect(state.status).toBe(200);
+    const report = (
+      state.body as {
+        report: { postPreview: unknown; audit: { action: string; metadata: unknown }[] };
+      }
+    ).report;
+    expect(report.postPreview).toBeNull();
+    expect(report.audit.find((a) => a.action === "post_purged")?.metadata).toEqual({});
+    expect(report.audit.find((a) => a.action === "post_hidden")?.metadata).toEqual({
+      reason: "kept",
+    });
+    expect(JSON.stringify(state.body)).not.toMatch(/assets_marked|removal_decision_id/);
   });
 
   it("reporte existente: incluye detail/resolvedBy/resolutionNote/updatedAt", async () => {
