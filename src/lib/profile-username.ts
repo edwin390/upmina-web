@@ -2,7 +2,10 @@
 // congelado ampliado en 9J-1B). La base de datos sigue siendo la autoridad final (CHECK
 // profiles_username_format, UNIQUE profiles_username_key —
 // supabase/migrations/20261003120000_community_username_foundation.sql—); esto solo evita
-// viajes inútiles y fija la política de nombres reservados, que NO vive en SQL.
+// viajes inútiles y fija la política de nombres reservados por lista exacta. La detección de
+// SUPLANTACIÓN de Mina/Upmina (variantes) tiene además autoridad en SQL (trigger de profiles;
+// ver username-impersonation.ts y supabase/migrations/20261101120000_…).
+import { isImpersonationUsername } from "./username-impersonation.js";
 
 /** Mismo conjunto de caracteres y longitud que el CHECK profiles_username_format:
  *  minúsculas ASCII, dígitos, guion bajo y punto, 3–24 caracteres. Se aplica DESPUÉS de
@@ -57,7 +60,7 @@ export function normalizeUsername(raw: string): string {
 }
 
 export function isReservedUsername(normalized: string): boolean {
-  return RESERVED_USERNAMES.has(normalized);
+  return RESERVED_USERNAMES.has(normalized) || isImpersonationUsername(normalized);
 }
 
 export type UsernameCheck =

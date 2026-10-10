@@ -293,6 +293,46 @@ describe("validación del username en cliente", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it("suplantación de Mina/Upmina: feedback 'no disponible', botón deshabilitado y no envía (el servidor y la BD siguen siendo la autoridad)", async () => {
+    localStorage.setItem("upmina:locale", "es");
+    for (const name of [
+      "Mina",
+      "m1na",
+      "real_upm1naa",
+      "mi.na",
+      "minafan",
+      "mina_support",
+    ]) {
+      await renderAbsent();
+      const button = screen.getByRole("button", { name: "Crear perfil" });
+      type(name);
+      expect(screen.getByText("Ese username no está disponible.")).toBeInTheDocument();
+      expect(button).toBeDisabled();
+      submit(); // Enter con el botón deshabilitado: tampoco se envía
+      expect(fetchMock).not.toHaveBeenCalled();
+      cleanup();
+    }
+    await renderAbsent();
+    type("carmina");
+    expect(screen.queryByText("Ese username no está disponible.")).toBeNull();
+    expect(screen.getByRole("button", { name: "Crear perfil" })).toBeEnabled();
+  });
+
+  it("el aviso de nombre protegido sale en inglés y alemán según el idioma elegido", async () => {
+    for (const [locale, text] of [
+      ["en", "That username isn't available."],
+      ["de", "Dieser Benutzername ist nicht verfügbar."],
+    ]) {
+      localStorage.setItem("upmina:locale", locale);
+      await renderAbsent();
+      type("Mina");
+      expect(await screen.findByText(text)).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Crear perfil" })).toBeDisabled();
+      cleanup();
+    }
+    localStorage.clear();
+  });
+
   it("rechaza longitud 25 y acepta 3 y 24", async () => {
     await renderAbsent();
     const button = screen.getByRole("button", { name: "Crear perfil" });
