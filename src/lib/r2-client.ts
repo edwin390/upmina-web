@@ -65,6 +65,30 @@ function requiredEnv(name: string, errorMessage: string): string {
   return value;
 }
 
+/** Cliente S3 de R2: construido en UN solo sitio para que DEV y Production nunca diverjan.
+ *
+ *  `requestChecksumCalculation: "WHEN_REQUIRED"` es OBLIGATORIO. Desde el SDK 3.729 el valor por
+ *  defecto (`WHEN_SUPPORTED`) hace que `getSignedUrl` de PutObject/UploadPart añada a la URL
+ *  prefirmada `x-amz-checksum-crc32=AAAAAA==` (el CRC32 de un cuerpo VACÍO, porque al firmar aún no
+ *  hay cuerpo) y `x-amz-sdk-checksum-algorithm=CRC32`. R2 valida el cuerpo real que sube el navegador
+ *  contra ese checksum y rechaza la subida (BadDigest). Comprobado con SDK 3.1141.0 (ver
+ *  r2-client.test.ts). "WHEN_REQUIRED" solo calcula checksum donde la operación lo exige (p. ej.
+ *  DeleteObjects, que sigue enviando el suyo). Solo cambia las URLs prefirmadas de SUBIDA; no toca
+ *  eliminación, retención, claves ni R7. */
+function createR2Client(
+  endpoint: string,
+  accessKeyId: string,
+  secretAccessKey: string,
+): S3Client {
+  return new S3Client({
+    region: "auto",
+    endpoint,
+    forcePathStyle: true,
+    requestChecksumCalculation: "WHEN_REQUIRED",
+    credentials: { accessKeyId, secretAccessKey },
+  });
+}
+
 export function getR2DevConfig(): R2RuntimeConfig {
   if (isProductionEnvironment()) {
     throw new R2ConfigError("Medios DEV no disponibles en Production");
@@ -93,12 +117,7 @@ export function getR2DevConfig(): R2RuntimeConfig {
     "Configuración de R2 DEV incompleta",
   );
 
-  const client = new S3Client({
-    region: "auto",
-    endpoint,
-    forcePathStyle: true,
-    credentials: { accessKeyId, secretAccessKey },
-  });
+  const client = createR2Client(endpoint, accessKeyId, secretAccessKey);
 
   cachedDev = { client, privateBucket, publicBucket, publicBaseUrl };
   return cachedDev;
@@ -140,12 +159,7 @@ export function getR2ProdConfig(): R2RuntimeConfig {
     "Configuración de R2 Production incompleta",
   );
 
-  const client = new S3Client({
-    region: "auto",
-    endpoint,
-    forcePathStyle: true,
-    credentials: { accessKeyId, secretAccessKey },
-  });
+  const client = createR2Client(endpoint, accessKeyId, secretAccessKey);
 
   cachedProd = { client, privateBucket, publicBucket, publicBaseUrl };
   return cachedProd;

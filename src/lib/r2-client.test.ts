@@ -239,3 +239,110 @@ describe("deletePublicVariants — DeleteObjects responde 200 con errores por cl
     await expect(deletePublicVariants(KEYS)).rejects.toThrow("network");
   });
 });
+
+describe.each([
+  {
+    name: "DEV",
+    setup: () => stubAllRequiredVars(),
+    host: "test-account.r2.cloudflarestorage.com",
+    bucket: "upmina-media-dev-private",
+  },
+  {
+    name: "Production",
+    setup: () => {
+      vi.stubEnv("VERCEL_ENV", "production");
+      stubAllRequiredProdVars();
+    },
+    host: "test-prod-account.r2.cloudflarestorage.com",
+    bucket: "upmina-media-prod-private",
+  },
+])("URLs prefirmadas de subida — sin checksum sobre cuerpo vacío ($name)", (env) => {
+  async function load() {
+    env.setup();
+    return import("./r2-client");
+  }
+
+  it("PUT único: conserva firma, expiración y solo firma `host`; sin parámetros de checksum", async () => {
+    const m = await load();
+    const url = new URL(
+      await m.presignPrivatePut("staging/community/x/original.png", "image/png"),
+    );
+    expect(url.host).toBe(env.host);
+    expect(url.pathname).toBe(`/${env.bucket}/staging/community/x/original.png`);
+    expect(url.searchParams.get("X-Amz-Signature")).toMatch(/^[0-9a-f]{64}$/);
+    expect(url.searchParams.get("X-Amz-Expires")).toBe(
+      String(m.PRESIGN_TTL_SINGLE_PUT_SECONDS),
+    );
+    // El navegador solo envía Content-Type (no firmado) y Host: lo firmado coincide con lo enviado.
+    expect(url.searchParams.get("X-Amz-SignedHeaders")).toBe("host");
+    expect(url.searchParams.get("X-Amz-Content-Sha256")).toBe("UNSIGNED-PAYLOAD");
+    expect(
+      [...url.searchParams.keys()].filter((k) => /checksum|sdk-checksum/i.test(k)),
+    ).toEqual([]);
+  });
+
+  it("parte de multipart: igual, sin checksum, con su vigencia", async () => {
+    const m = await load();
+    const url = new URL(
+      await m.presignPrivateUploadPart("staging/community/x/original.mp4", "up-1", 2),
+    );
+    expect(url.host).toBe(env.host);
+    expect(url.searchParams.get("partNumber")).toBe("2");
+    expect(url.searchParams.get("uploadId")).toBe("up-1");
+    expect(url.searchParams.get("X-Amz-Expires")).toBe(
+      String(m.PRESIGN_TTL_MULTIPART_PART_SECONDS),
+    );
+    expect(url.searchParams.get("X-Amz-SignedHeaders")).toBe("host");
+    expect(
+      [...url.searchParams.keys()].filter((k) => /checksum|sdk-checksum/i.test(k)),
+    ).toEqual([]);
+  });
+
+  it("el cliente usa WHEN_REQUIRED, igual en ambos entornos", async () => {
+    await load();
+    const { client } = env.name === "DEV" ? getR2DevConfig() : getR2ProdConfig();
+    await expect(client.config.requestChecksumCalculation()).resolves.toBe(
+      "WHEN_REQUIRED",
+    );
+  });
+
+  it("DeleteObjects (operación interna) sigue enviando su checksum obligatorio", async () => {
+    await load();
+    const { client } = env.name === "DEV" ? getR2DevConfig() : getR2ProdConfig();
+    let headers: Record<string, string> = {};
+    (client.config as { requestHandler: unknown }).requestHandler = {
+      handle: async (req: { headers: Record<string, string> }) => {
+        headers = req.headers;
+        throw new Error("stop");
+      },
+      destroy() {},
+    };
+    const { deletePublicVariants } = await import("./r2-client");
+    await deletePublicVariants(["community/x/w480.webp"]).catch(() => undefined);
+    expect(
+      Object.keys(headers).some((h) => /^(content-md5|x-amz-checksum-)/i.test(h)),
+    ).toBe(true);
+  });
+});
+
+describe("causa documentada: con el valor por defecto del SDK la URL llevaría un checksum de cuerpo vacío", () => {
+  it("un S3Client sin el ajuste añade x-amz-checksum-crc32 (CRC32 de 0 bytes) a la URL de subida", async () => {
+    const { S3Client, PutObjectCommand } = await import("@aws-sdk/client-s3");
+    const { getSignedUrl } = await import("@aws-sdk/s3-request-presigner");
+    const plain = new S3Client({
+      region: "auto",
+      endpoint: "https://synthetic.invalid",
+      forcePathStyle: true,
+      credentials: { accessKeyId: "synthetic", secretAccessKey: "synthetic" },
+    });
+    const url = new URL(
+      await getSignedUrl(
+        plain,
+        new PutObjectCommand({ Bucket: "b", Key: "k", ContentType: "image/png" }),
+        { expiresIn: 60 },
+      ),
+    );
+    // Si el SDK cambia su valor por defecto, este test avisa de que el ajuste puede revisarse.
+    expect(url.searchParams.get("x-amz-checksum-crc32")).toBe("AAAAAA==");
+  });
+});
