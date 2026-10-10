@@ -47,6 +47,9 @@ export const QUEUE_REASONS = [
   "harassment",
   "hate_speech",
   "sexual_content",
+  "violence",
+  "off_topic",
+  "ai_generated",
   "other",
 ] as const;
 

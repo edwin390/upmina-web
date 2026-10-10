@@ -90,6 +90,9 @@
       "harassment": "Acoso",
       "hate_speech": "Discurso de odio",
       "sexual_content": "Contenido sexual",
+      "violence": "Violencia",
+      "off_topic": "Ajeno a Mina",
+      "ai_generated": "Generado con IA",
       "other": "Otro"
     },
     "hiddenOnly": "Solo ocultas preventivamente",
@@ -125,5 +128,44 @@
     "retry": "Reintentar carga",
     "retryHint": "Si sigue fallando, actualiza el caso: el acceso al archivo puede haber caducado.",
     "videoFallback": "Vídeo sin vista previa"
+  },
+  "report": {
+    "trigger": "Reportar",
+    "triggerLabel": "Reportar esta publicación",
+    "reported": "Reportada",
+    "title": "Reportar publicación",
+    "intro": "Cuéntanos qué pasa con esta publicación. El equipo de moderación la revisará; tu identidad no se muestra a otros usuarios.",
+    "reasonLegend": "Motivo del reporte",
+    "reasons": {
+      "harassment": "Acoso o intimidación",
+      "hate_speech": "Discriminación o discurso de odio",
+      "sexual_content": "Contenido sexual",
+      "violence": "Violencia o amenazas",
+      "off_topic": "Contenido ajeno a Mina",
+      "ai_generated": "Imágenes o videos generados con IA",
+      "spam": "Spam o engaño",
+      "other": "Otro motivo"
+    },
+    "copyrightNote": "Si crees que infringe derechos de autor, elige «Otro motivo» y cuéntanoslo. Esto es un reporte de la comunidad, no una reclamación formal de un titular de derechos.",
+    "detailLabel": "Explicación (opcional)",
+    "detailHelp": "No incluyas datos personales tuyos ni de otras personas.",
+    "counter": "{count} de {max} caracteres",
+    "submit": "Enviar reporte",
+    "sending": "Enviando…",
+    "cancel": "Cancelar",
+    "close": "Cerrar",
+    "successTitle": "Reporte enviado",
+    "successBody": "Gracias. El equipo de moderación lo revisará.",
+    "successAlready": "Ya habías reportado esta publicación. Tu reporte sigue en revisión.",
+    "errors": {
+      "reasonRequired": "Elige un motivo.",
+      "detailTooLong": "La explicación no puede superar {max} caracteres.",
+      "detailInvalid": "La explicación contiene caracteres no permitidos.",
+      "selfReport": "No puedes reportar tu propia publicación.",
+      "notFound": "Esta publicación ya no existe.",
+      "notReportable": "Esta publicación ya no se puede reportar.",
+      "unauthenticated": "Inicia sesión para reportar.",
+      "generic": "No pudimos enviar el reporte. Inténtalo de nuevo en unos minutos."
+    }
   }
 }

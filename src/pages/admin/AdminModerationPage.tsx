@@ -74,6 +74,9 @@ const REASONS: Record<string, string> = {
   harassment: "Acoso",
   hate_speech: "Discurso de odio",
   sexual_content: "Contenido sexual",
+  violence: "Violencia",
+  off_topic: "Ajeno a Mina",
+  ai_generated: "Generado con IA",
   other: "Otro",
 };
 const STATES: Record<string, string> = {

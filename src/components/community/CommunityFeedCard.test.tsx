@@ -326,4 +326,12 @@ describe("CommunityFeedCard — media compacta en el feed (9J-3 follow-up CORREC
     );
     expect(screen.getByRole("button", { name: /me gusta \(5\)/i })).toBeInTheDocument();
   });
+
+  it("REP-1: ofrece reportar la publicación y el botón nunca está dentro de un enlace", async () => {
+    renderCard(post());
+    const button = await screen.findByRole("button", {
+      name: "Reportar esta publicación",
+    });
+    expect(button.closest("a")).toBeNull();
+  });
 });

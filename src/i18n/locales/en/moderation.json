@@ -90,6 +90,9 @@
       "harassment": "Harassment",
       "hate_speech": "Hate speech",
       "sexual_content": "Sexual content",
+      "violence": "Violence",
+      "off_topic": "Unrelated to Mina",
+      "ai_generated": "AI-generated",
       "other": "Other"
     },
     "hiddenOnly": "Only posts hidden as a precaution",
@@ -125,5 +128,44 @@
     "retry": "Retry loading",
     "retryHint": "If it keeps failing, refresh the case: file access may have expired.",
     "videoFallback": "Video without preview"
+  },
+  "report": {
+    "trigger": "Report",
+    "triggerLabel": "Report this post",
+    "reported": "Reported",
+    "title": "Report post",
+    "intro": "Tell us what is wrong with this post. The moderation team will review it; your identity is not shown to other users.",
+    "reasonLegend": "Reason for the report",
+    "reasons": {
+      "harassment": "Harassment or bullying",
+      "hate_speech": "Discrimination or hate speech",
+      "sexual_content": "Sexual content",
+      "violence": "Violence or threats",
+      "off_topic": "Content unrelated to Mina",
+      "ai_generated": "AI-generated images or videos",
+      "spam": "Spam or deception",
+      "other": "Something else"
+    },
+    "copyrightNote": "If you think it infringes copyright, choose “Something else” and tell us. This is a community report, not a formal claim from a rights holder.",
+    "detailLabel": "Explanation (optional)",
+    "detailHelp": "Do not include personal data about yourself or others.",
+    "counter": "{count} of {max} characters",
+    "submit": "Send report",
+    "sending": "Sending…",
+    "cancel": "Cancel",
+    "close": "Close",
+    "successTitle": "Report sent",
+    "successBody": "Thank you. The moderation team will review it.",
+    "successAlready": "You had already reported this post. Your report is still under review.",
+    "errors": {
+      "reasonRequired": "Choose a reason.",
+      "detailTooLong": "The explanation cannot exceed {max} characters.",
+      "detailInvalid": "The explanation contains characters that are not allowed.",
+      "selfReport": "You cannot report your own post.",
+      "notFound": "This post no longer exists.",
+      "notReportable": "This post can no longer be reported.",
+      "unauthenticated": "Log in to report.",
+      "generic": "We could not send the report. Please try again in a few minutes."
+    }
   }
 }

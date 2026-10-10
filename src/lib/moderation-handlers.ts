@@ -40,7 +40,16 @@ const GENERIC_ERROR_BODY = { error: "Error interno" };
 const INVALID_BODY = { error: "Solicitud inválida" };
 const NOT_FOUND_BODY = { error: "No encontrado" };
 
-const REASONS = ["spam", "harassment", "hate_speech", "sexual_content", "other"] as const;
+const REASONS = [
+  "spam",
+  "harassment",
+  "hate_speech",
+  "sexual_content",
+  "violence",
+  "off_topic",
+  "ai_generated",
+  "other",
+] as const;
 export type ModerationReportReason = (typeof REASONS)[number];
 
 const STATUSES = ["open", "reviewing", "resolved", "dismissed", "actioned"] as const;
@@ -484,6 +493,16 @@ const CREATE_KNOWN_ERRORS: Record<string, number> = {
   detail_too_long: 400,
 };
 
+/** Controles C0 salvo tabulador y saltos de línea, más DEL. */
+function hasControlChars(text: string): boolean {
+  for (const ch of text) {
+    const c = ch.codePointAt(0)!;
+    if (c === 9 || c === 10 || c === 13) continue;
+    if (c < 32 || c === 127) return true;
+  }
+  return false;
+}
+
 // POST /api/admin/moderation-report-create — { postId, reason, detail? }. Cualquier usuario
 // AUTENTICADO (nunca requireCapability: reportar contenido no es una acción de moderación).
 export async function handleModerationReportCreate(
@@ -519,6 +538,9 @@ export async function handleModerationReportCreate(
   }
   if (typeof detail === "string" && Array.from(detail).length > 1000)
     return res.status(400).json({ ...INVALID_BODY, code: "detail_too_long" });
+  // REP-1: NUL y controles no son texto de usuario válido (Postgres rechaza NUL con un 500).
+  if (typeof detail === "string" && hasControlChars(detail))
+    return res.status(400).json({ ...INVALID_BODY, code: "invalid_context" });
 
   try {
     const client = getServiceClient();

@@ -152,7 +152,16 @@ export const parseModerationId = (v: unknown): string => {
   if (!uuid(v)) throw new Error("Invalid identity");
   return v;
 };
-const reasons = ["spam", "harassment", "hate_speech", "sexual_content", "other"] as const;
+const reasons = [
+  "spam",
+  "harassment",
+  "hate_speech",
+  "sexual_content",
+  "violence",
+  "off_topic",
+  "ai_generated",
+  "other",
+] as const;
 
 /** Explicit allowlist projection: never forward arbitrary RPC/report/audit fields. */
 export function parseModerationCase(value: unknown): ModerationCaseItem {

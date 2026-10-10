@@ -90,6 +90,9 @@
       "harassment": "Belästigung",
       "hate_speech": "Hassrede",
       "sexual_content": "Sexuelle Inhalte",
+      "violence": "Gewalt",
+      "off_topic": "Hat nichts mit Mina zu tun",
+      "ai_generated": "KI-generiert",
       "other": "Sonstiges"
     },
     "hiddenOnly": "Nur vorsorglich verborgene Beiträge",
@@ -125,5 +128,44 @@
     "retry": "Laden erneut versuchen",
     "retryHint": "Schlägt es weiter fehl, aktualisiere den Fall: Der Dateizugriff ist möglicherweise abgelaufen.",
     "videoFallback": "Video ohne Vorschau"
+  },
+  "report": {
+    "trigger": "Melden",
+    "triggerLabel": "Diesen Beitrag melden",
+    "reported": "Gemeldet",
+    "title": "Beitrag melden",
+    "intro": "Sag uns, was mit diesem Beitrag nicht stimmt. Das Moderationsteam prüft ihn; deine Identität wird anderen Nutzern nicht angezeigt.",
+    "reasonLegend": "Grund der Meldung",
+    "reasons": {
+      "harassment": "Belästigung oder Mobbing",
+      "hate_speech": "Diskriminierung oder Hassrede",
+      "sexual_content": "Sexuelle Inhalte",
+      "violence": "Gewalt oder Drohungen",
+      "off_topic": "Inhalt ohne Bezug zu Mina",
+      "ai_generated": "KI-generierte Bilder oder Videos",
+      "spam": "Spam oder Täuschung",
+      "other": "Anderer Grund"
+    },
+    "copyrightNote": "Wenn du glaubst, dass er Urheberrechte verletzt, wähle „Anderer Grund“ und schreib es uns. Dies ist eine Meldung aus der Community, keine förmliche Beanstandung eines Rechteinhabers.",
+    "detailLabel": "Erklärung (optional)",
+    "detailHelp": "Gib keine persönlichen Daten von dir oder anderen an.",
+    "counter": "{count} von {max} Zeichen",
+    "submit": "Meldung senden",
+    "sending": "Wird gesendet…",
+    "cancel": "Abbrechen",
+    "close": "Schließen",
+    "successTitle": "Meldung gesendet",
+    "successBody": "Danke. Das Moderationsteam prüft sie.",
+    "successAlready": "Du hast diesen Beitrag bereits gemeldet. Deine Meldung wird noch geprüft.",
+    "errors": {
+      "reasonRequired": "Wähle einen Grund.",
+      "detailTooLong": "Die Erklärung darf höchstens {max} Zeichen lang sein.",
+      "detailInvalid": "Die Erklärung enthält nicht erlaubte Zeichen.",
+      "selfReport": "Du kannst deinen eigenen Beitrag nicht melden.",
+      "notFound": "Dieser Beitrag existiert nicht mehr.",
+      "notReportable": "Dieser Beitrag kann nicht mehr gemeldet werden.",
+      "unauthenticated": "Melde dich an, um zu melden.",
+      "generic": "Die Meldung konnte nicht gesendet werden. Bitte versuche es in einigen Minuten erneut."
+    }
   }
 }
