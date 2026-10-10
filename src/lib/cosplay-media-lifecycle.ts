@@ -44,7 +44,7 @@ export async function attemptMediaAssetCleanup(
 
   const { data: assetRow, error: assetError } = await client
     .from("media_assets")
-    .select("id, status, domain, storage_key, private_original_key")
+    .select("id, status, domain, storage_key, private_original_key, multipart_upload_id")
     .eq("id", assetId)
     .maybeSingle();
   if (assetError || !assetRow) return { assetId, cleaned: false };
@@ -54,8 +54,12 @@ export async function attemptMediaAssetCleanup(
     domain: string;
     storage_key: string | null;
     private_original_key: string | null;
+    multipart_upload_id?: string | null;
   };
   if (row.status !== "deleting") return { assetId, cleaned: false };
+  // R6: una sesión multipart sin abortar la cierra el GC (aborta con el identificador exacto y solo
+  // entonces permite finalizar); aquí nunca se borra la fila ni se pierde el identificador.
+  if (row.multipart_upload_id) return { assetId, cleaned: false };
 
   const { data: variantRows, error: variantError } = await client
     .from("media_asset_variants")

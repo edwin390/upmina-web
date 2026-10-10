@@ -1,6 +1,10 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { isAssetUuid } from "./media-delivery-protocol.js";
-import { deletePrivateObject, deletePublicVariants } from "./r2-client.js";
+import {
+  abortPrivateMultipartUpload,
+  deletePrivateObject,
+  deletePublicVariants,
+} from "./r2-client.js";
 
 // R4-E2: motor físico de GC de medios. Dos piezas:
 //
@@ -26,6 +30,9 @@ export const GC_ERROR_CLASSES = [
   "invalid_object_reference",
   "gc_objects_failed",
   "gc_finalize_failed",
+  "r2_multipart_abort_failed",
+  "multipart_clear_failed",
+  "multipart_pending",
 ] as const;
 export type GcErrorClass = (typeof GC_ERROR_CLASSES)[number];
 
@@ -82,6 +89,15 @@ export function deriveAssetObjects(
 ): { objects: AssetObjects; rejected: number } {
   const publicCandidates = new Set<string>(variantKeys);
   if (asset.storage_key) publicCandidates.add(asset.storage_key);
+  // Claves canónicas posibles (espejo de community_asset_gc_objects, migración R5-S1): el pipeline
+  // sube las variantes ANTES de registrar su fila, y borrar una clave ausente es idempotente.
+  if (GC_DOMAINS.has(asset.domain) && isAssetUuid(asset.id)) {
+    for (const width of [480, 960, 1600, 2560])
+      publicCandidates.add(`${asset.domain}/${asset.id}/w${width}.webp`);
+    if (asset.domain === "community")
+      for (const ext of ["mp4", "mov", "webm"])
+        publicCandidates.add(`community/${asset.id}/original.${ext}`);
+  }
   const publicKeys: string[] = [];
   const privateKeys: string[] = [];
   let rejected = 0;
@@ -105,11 +121,22 @@ export function deriveAssetObjects(
 export interface PhysicalDeleteIo {
   deletePublic(keys: string[]): Promise<void>;
   deletePrivate(key: string): Promise<void>;
+  /** R6: aborta una sesión multipart abierta. Ausente => el GC falla cerrado si hay una. */
+  abortMultipart?(key: string, uploadId: string): Promise<void>;
 }
 const defaultIo: PhysicalDeleteIo = {
   deletePublic: deletePublicVariants,
   deletePrivate: deletePrivateObject,
+  abortMultipart: abortPrivateMultipartUpload,
 };
+
+/** NoSuchUpload = la sesión ya no existe (abortada o completada antes): objetivo cumplido. */
+function isNoSuchUpload(error: unknown): boolean {
+  const e = error as { name?: unknown; Code?: unknown; code?: unknown } | null;
+  return (
+    e?.name === "NoSuchUpload" || e?.Code === "NoSuchUpload" || e?.code === "NoSuchUpload"
+  );
+}
 
 export type PhysicalDeleteResult = { ok: true } | { ok: false; errorClass: GcErrorClass };
 
@@ -318,6 +345,48 @@ export async function runMediaGcBatch(
       return recordFailure(asset, "invalid_object_reference");
     if (data.rejectedKeys > 0) return recordFailure(asset, "invalid_object_reference");
 
+    // R6: una sesión multipart abierta se ABORTA (con su identificador exacto) y solo entonces se
+    // limpia el identificador; sin eso la fila no puede finalizarse (la BD lo impide). Si el aborto
+    // falla no se borra ningún objeto ni se finaliza: el identificador sigue en la fila y el
+    // siguiente run lo reintenta. Si el aborto funcionó pero la limpieza falló, el reintento vuelve
+    // a abortar (NoSuchUpload = éxito) y limpia.
+    const mpId = data.multipartUploadId ?? null;
+    const mpKey = data.multipartKey ?? null;
+    if ((mpId === null) !== (mpKey === null))
+      return recordFailure(asset, "invalid_object_reference");
+    if (mpId !== null && mpKey !== null) {
+      if (
+        typeof mpId !== "string" ||
+        mpId.length === 0 ||
+        typeof mpKey !== "string" ||
+        !isOwnedPrivateKey(asset.domain, asset.assetId, mpKey)
+      )
+        return recordFailure(asset, "invalid_object_reference");
+      try {
+        if (!io.abortMultipart) throw new Error("abort unavailable");
+        await io.abortMultipart(mpKey, mpId);
+      } catch (error) {
+        if (!isNoSuchUpload(error))
+          return recordFailure(asset, "r2_multipart_abort_failed");
+      }
+      let cleared: { data: unknown; error: unknown };
+      try {
+        cleared = await db!.rpc("community_asset_gc_multipart_cleared", {
+          p_asset_id: asset.assetId,
+          p_claim_token: asset.claimToken,
+          p_upload_id: mpId,
+        });
+      } catch {
+        return recordFailure(asset, "multipart_clear_failed");
+      }
+      const clearedResult = (cleared.data as { result?: unknown } | null)?.result;
+      if (cleared.error) return recordFailure(asset, "multipart_clear_failed");
+      if (clearedResult === "already_gone") return "alreadyGone";
+      if (clearedResult === "invalid_claim") return "stale";
+      if (clearedResult !== "cleared" && clearedResult !== "already_cleared")
+        return recordFailure(asset, "multipart_clear_failed");
+    }
+
     const deleted = await deleteMediaAssetObjects(
       {
         assetId: asset.assetId,
@@ -346,6 +415,7 @@ export async function runMediaGcBatch(
     if (result === "already_gone") return "alreadyGone";
     if (result === "invalid_claim") return "stale";
     if (result === "blocked") return "blocked"; // la propia RPC ya registró asset_referenced
+    if (result === "multipart_pending") return "failed"; // la propia RPC ya registró el reintento
     return recordFailure(asset, "gc_finalize_failed");
   }
 }

@@ -4,6 +4,14 @@ import {
   type GroupedDecisionInput,
   type GroupedDecisionResult,
 } from "./moderation-decision-contract";
+import {
+  parseStrikeApplyInput,
+  parseStrikeRevokeInput,
+  parseStrikeApplyResponse,
+  parseStrikeRevokeResponse,
+  type StrikeApplyResponse,
+  type StrikeRevokeResponse,
+} from "./moderation-strike-contract";
 import { supabase } from "@/lib/supabase";
 import type { CommunityFeedMediaItem } from "@/types";
 import type { QueryClient } from "@tanstack/react-query";
@@ -36,13 +44,61 @@ async function readCases(
   return response.json();
 }
 
-export async function fetchModerationCasePage(
+/** R5-G: filtros de la cola. Solo los valores no vacíos viajan; el servidor los valida y filtra. */
+export interface ModerationQueueFilters {
+  reason?: string;
+  hiddenOnly?: boolean;
+  author?: string;
+  from?: string;
+  to?: string;
+}
+
+/** R5-H: total de casos únicos pendientes (agregado en servidor; no depende de la página). */
+export async function fetchModerationPendingCount(signal?: AbortSignal): Promise<number> {
+  try {
+    const body = (await readCases(
+      new URLSearchParams({ summary: "pending" }),
+      signal,
+    )) as {
+      pending?: unknown;
+    } | null;
+    const n = body?.pending;
+    if (typeof n !== "number" || !Number.isInteger(n) || n < 0) throw new Error("bad");
+    return n;
+  } catch (error) {
+    if (
+      error instanceof ModerationClientError ||
+      (error instanceof Error && error.name === "AbortError")
+    )
+      throw error;
+    throw new ModerationClientError("No se pudo cargar el caso", 500, "invalid_response");
+  }
+}
+
+export const hasQueueFilters = (f: ModerationQueueFilters) =>
+  Boolean(f.reason || f.hiddenOnly || f.author || f.from || f.to);
+
+export function fetchModerationCasePage(
   scope: "active" | "closed",
   cursor: string | null,
   signal?: AbortSignal,
+  filters: ModerationQueueFilters = {},
 ): Promise<ModerationCasePage> {
   const params = new URLSearchParams({ scope });
   if (cursor) params.set("cursor", cursor);
+  if (filters.reason) params.set("reason", filters.reason);
+  if (filters.hiddenOnly) params.set("hiddenOnly", "1");
+  if (filters.author?.trim())
+    params.set("author", filters.author.trim().replace(/^@/, ""));
+  if (filters.from) params.set("from", filters.from);
+  if (filters.to) params.set("to", filters.to);
+  return readCasePage(params, signal);
+}
+
+async function readCasePage(
+  params: URLSearchParams,
+  signal?: AbortSignal,
+): Promise<ModerationCasePage> {
   try {
     return parseModerationCasePage(await readCases(params, signal));
   } catch (error) {
@@ -308,4 +364,70 @@ export async function decideModerationCase(
     );
   }
   return result;
+}
+
+// R5-E: strikes. Misma frontera privilegiada que la decisión (backend: requireCapability + MFA
+// reciente). Sin reintentos automáticos: el llamador decide y la UI refresca el estado desde el
+// servidor tras el resultado (nunca sintetiza el estado final con la respuesta de la mutación).
+export async function applyModerationStrike(input: {
+  decisionId: string;
+  reason: string;
+  expectedLevel: number | null;
+}): Promise<StrikeApplyResponse> {
+  const parsed = parseStrikeApplyInput(input);
+  if (!parsed.ok) throw new ModerationClientError("Solicitud inválida", 400, parsed.code);
+  const response = await fetch("/api/admin/moderation-strike-apply", {
+    method: "POST",
+    headers: { ...(await authHeader()), "Content-Type": "application/json" },
+    body: JSON.stringify(parsed.value),
+    cache: "no-store",
+  });
+  if (!response.ok) {
+    const error = await parseErrorBody(response);
+    throw new ModerationClientError(
+      error.error ?? "No se pudo aplicar el strike",
+      response.status,
+      error.code,
+    );
+  }
+  try {
+    return parseStrikeApplyResponse(await response.json());
+  } catch {
+    throw new ModerationClientError(
+      "No se pudo confirmar la respuesta",
+      500,
+      "invalid_response",
+    );
+  }
+}
+
+export async function revokeModerationStrike(input: {
+  strikeId: string;
+  reason: string;
+}): Promise<StrikeRevokeResponse> {
+  const parsed = parseStrikeRevokeInput(input);
+  if (!parsed.ok) throw new ModerationClientError("Solicitud inválida", 400, parsed.code);
+  const response = await fetch("/api/admin/moderation-strike-revoke", {
+    method: "POST",
+    headers: { ...(await authHeader()), "Content-Type": "application/json" },
+    body: JSON.stringify(parsed.value),
+    cache: "no-store",
+  });
+  if (!response.ok) {
+    const error = await parseErrorBody(response);
+    throw new ModerationClientError(
+      error.error ?? "No se pudo revocar el strike",
+      response.status,
+      error.code,
+    );
+  }
+  try {
+    return parseStrikeRevokeResponse(await response.json());
+  } catch {
+    throw new ModerationClientError(
+      "No se pudo confirmar la respuesta",
+      500,
+      "invalid_response",
+    );
+  }
 }

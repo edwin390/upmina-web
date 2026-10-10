@@ -24,5 +24,7 @@ export default defineConfig({
     environment: "jsdom",
     setupFiles: "./src/setupTests.ts",
     exclude: ["e2e/**", "node_modules/**"],
+    // R5-I: tope de workers (PGlite + muchos workers => "Worker exited unexpectedly").
+    poolOptions: { forks: { minForks: 1, maxForks: 6 } },
   },
 });

@@ -41,6 +41,7 @@ import {
   type CompletedPart,
 } from "./r2-client.js";
 import { processImage, ProcessingFailure } from "./media-processing.js";
+import { attemptMediaAssetCleanup } from "./cosplay-media-lifecycle.js";
 import {
   cosplayPublicMediaUrl,
   creatorPreviewMediaUrl,
@@ -232,8 +233,16 @@ async function setStatus(
     to === "failed"
       ? { status: to, ...extra }
       : { status: to, failure_code: null, ...extra };
-  const { error } = await client.from("media_assets").update(payload).eq("id", assetId);
+  // Guarda por estado: si un descarte/barrido movió el asset a 'deleting' entretanto, esta
+  // transición NO lo resucita (cero filas afectadas = conflicto).
+  const { data, error } = await client
+    .from("media_assets")
+    .update(payload)
+    .eq("id", assetId)
+    .eq("status", from)
+    .select("id");
   if (error) throw error;
+  if (Array.isArray(data) && data.length === 0) throw new Error("estado cambiado");
 }
 
 async function markFailed(
@@ -249,7 +258,8 @@ async function markFailed(
   await client
     .from("media_assets")
     .update({ status: "failed", failure_code: failureCode })
-    .eq("id", assetId);
+    .eq("id", assetId)
+    .eq("status", from);
 }
 
 interface ParsedPart {
@@ -661,7 +671,7 @@ export async function handleMediaComplete(
           .json({ assetId, status: "failed", failureCode: "processing_failed" });
       }
 
-      const { error: readyError } = await client
+      const { data: readyRows, error: readyError } = await client
         .from("media_assets")
         .update({
           status: "ready",
@@ -673,9 +683,12 @@ export async function handleMediaComplete(
           storage_key: publicKey,
           private_original_key: null,
         })
-        .eq("id", assetId);
-      if (readyError) {
-        await deletePublicVariants([publicKey]).catch(() => undefined);
+        .eq("id", assetId)
+        .eq("status", currentStatus)
+        .select("id");
+      if (readyError || (Array.isArray(readyRows) && readyRows.length === 0)) {
+        // Si el asset ya está 'deleting' (descarte/barrido), el objeto público lo borra el GC.
+        if (readyError) await deletePublicVariants([publicKey]).catch(() => undefined);
         await markFailed(client, assetId, currentStatus, "processing_failed");
         return res
           .status(200)
@@ -759,7 +772,7 @@ export async function handleMediaComplete(
     }
 
     const primary = uploaded.reduce((a, b) => (a.variant > b.variant ? a : b));
-    const { error: readyError } = await client
+    const { data: readyRows, error: readyError } = await client
       .from("media_assets")
       .update({
         status: "ready",
@@ -771,8 +784,10 @@ export async function handleMediaComplete(
         storage_key: primary.storageKey,
         private_original_key: null,
       })
-      .eq("id", assetId);
-    if (readyError) {
+      .eq("id", assetId)
+      .eq("status", currentStatus)
+      .select("id");
+    if (readyError || (Array.isArray(readyRows) && readyRows.length === 0)) {
       await markFailed(client, assetId, currentStatus, "processing_failed");
       return res
         .status(200)
@@ -810,9 +825,9 @@ export async function handleMediaComplete(
 }
 
 // ────────────────────────────────────────────────────────────────────────────────────────────
-// POST /api/media/abort — cancela una reserva EN CURSO (nunca un asset ya ready: eso es borrado,
-// no aborto, y no existe todavía ningún flujo que enlace un asset ready a una publicación en
-// 9I-2B). Limpieza completa: no deja una fila "failed" de relleno por una cancelación rutinaria.
+// POST /api/media/abort — cancela una reserva EN CURSO o descarta un asset ready de Community que
+// nunca se publicó. Nunca borra la fila antes de confirmar R2: marca 'deleting' y reutiliza la
+// limpieza/GC existentes (reintentos con backoff). Idempotente.
 
 export async function handleMediaAbort(
   req: VercelRequest,
@@ -855,27 +870,75 @@ export async function handleMediaAbort(
   const auth = await authorizeForAssetRow(req, authn.identity, row);
   if ("status" in auth) return res.status(auth.status).json(auth.body);
 
-  if (!["reserved", "uploaded", "failed"].includes(row.status)) {
+  // El asset NUNCA se borra de la BD antes de confirmar R2: pasa a 'deleting' (la cola del GC
+  // existente conserva fila y claves) y solo attemptMediaAssetCleanup/el GC borran la fila tras la
+  // confirmación de R2. Si R2 falla, el asset queda 'deleting' y el GC lo reintenta con backoff.
+  const respondCleanup = async () => {
+    const cleanup = await attemptMediaAssetCleanup(assetId);
+    return res
+      .status(200)
+      .json({ assetId, status: cleanup.cleaned ? "deleted" : "deleting" });
+  };
+  const notAbortable = () =>
+    res.status(409).json({ error: "Este asset no se puede abortar en su estado actual" });
+
+  // Idempotencia: repetir el abort de un asset ya en 'deleting' reintenta la limpieza.
+  if (row.status === "deleting") return respondCleanup();
+
+  if (row.status === "ready") {
+    // Descartar un ready sin publicar: solo Community (Cosplay gestiona su galería por el editor).
+    // La comprobación de referencias y el cambio de estado son atómicos en la BD, bajo el lock
+    // de la fila, para no competir con una publicación simultánea del mismo asset.
+    if (row.domain !== "community") return notAbortable();
+    const { data: discard, error: discardError } = await client.rpc(
+      "community_media_asset_discard",
+      { p_asset_id: assetId, p_actor_user_id: auth.userId },
+    );
+    if (discardError) return res.status(500).json(GENERIC_ERROR_BODY);
+    const result = (discard as { result?: unknown } | null)?.result;
+    if (result === "referenced") {
+      return res
+        .status(409)
+        .json({ error: "Este asset está en uso por una publicación" });
+    }
+    if (result === "not_found") return res.status(404).json(NOT_FOUND_BODY);
+    if (result !== "marked" && result !== "already_deleting") return notAbortable();
+    return respondCleanup();
+  }
+
+  if (!["reserved", "uploaded", "failed"].includes(row.status)) return notAbortable();
+
+  // Multipart en curso: se aborta ANTES de marcar. Si falla, la fila queda intacta y el cliente
+  // puede reintentar el abort.
+  if (row.multipart_upload_id && row.private_original_key) {
+    try {
+      await abortPrivateMultipartUpload(
+        row.private_original_key,
+        row.multipart_upload_id,
+      );
+    } catch {
+      return res.status(503).json(GENERIC_ERROR_BODY);
+    }
+  }
+
+  // Marca guardada por estado: si complete la movió entretanto (uploaded → verifying…), hay
+  // conflicto en vez de pisar el trabajo en curso.
+  const { data: marked, error: markError } = await client
+    .from("media_assets")
+    .update({
+      status: "deleting",
+      failure_code: null,
+      multipart_upload_id: null,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", assetId)
+    .eq("status", row.status)
+    .select("id");
+  if (markError) return res.status(500).json(GENERIC_ERROR_BODY);
+  if (Array.isArray(marked) && marked.length === 0) {
     return res
       .status(409)
-      .json({ error: "Este asset no se puede abortar en su estado actual" });
+      .json({ error: "El estado del asset cambió, inténtalo de nuevo" });
   }
-
-  if (row.multipart_upload_id && row.private_original_key) {
-    await abortPrivateMultipartUpload(
-      row.private_original_key,
-      row.multipart_upload_id,
-    ).catch(() => undefined);
-  }
-  if (row.private_original_key) {
-    await deletePrivateObject(row.private_original_key).catch(() => undefined);
-  }
-
-  const { error: deleteError } = await client
-    .from("media_assets")
-    .delete()
-    .eq("id", assetId);
-  if (deleteError) return res.status(500).json(GENERIC_ERROR_BODY);
-
-  return res.status(200).json({ assetId, status: "deleted" });
+  return respondCleanup();
 }

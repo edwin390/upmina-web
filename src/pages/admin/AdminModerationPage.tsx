@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useTranslations } from "use-intl";
 import { Link, Navigate, useLocation, useNavigate } from "react-router-dom";
 import { showActionSuccess } from "@/lib/action-notice";
 import { useAuth } from "@/lib/auth-context";
@@ -7,14 +8,24 @@ import AdminAuthCard from "@/components/admin/AdminAuthCard";
 import ModerationDecisionActions, {
   type DecisionDraft,
 } from "./ModerationDecisionActions";
+import CosplayLocaleProvider from "@/i18n/LocaleProvider";
+import ModerationAuditList from "./ModerationAuditList";
+import ModerationStrikePanel, { type StrikeDraft } from "./ModerationStrikePanel";
+import ModerationStrikeUnavailable from "./ModerationStrikeUnavailable";
 import { groupedDecisionInputFromCase } from "@/lib/moderation-decision-contract";
 import {
   fetchModerationCase,
   fetchModerationCasePage,
+  fetchModerationPendingCount,
   ModerationClientError,
   type ModerationCaseItem,
   type ModerationCasePage,
+  hasQueueFilters,
+  type ModerationQueueFilters as QueueFilters,
 } from "@/lib/moderation-client";
+import ModerationQueueFilters from "./ModerationQueueFilters";
+import ModerationMedia from "./ModerationMedia";
+import ModerationPendingCounter, { type PendingState } from "./ModerationPendingCounter";
 
 const MFA_PATH = "/admin/mfa?returnTo=/admin/moderation";
 const LOGIN_PATH = "/login?returnTo=/admin/moderation";
@@ -24,8 +35,20 @@ let decisionReturn: {
   cycleId: string;
   scope: "active" | "closed";
   cursor: string | null;
-  draft: DecisionDraft;
+  filters?: QueueFilters;
+  trail?: (string | null)[];
+  draft?: DecisionDraft;
+  strike?: StrikeDraft;
 } | null = null;
+/** R5-N: el bloque de strike se calcula por CASO (decisión «Procede» más reciente del caso). Un caso
+ *  con varios ciclos (p. ej. ciclo 1 «No procede», ciclo 2 «Procede») no debe ofrecer acciones de strike
+ *  en el ciclo que NO es el «Procede» (la acción afectaría a la decisión de otro ciclo). */
+function strikeBelongsToCycle(item: ModerationCaseItem) {
+  const strike = item.strike;
+  if (!strike) return false;
+  if (item.decision?.result !== "content_actioned") return false;
+  return strike.decisionId === null || strike.decisionId === item.decision.decisionId;
+}
 function actionable(item: ModerationCaseItem) {
   if (
     item.caseStatus !== "pending" ||
@@ -99,6 +122,14 @@ function postState(item: ModerationCaseItem) {
           ? "Oculta por moderación anterior"
           : "Publicada";
 }
+/** Texto de la cola en el idioma activo (namespace moderation.queue). */
+function QueueText({
+  k,
+}: {
+  k: "invalidPage" | "updating" | "updateFailed" | "noMatches";
+}) {
+  return <>{useTranslations("moderation.queue")(k)}</>;
+}
 function returnedFromMfa(state: unknown) {
   return Boolean(
     state &&
@@ -123,7 +154,13 @@ function Reasons({ item }: { item: ModerationCaseItem }) {
 }
 export default function AdminModerationPage() {
   const { user } = useAuth();
-  return <AdminModeration key={user?.id ?? "anonymous"} />;
+  // Idioma (es/en/de) para los textos nuevos de auditoría y de estado de strike; el proveedor es el
+  // mismo de /cosplay (misma preferencia persistida) y aquí solo envuelve el panel.
+  return (
+    <CosplayLocaleProvider>
+      <AdminModeration key={user?.id ?? "anonymous"} />
+    </CosplayLocaleProvider>
+  );
 }
 function AdminModeration() {
   const { user } = useAuth();
@@ -149,12 +186,33 @@ function AdminModeration() {
     resume.current?.scope ?? "active",
   );
   const [cursor, setCursor] = useState<string | null>(resume.current?.cursor ?? null);
+  // R5-G: filtros aplicados y rastro de cursores de las páginas anteriores («Página anterior»
+  // retrocede por este rastro; la paginación sigue siendo por cursor, sin OFFSET).
+  const [filters, setFilters] = useState<QueueFilters>(resume.current?.filters ?? {});
+  const [trail, setTrail] = useState<(string | null)[]>(resume.current?.trail ?? []);
   const [decisionFeedback, setDecisionFeedback] = useState<string | null>(null);
   const restoredDecision = useRef(false);
   const [queue, setQueue] = useState<
-    { kind: "loading" | "error" } | ({ kind: "ready" } & ModerationCasePage)
+    | { kind: "loading" }
+    | { kind: "error"; invalidPage: boolean }
+    | ({
+        kind: "ready";
+        scope: "active" | "closed";
+        refreshing: boolean;
+        failed: boolean;
+      } & ModerationCasePage)
   >({ kind: "loading" });
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const requestSeq = useRef(0);
+  const [pending, setPending] = useState<PendingState>({ kind: "loading", count: null });
+  const pendingRequest = useRef<AbortController | null>(null);
+  const shownKey = useRef<string | null>(null);
+  const selectedRef = useRef<string | null>(null);
+  const listRef = useRef<HTMLElement | null>(null);
+  const [selectedId, setSelectedIdState] = useState<string | null>(null);
+  const setSelectedId = useCallback((id: string | null) => {
+    selectedRef.current = id;
+    setSelectedIdState(id);
+  }, []);
   const [detail, setDetail] = useState<
     { kind: "loading" | "error" } | { kind: "ready"; item: ModerationCaseItem } | null
   >(null);
@@ -169,6 +227,7 @@ function AdminModeration() {
       mounted.current = false;
       queueRequest.current?.abort();
       detailRequest.current?.abort();
+      pendingRequest.current?.abort();
     };
   }, []);
   const handleAccessError = useCallback(
@@ -186,41 +245,112 @@ function AdminModeration() {
     setSelectedId(null);
     setDetail(null);
     opener.current?.focus();
-  }, []);
+  }, [setSelectedId]);
+  const rangeInvalid = Boolean(filters.from && filters.to && filters.from > filters.to);
   const loadQueue = useCallback(async () => {
+    if (rangeInvalid) return;
     queueRequest.current?.abort();
     const controller = new AbortController();
     queueRequest.current = controller;
-    setQueue({ kind: "loading" });
+    const seq = ++requestSeq.current;
+    const key = JSON.stringify([scope, cursor, filters]);
+    // Continuidad: con resultados ya visibles NO se sustituyen por «Cargando casos…».
+    setQueue((q) =>
+      q.kind === "ready"
+        ? { ...q, refreshing: true, failed: false }
+        : { kind: "loading" },
+    );
+    // Una respuesta antigua (filtros/página/vista ya cambiados) nunca se aplica.
+    const stale = () =>
+      seq !== requestSeq.current || controller.signal.aborted || !mounted.current;
     try {
-      const page = await fetchModerationCasePage(scope, cursor, controller.signal);
-      if (controller.signal.aborted || !mounted.current) return;
+      const page = await fetchModerationCasePage(
+        scope,
+        cursor,
+        controller.signal,
+        filters,
+      );
+      if (stale()) return;
       hadAccessRef.current = true;
       mfaReturnGuardRef.current = false;
-      setQueue({ kind: "ready", ...page });
+      shownKey.current = key;
+      setQueue({ kind: "ready", scope, refreshing: false, failed: false, ...page });
+      // El caso abierto se conserva mientras siga presente; si ya no está, se cierra.
+      if (
+        selectedRef.current &&
+        !page.cases.some((c) => c.cycleId === selectedRef.current)
+      ) {
+        detailRequest.current?.abort();
+        setSelectedId(null);
+        setDetail(null);
+      }
+    } catch (err) {
+      if (stale()) return;
+      handleAccessError(err);
+      const invalidPage =
+        cursor !== null && err instanceof ModerationClientError && err.status === 400;
+      setQueue((q) =>
+        q.kind === "ready" && shownKey.current === key && !invalidPage
+          ? { ...q, refreshing: false, failed: true }
+          : { kind: "error", invalidPage },
+      );
+    }
+  }, [scope, cursor, filters, rangeInvalid, handleAccessError, setSelectedId]);
+  // R5-H: total de casos únicos pendientes, calculado en el servidor (no depende de la página ni de
+  // los filtros). Se pide al entrar, al actualizar y tras una decisión; sin polling.
+  const loadPending = useCallback(async () => {
+    pendingRequest.current?.abort();
+    const controller = new AbortController();
+    pendingRequest.current = controller;
+    setPending((p) => ({ kind: "loading", count: p.kind === "error" ? null : p.count }));
+    try {
+      const count = await fetchModerationPendingCount(controller.signal);
+      if (controller.signal.aborted || !mounted.current) return;
+      setPending({ kind: "ready", count });
     } catch (err) {
       if (controller.signal.aborted || !mounted.current) return;
       handleAccessError(err);
-      setQueue({ kind: "error" });
+      setPending({ kind: "error", count: null });
     }
-  }, [scope, cursor, handleAccessError]);
+  }, [handleAccessError]);
+  const changeFilters = useCallback((next: QueueFilters) => {
+    setFilters(next);
+    setCursor(null);
+    setTrail([]);
+  }, []);
+  const goFirst = () => {
+    setCursor(null);
+    setTrail([]);
+    listRef.current?.scrollIntoView?.({ block: "start" });
+  };
   useEffect(() => {
     if (canLoadPanel) void loadQueue();
     else {
+      pendingRequest.current?.abort();
+      setPending({ kind: "loading", count: null });
       queueRequest.current?.abort();
       detailRequest.current?.abort();
+      requestSeq.current++;
+      shownKey.current = null;
       setQueue({ kind: "loading" });
       setDetail(null);
       setSelectedId(null);
     }
-  }, [canLoadPanel, loadQueue]);
+  }, [canLoadPanel, loadQueue, setSelectedId]);
+  useEffect(() => {
+    if (canLoadPanel) void loadPending();
+  }, [canLoadPanel, loadPending]);
   const openCase = useCallback(
-    async (id: string) => {
+    async (id: string, fresh = false) => {
       detailRequest.current?.abort();
       const controller = new AbortController();
       detailRequest.current = controller;
       setSelectedId(id);
-      setDetail({ kind: "loading" });
+      // R5-N: tras una mutación (strike aplicado/revocado, estado cambiado) NO se conserva el detalle
+      // anterior mientras llega el nuevo: dejaría visible un botón (p. ej. «Aplicar Strike») ya obsoleto.
+      setDetail((d) =>
+        !fresh && d?.kind === "ready" && d.item.cycleId === id ? d : { kind: "loading" },
+      );
       try {
         const item = await fetchModerationCase(id, controller.signal);
         if (!controller.signal.aborted && mounted.current)
@@ -232,7 +362,7 @@ function AdminModeration() {
         }
       }
     },
-    [handleAccessError],
+    [handleAccessError, setSelectedId],
   );
   useEffect(() => {
     if (
@@ -397,24 +527,14 @@ function AdminModeration() {
                   </p>
                 )}
               <div className="flex min-w-0 flex-wrap gap-2">
-                {detail.item.media.map((m) =>
-                  m.kind === "image" ? (
-                    <img
-                      key={m.id}
-                      src={m.url}
-                      alt="Media de la publicación"
-                      className="max-h-48 max-w-full rounded object-contain"
-                    />
-                  ) : (
-                    <video
-                      key={m.id}
-                      src={m.url}
-                      controls
-                      preload="metadata"
-                      className="max-h-48 max-w-full rounded"
-                    />
-                  ),
-                )}
+                {detail.item.media.map((m, i, all) => (
+                  <ModerationMedia
+                    key={`${detail.item.cycleId}:${m.id}`}
+                    item={m}
+                    position={i + 1}
+                    total={all.length}
+                  />
+                ))}
               </div>
             </>
           ) : (
@@ -473,6 +593,60 @@ function AdminModeration() {
               )}
             </p>
           )}
+          {scope === "closed" && detail.item.strikeUnavailable && (
+            <ModerationStrikeUnavailable
+              disabled={statusUpdating}
+              onRetry={() => void openCase(detail.item.cycleId, true)}
+            />
+          )}
+          {scope === "closed" &&
+            detail.item.strike &&
+            strikeBelongsToCycle(detail.item) && (
+              <ModerationStrikePanel
+                role={role}
+                key={`${detail.item.cycleId}:${detail.item.caseVersion}:${detail.item.strike.existing?.id ?? "none"}:${detail.item.strike.predictedLevel ?? "-"}`}
+                item={detail.item}
+                resume={
+                  resume.current?.cycleId === detail.item.cycleId
+                    ? resume.current.strike
+                    : undefined
+                }
+                onPending={(pending) => {
+                  if (mounted.current) setStatusUpdating(pending);
+                }}
+                onAccessError={handleAccessError}
+                onStepUp={(strike) => {
+                  if (user)
+                    decisionReturn = {
+                      userId: user.id,
+                      cycleId: detail.item.cycleId,
+                      scope,
+                      cursor,
+                      filters,
+                      trail,
+                      strike,
+                    };
+                  navigate(MFA_PATH, {
+                    replace: true,
+                    state: { cancelTo: "/admin/moderation" },
+                  });
+                }}
+                onStale={() => {
+                  // Never retried: reload the authoritative state and say so neutrally.
+                  resume.current = null;
+                  setDecisionFeedback(
+                    "El estado de moderación de este caso cambió. Actualizamos la información para que la revises de nuevo.",
+                  );
+                  void openCase(detail.item.cycleId, true);
+                }}
+                onChanged={(message) => {
+                  // The final state is read back from the server, never synthesized locally.
+                  resume.current = null;
+                  showActionSuccess(message);
+                  void openCase(detail.item.cycleId, true);
+                }}
+              />
+            )}
           {scope === "active" && actionable(detail.item) && (
             <ModerationDecisionActions
               key={`${detail.item.cycleId}:${detail.item.caseVersion}`}
@@ -493,6 +667,8 @@ function AdminModeration() {
                     cycleId: detail.item.cycleId,
                     scope,
                     cursor,
+                    filters,
+                    trail,
                     draft,
                   };
                 navigate(MFA_PATH, {
@@ -507,6 +683,7 @@ function AdminModeration() {
                   "Este caso cambió mientras lo revisabas. Actualizamos la información para que puedas revisarlo nuevamente.",
                 );
                 void loadQueue();
+                void loadPending();
               }}
               onSuccess={(message) => {
                 resume.current = null;
@@ -514,6 +691,7 @@ function AdminModeration() {
                 setDecisionFeedback(message);
                 showActionSuccess(message);
                 void loadQueue();
+                void loadPending();
               }}
             />
           )}
@@ -546,30 +724,7 @@ function AdminModeration() {
               Este caso está pendiente de una decisión de moderación.
             </p>
           )}
-          <section aria-label="Auditoría reciente">
-            <h2 className="font-semibold">
-              Auditoría reciente de publicación/caso (hasta 20 acciones)
-            </h2>
-            <ul>
-              {detail.item.audit.map((a) => (
-                <li key={a.id} className="mt-2 break-words text-sm">
-                  {a.action === "post_purged"
-                    ? "Publicación eliminada definitivamente"
-                    : a.action}{" "}
-                  · {a.actorKind === "system" ? "Sistema" : "Acción humana"} ·{" "}
-                  {date(a.createdAt)}
-                  {a.action !== "post_purged" && (
-                    <span className="block">
-                      Publicación: {a.states.fromPostStatus ?? "—"} →{" "}
-                      {a.states.toPostStatus ?? "—"} · Reporte:{" "}
-                      {a.states.fromReportStatus ?? "—"} →{" "}
-                      {a.states.toReportStatus ?? "—"}
-                    </span>
-                  )}
-                </li>
-              ))}
-            </ul>
-          </section>
+          <ModerationAuditList audit={detail.item.audit} />
         </div>
       )}
     </section>
@@ -581,7 +736,10 @@ function AdminModeration() {
           <h1 className="font-display text-3xl">Moderación</h1>
           <span className="text-xs uppercase">{role?.toUpperCase()}</span>
         </div>
-        <section aria-label="Cola de casos" className="mt-6 min-w-0">
+        <div className="mt-3">
+          <ModerationPendingCounter state={pending} onRetry={() => void loadPending()} />
+        </div>
+        <section ref={listRef} aria-label="Cola de casos" className="mt-6 min-w-0">
           {decisionFeedback && (
             <p role="status" className="mb-4">
               {decisionFeedback}
@@ -596,8 +754,10 @@ function AdminModeration() {
                 disabled={statusUpdating}
                 aria-pressed={scope === s}
                 onClick={() => {
+                  if (s === scope) return;
                   close();
                   setCursor(null);
+                  setTrail([]);
                   setScope(s);
                 }}
               >
@@ -609,43 +769,69 @@ function AdminModeration() {
               disabled={statusUpdating}
               onClick={() => {
                 void loadQueue();
+                void loadPending();
                 if (selectedId) void openCase(selectedId);
               }}
             >
               Actualizar contexto
             </button>
-            {cursor && (
-              <button
-                className={buttonClass}
-                disabled={statusUpdating}
-                onClick={() => {
-                  close();
-                  setCursor(null);
-                }}
-              >
-                Volver al inicio
-              </button>
-            )}
           </div>
-          {queue.kind === "loading" && <p role="status">Cargando casos…</p>}
+          <ModerationQueueFilters
+            filters={filters}
+            onChange={changeFilters}
+            disabled={statusUpdating}
+          />
+          {(queue.kind === "loading" ||
+            (queue.kind === "ready" && queue.scope !== scope)) && (
+            <p role="status">Cargando casos…</p>
+          )}
           {queue.kind === "error" && (
             <div role="alert">
-              No se pudieron cargar los casos.{" "}
-              <button className={buttonClass} onClick={() => void loadQueue()}>
-                Reintentar
-              </button>
+              {queue.invalidPage ? (
+                <QueueText k="invalidPage" />
+              ) : (
+                "No se pudieron cargar los casos."
+              )}{" "}
+              {queue.invalidPage ? (
+                <button className={buttonClass} onClick={goFirst}>
+                  Volver al inicio
+                </button>
+              ) : (
+                <button className={buttonClass} onClick={() => void loadQueue()}>
+                  Reintentar
+                </button>
+              )}
             </div>
           )}
-          {queue.kind === "ready" && (
-            <>
-              {queue.cases.length === 0 && (
-                <p>
-                  {scope === "active"
-                    ? "No hay casos activos por ahora."
-                    : "No hay ciclos cerrados por ahora."}
+          {queue.kind === "ready" && queue.scope === scope && (
+            <div aria-busy={queue.refreshing} className="min-w-0">
+              {queue.refreshing && (
+                <p role="status" className="mb-2 text-xs text-text-muted">
+                  <QueueText k="updating" />
                 </p>
               )}
-              <ul className="min-w-0 divide-y divide-border-subtle rounded-md border border-border-subtle">
+              {queue.failed && (
+                <p role="alert" className="mb-2 text-sm">
+                  <QueueText k="updateFailed" />{" "}
+                  <button className={buttonClass} onClick={() => void loadQueue()}>
+                    Reintentar
+                  </button>
+                </p>
+              )}
+              {queue.cases.length === 0 && (
+                <p>
+                  {hasQueueFilters(filters) ? (
+                    <QueueText k="noMatches" />
+                  ) : scope === "active" ? (
+                    "No hay casos activos por ahora."
+                  ) : (
+                    "No hay ciclos cerrados por ahora."
+                  )}
+                </p>
+              )}
+              <ul
+                className={`min-w-0 divide-y divide-border-subtle rounded-md border border-border-subtle ${queue.refreshing ? "opacity-70" : ""}`}
+              >
                 {queue.cases.map((item) => (
                   <li key={item.cycleId} className="min-w-0">
                     <button
@@ -699,19 +885,49 @@ function AdminModeration() {
                   </li>
                 ))}
               </ul>
-              {queue.nextCursor && (
-                <button
-                  className={`${buttonClass} mt-4`}
-                  disabled={statusUpdating}
-                  onClick={() => {
-                    close();
-                    setCursor(queue.nextCursor);
-                  }}
+              {(trail.length > 0 || cursor || queue.nextCursor) && (
+                <nav
+                  aria-label="Paginación de la cola"
+                  className="mt-4 flex flex-wrap gap-3"
                 >
-                  Siguiente página
-                </button>
+                  {trail.length > 0 && (
+                    <button
+                      className={buttonClass}
+                      disabled={statusUpdating}
+                      onClick={() => {
+                        setCursor(trail[trail.length - 1] ?? null);
+                        setTrail(trail.slice(0, -1));
+                        listRef.current?.scrollIntoView?.({ block: "start" });
+                      }}
+                    >
+                      Página anterior
+                    </button>
+                  )}
+                  {cursor && (
+                    <button
+                      className={buttonClass}
+                      disabled={statusUpdating}
+                      onClick={goFirst}
+                    >
+                      Volver al inicio
+                    </button>
+                  )}
+                  {queue.nextCursor && (
+                    <button
+                      className={buttonClass}
+                      disabled={statusUpdating}
+                      onClick={() => {
+                        setTrail([...trail, cursor]);
+                        setCursor(queue.nextCursor);
+                        listRef.current?.scrollIntoView?.({ block: "start" });
+                      }}
+                    >
+                      Siguiente página
+                    </button>
+                  )}
+                </nav>
               )}
-            </>
+            </div>
           )}
         </section>
       </div>

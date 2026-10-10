@@ -1,9 +1,11 @@
+import { MODERATION_AUDIT_ACTIONS } from "./moderation-case-contract.js";
 import type {
   ModerationCaseItem,
   ModerationCasePage,
 } from "./moderation-case-contract.js";
 import type { CommunityFeedMediaItem } from "../types/index.js";
 import type { RawFeedMediaRow } from "./community-feed-domain.js";
+import { parseModerationStrikeState } from "./moderation-strike-contract.js";
 
 /** Keep the original timestamp, including PostgreSQL microseconds, for cursors. */
 export function timestamp(v: unknown): string {
@@ -221,19 +223,18 @@ export function parseModerationCase(value: unknown): ModerationCaseItem {
       const s = record(x.states);
       return {
         id: parseModerationId(x.id),
-        action: choice(x.action, [
-          "report_status_changed",
-          "post_hidden",
-          "post_restored",
-          "post_quarantined",
-          "case_rejected",
-          "content_actioned",
-          "strike_applied",
-          "strike_revoked",
-          "post_purged",
-        ]),
+        action: choice(x.action, MODERATION_AUDIT_ACTIONS),
         actorKind: choice(x.actorKind, ["human", "system"]),
         createdAt: timestamp(x.createdAt),
+        // R5-F: opcional por compatibilidad con la RPC anterior; solo 1–3 o null.
+        strikeLevel:
+          x.strikeLevel === undefined || x.strikeLevel === null
+            ? null
+            : x.strikeLevel === 1 || x.strikeLevel === 2 || x.strikeLevel === 3
+              ? x.strikeLevel
+              : (() => {
+                  throw new Error("Invalid audit strike level");
+                })(),
         states: {
           fromPostStatus: nullableChoice(s.fromPostStatus, postStates),
           toPostStatus: nullableChoice(s.toPostStatus, postStates),
@@ -243,6 +244,13 @@ export function parseModerationCase(value: unknown): ModerationCaseItem {
       };
     }),
   };
+  // R5-D: optional, additive strike state (case detail only). Strict when present.
+  if (r.strike !== undefined) result.strike = parseModerationStrikeState(r.strike);
+  // R5-F: bandera booleana estricta (solo `true` es válido); jamás texto ni detalle del error.
+  if (r.strikeUnavailable !== undefined) {
+    if (r.strikeUnavailable !== true) throw new Error("Invalid strike availability");
+    result.strikeUnavailable = true;
+  }
   // Optional only for compatibility with the still-installed pre-R4 RPC.
   // If provided, every nested field is required; removed content always requires attribution.
   if (r.decision !== undefined) {

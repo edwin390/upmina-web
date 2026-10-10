@@ -1,0 +1,14 @@
+{
+  "//": "Replica el chequeo de tipos de @vercel/node: tsconfig.json raíz no tiene compilerOptions (sin strict / strictNullChecks). `tsc -b` usa strict y no detecta estrechamientos que fallan en este modo. Ver docs/9K-CLOSURE-R5-R7.md.",
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "lib": ["ES2022", "DOM"],
+    "strict": false
+  },
+  "include": ["api/**/*.ts", "src/lib/libheif-js.d.ts"]
+}

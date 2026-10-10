@@ -23,6 +23,7 @@ const deletePrivateObject = vi.hoisted(() => vi.fn());
 vi.mock("./r2-client.js", () => ({
   deletePublicVariants: (...a: unknown[]) => deletePublicVariants(...a),
   deletePrivateObject: (...a: unknown[]) => deletePrivateObject(...a),
+  abortPrivateMultipartUpload: async () => undefined,
   publicVariantUrl: (k: string) => `https://legacy.synthetic.example/${k}`,
 }));
 vi.mock("@supabase/supabase-js", () => ({
@@ -154,10 +155,15 @@ describe("owner DELETE → physical cleanup (R4-E2)", () => {
     const r = await deletePost();
     expect(r.status).toBe(200);
     expect(r.body).toMatchObject({ postId: POST_ID, allCleaned: true });
-    expect(deletePublicVariants).toHaveBeenCalledWith([
-      `community/${IMG}/w480.webp`,
-      `community/${IMG}/w960.webp`,
-    ]);
+    // Variantes registradas + claves canónicas posibles del propio asset (R5-S1), todas con su id.
+    expect(deletePublicVariants).toHaveBeenCalledWith(
+      expect.arrayContaining([
+        `community/${IMG}/w480.webp`,
+        `community/${IMG}/w960.webp`,
+      ]),
+    );
+    for (const key of deletePublicVariants.mock.calls[0][0] as string[])
+      expect(key.startsWith(`community/${IMG}/`)).toBe(true);
     expect(fake.deletedAssets).toEqual([IMG]);
   });
   it("PARTIAL R2 failure: the post stays deleted, the asset stays 'deleting', no false finalize", async () => {
@@ -193,9 +199,11 @@ describe("owner DELETE → physical cleanup (R4-E2)", () => {
     fake.rpcAssetIds = [VIDEO];
     const r = await deletePost();
     expect(r.body.allCleaned).toBe(true);
-    expect(deletePublicVariants).toHaveBeenCalledWith([
-      `community/${VIDEO}/original.mp4`,
-    ]);
+    expect(deletePublicVariants).toHaveBeenCalledWith(
+      expect.arrayContaining([`community/${VIDEO}/original.mp4`]),
+    );
+    for (const key of deletePublicVariants.mock.calls[0][0] as string[])
+      expect(key.startsWith(`community/${VIDEO}/`)).toBe(true);
     expect(fake.deletedAssets).toEqual([VIDEO]);
   });
   it("a key that does not belong to the asset is never deleted and keeps the row", async () => {

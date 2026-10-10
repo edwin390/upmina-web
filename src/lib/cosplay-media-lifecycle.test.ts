@@ -10,6 +10,7 @@ const deletePrivateObjectMock = vi.fn();
 vi.mock("./r2-client", () => ({
   deletePublicVariants: (...args: unknown[]) => deletePublicVariantsMock(...args),
   deletePrivateObject: (...args: unknown[]) => deletePrivateObjectMock(...args),
+  abortPrivateMultipartUpload: async () => undefined,
 }));
 
 const fake = vi.hoisted(() => ({
@@ -194,10 +195,10 @@ describe("attemptMediaAssetCleanup", () => {
     const result = await attemptMediaAssetCleanup(A1);
 
     expect(result).toEqual({ assetId: A1, cleaned: true });
-    expect(deletePublicVariantsMock).toHaveBeenCalledWith([
-      `cosplay/${A1}/w480.webp`,
-      `cosplay/${A1}/w960.webp`,
-    ]);
+    // Variantes registradas + claves canónicas posibles (el pipeline sube antes de registrar la fila).
+    expect(deletePublicVariantsMock).toHaveBeenCalledWith(
+      ["1600", "2560", "480", "960"].map((w) => `cosplay/${A1}/w${w}.webp`),
+    );
     expect(deletePrivateObjectMock).toHaveBeenCalledWith(
       `objects/cosplay/${A1}/original.jpg`,
     );
@@ -254,6 +255,23 @@ describe("attemptMediaAssetCleanup", () => {
     expect(fake.mediaAssets.has(A3)).toBe(true);
   });
 
+  it("R6: con una sesión multipart sin abortar delega en el GC: no borra objetos ni la fila", async () => {
+    fake.mediaAssets.set(A4, {
+      id: A4,
+      status: "deleting",
+      domain: "community",
+      storage_key: null,
+      private_original_key: `staging/community/${A4}/original.mp4`,
+      multipart_upload_id: "synthetic-upload-id-0001",
+    });
+
+    expect(await attemptMediaAssetCleanup(A4)).toEqual({ assetId: A4, cleaned: false });
+    expect(deletePublicVariantsMock).not.toHaveBeenCalled();
+    expect(deletePrivateObjectMock).not.toHaveBeenCalled();
+    expect(fake.mediaAssets.has(A4)).toBe(true);
+    expect(fake.deletedAssetIds).toEqual([]);
+  });
+
   it("R4-E2 VÍDEO: el objeto público es storage_key (sin variantes) y se elimina", async () => {
     fake.mediaAssets.set(VIDEO, {
       id: VIDEO,
@@ -265,7 +283,10 @@ describe("attemptMediaAssetCleanup", () => {
     const result = await attemptMediaAssetCleanup(VIDEO);
     expect(result.cleaned).toBe(true);
     expect(deletePublicVariantsMock).toHaveBeenCalledWith([
+      `community/${VIDEO}/original.mov`,
       `community/${VIDEO}/original.mp4`,
+      `community/${VIDEO}/original.webm`,
+      ...["1600", "2560", "480", "960"].map((w) => `community/${VIDEO}/w${w}.webp`),
     ]);
     expect(fake.mediaAssets.has(VIDEO)).toBe(false);
   });

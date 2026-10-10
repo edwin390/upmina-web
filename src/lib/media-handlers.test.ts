@@ -80,6 +80,9 @@ function resetMediaDb() {
   mediaDb.media_asset_variants = [];
   mediaDb.profiles = [];
   mediaAssetsUpdateCalls.length = 0;
+  discardFake.calls = [];
+  discardFake.referenced = new Set();
+  discardFake.error = null;
 }
 
 // Registra cada payload de UPDATE sobre media_assets, en orden — el fake DB no aplica CHECK
@@ -171,8 +174,33 @@ class FakeQueryBuilder {
   }
 }
 
+// R5-S1: espejo en memoria de community_media_asset_discard (la lógica real se prueba contra SQL en
+// media-abandoned-cleanup.test.ts). Aquí solo importa cómo reacciona el handler a cada resultado.
+const discardFake: {
+  calls: unknown[];
+  referenced: Set<string>;
+  error: unknown;
+} = { calls: [], referenced: new Set(), error: null };
+
 function fakeCreateClient() {
   return {
+    async rpc(name: string, args?: { p_asset_id?: string }) {
+      if (name === "community_media_asset_discard") {
+        discardFake.calls.push(args);
+        if (discardFake.error) return { data: null, error: discardFake.error };
+        const row = mediaDb.media_assets.find((r) => r.id === args?.p_asset_id);
+        if (!row || row.status === "deleting")
+          return {
+            data: { result: row ? "already_deleting" : "not_found" },
+            error: null,
+          };
+        if (discardFake.referenced.has(String(args?.p_asset_id)))
+          return { data: { result: "referenced" }, error: null };
+        row.status = "deleting";
+        return { data: { result: "marked" }, error: null };
+      }
+      return { data: null, error: { message: "rpc inesperado" } };
+    },
     from(tableName: "media_assets" | "media_asset_variants" | "profiles") {
       const table = mediaDb[tableName];
       return {
@@ -776,7 +804,7 @@ describe("handleMediaAbort — limpieza segura, nunca por clave arbitraria del c
   });
 
   it("aborta una reserva en curso: borra la fila y el objeto privado, ignora cualquier clave que mande el cliente", async () => {
-    const id = "asset-2";
+    const id = "0d000000-0000-4000-8000-000000000002";
     mediaDb.media_assets.push({
       id,
       domain: "cosplay",
@@ -799,7 +827,7 @@ describe("handleMediaAbort — limpieza segura, nunca por clave arbitraria del c
   });
 
   it("aborta una subida multipart en curso: llama a abortPrivateMultipartUpload con el uploadId real", async () => {
-    const id = "asset-3";
+    const id = "0d000000-0000-4000-8000-000000000003";
     mediaDb.media_assets.push({
       id,
       domain: "cosplay",
@@ -906,15 +934,19 @@ describe("domain='community' (9J-1C): autenticado + perfil existente, nunca cosp
 
   it("abort: el dueño SÍ puede abortar su propia reserva de Comunidad, sin cosplay_admin ni MFA", async () => {
     mediaDb.media_assets.push({
-      id: "asset-community-2",
+      id: "0d000000-0000-4000-8000-0000000000c2",
       domain: "community",
       status: "reserved",
-      private_original_key: "staging/community/asset-community-2/original.jpg",
+      private_original_key:
+        "staging/community/0d000000-0000-4000-8000-0000000000c2/original.jpg",
       multipart_upload_id: null,
       created_by: COMMUNITY_USER,
     });
     const res = makeRes();
-    await handleMediaAbort(makeReq({ assetId: "asset-community-2" }), res);
+    await handleMediaAbort(
+      makeReq({ assetId: "0d000000-0000-4000-8000-0000000000c2" }),
+      res,
+    );
     expect(res.status).toHaveBeenCalledWith(200);
     expect(mediaDb.media_assets).toHaveLength(0);
   });
@@ -1295,5 +1327,215 @@ describe("R4-D2: creator-preview delivery for Community uploads", () => {
     expect(body.variants[0].url).toMatch(
       /^https:\/\/media\.synthetic\.example\/cosplay\/0b2ad7a0-1c0e-4a8d-9a11-0c4f59f0a777\/w\d+\.webp$/,
     );
+  });
+});
+
+describe("R5-S1: abort seguro — nunca se pierde la fila antes de confirmar R2", () => {
+  const OWNER = "community-owner-1";
+  const ID = (n: number) => `0e000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
+  const partial = () =>
+    Object.assign(new Error("partial"), { name: "R2PartialDeleteError" });
+
+  beforeEach(() => {
+    requireCapabilityMock.mockRejectedValue(new AdminAuthError("No autorizado", 403));
+    requireAuthenticatedMock.mockResolvedValue({
+      userId: OWNER,
+      aal: "aal1",
+      mfaVerifiedAt: null,
+    });
+  });
+
+  const reserved = (n: number, extra: Record<string, unknown> = {}) => {
+    const row: Row = {
+      id: ID(n),
+      domain: "community",
+      status: "reserved",
+      private_original_key: `staging/community/${ID(n)}/original.jpg`,
+      multipart_upload_id: null,
+      created_by: OWNER,
+      ...extra,
+    };
+    mediaDb.media_assets.push(row);
+    return row;
+  };
+
+  it("R2 privado falla: la fila SOBREVIVE en 'deleting' con su clave y el abort responde 'deleting'", async () => {
+    const row = reserved(1);
+    r2Mocks.deletePrivateObject.mockRejectedValueOnce(new Error("R2 403"));
+    const res = makeRes();
+    await handleMediaAbort(makeReq({ assetId: ID(1) }), res);
+    expect(res.status).toHaveBeenCalledWith(200);
+    expect(res._json).toEqual({ assetId: ID(1), status: "deleting" });
+    expect(mediaDb.media_assets).toHaveLength(1);
+    expect(row.status).toBe("deleting");
+    expect(row.private_original_key).toBe(`staging/community/${ID(1)}/original.jpg`);
+  });
+
+  it("borrado parcial de variantes públicas (Errors[]): la fila se conserva; el reintento la completa", async () => {
+    const row = reserved(2, { status: "failed", failure_code: "processing_failed" });
+    r2Mocks.deletePublicVariants.mockRejectedValueOnce(partial());
+    const first = makeRes();
+    await handleMediaAbort(makeReq({ assetId: ID(2) }), first);
+    expect(first._json).toEqual({ assetId: ID(2), status: "deleting" });
+    expect(mediaDb.media_assets).toHaveLength(1);
+    expect(row.status).toBe("deleting");
+    expect(row.failure_code).toBeNull();
+    // Variantes subidas sin fila de variante: se intentan igualmente (claves canónicas del asset).
+    expect(r2Mocks.deletePublicVariants).toHaveBeenCalledWith(
+      expect.arrayContaining([`community/${ID(2)}/w480.webp`]),
+    );
+
+    const second = makeRes();
+    await handleMediaAbort(makeReq({ assetId: ID(2) }), second);
+    expect(second._json).toEqual({ assetId: ID(2), status: "deleted" });
+    expect(mediaDb.media_assets).toHaveLength(0);
+  });
+
+  it("timeout de R2 (excepción): igual que un fallo, fila conservada, sin detalles del proveedor", async () => {
+    reserved(3);
+    r2Mocks.deletePrivateObject.mockRejectedValueOnce(
+      Object.assign(new Error("socket hang up secreto-del-proveedor"), {
+        name: "TimeoutError",
+      }),
+    );
+    const res = makeRes();
+    await handleMediaAbort(makeReq({ assetId: ID(3) }), res);
+    expect(res.status).toHaveBeenCalledWith(200);
+    expect(JSON.stringify(res._json)).not.toContain("secreto-del-proveedor");
+    expect(mediaDb.media_assets).toHaveLength(1);
+  });
+
+  it("idempotente: abortar un asset ya 'deleting' reintenta la limpieza; después responde 404 estable", async () => {
+    reserved(4, { status: "deleting" });
+    const res = makeRes();
+    await handleMediaAbort(makeReq({ assetId: ID(4) }), res);
+    expect(res._json).toEqual({ assetId: ID(4), status: "deleted" });
+    const again = makeRes();
+    await handleMediaAbort(makeReq({ assetId: ID(4) }), again);
+    expect(again.status).toHaveBeenCalledWith(404);
+  });
+
+  it("multipart: si abortar el multipart falla, la fila queda INTACTA (reintentable) y no se borra nada", async () => {
+    const row = reserved(5, { multipart_upload_id: "up-1" });
+    r2Mocks.abortPrivateMultipartUpload.mockRejectedValueOnce(new Error("R2 5xx"));
+    const res = makeRes();
+    await handleMediaAbort(makeReq({ assetId: ID(5) }), res);
+    expect(res.status).toHaveBeenCalledWith(503);
+    expect(row.status).toBe("reserved");
+    expect(row.multipart_upload_id).toBe("up-1");
+    expect(r2Mocks.deletePrivateObject).not.toHaveBeenCalled();
+  });
+
+  describe("descartar un asset ready sin publicar (solo Community, solo el propietario)", () => {
+    const ready = (n: number, extra: Record<string, unknown> = {}) => {
+      const row = {
+        id: ID(n),
+        domain: "community",
+        status: "ready",
+        storage_key: `community/${ID(n)}/w960.webp`,
+        private_original_key: null,
+        multipart_upload_id: null,
+        created_by: OWNER,
+        ...extra,
+      };
+      mediaDb.media_assets.push(row);
+      return row;
+    };
+
+    it("ready sin referencias: se marca en la BD (atómico) y la limpieza R2 empieza ya", async () => {
+      ready(10);
+      const res = makeRes();
+      await handleMediaAbort(makeReq({ assetId: ID(10) }), res);
+      expect(discardFake.calls).toEqual([{ p_asset_id: ID(10), p_actor_user_id: OWNER }]);
+      expect(res._json).toEqual({ assetId: ID(10), status: "deleted" });
+      expect(r2Mocks.deletePublicVariants).toHaveBeenCalled();
+      expect(mediaDb.media_assets).toHaveLength(0);
+    });
+
+    it("ready con R2 caído: queda 'deleting' conservando la clave para el GC", async () => {
+      const row = ready(11);
+      r2Mocks.deletePublicVariants.mockRejectedValueOnce(new Error("R2 down"));
+      const res = makeRes();
+      await handleMediaAbort(makeReq({ assetId: ID(11) }), res);
+      expect(res._json).toEqual({ assetId: ID(11), status: "deleting" });
+      expect(row.status).toBe("deleting");
+      expect(row.storage_key).toBe(`community/${ID(11)}/w960.webp`);
+    });
+
+    it("ready ya vinculado (carrera con una publicación): 409 y NO se toca R2 ni la fila", async () => {
+      const row = ready(12);
+      discardFake.referenced.add(ID(12));
+      const res = makeRes();
+      await handleMediaAbort(makeReq({ assetId: ID(12) }), res);
+      expect(res.status).toHaveBeenCalledWith(409);
+      expect(row.status).toBe("ready");
+      expect(r2Mocks.deletePublicVariants).not.toHaveBeenCalled();
+      expect(r2Mocks.deletePrivateObject).not.toHaveBeenCalled();
+    });
+
+    it("ready ajeno: 404 idéntico a inexistente, sin llegar a la BD de descarte", async () => {
+      ready(13, { created_by: "otro-usuario" });
+      const res = makeRes();
+      await handleMediaAbort(makeReq({ assetId: ID(13) }), res);
+      expect(res.status).toHaveBeenCalledWith(404);
+      expect(discardFake.calls).toEqual([]);
+    });
+
+    it("ready de Cosplay: sigue siendo 409 (su galería se gestiona por el editor)", async () => {
+      requireCapabilityMock.mockResolvedValue({
+        userId: OWNER,
+        role: "admin",
+        capabilities: ["cosplay_admin"],
+      });
+      ready(14, { domain: "cosplay", storage_key: `cosplay/${ID(14)}/w960.webp` });
+      const res = makeRes();
+      await handleMediaAbort(makeReq({ assetId: ID(14) }), res);
+      expect(res.status).toHaveBeenCalledWith(409);
+      expect(discardFake.calls).toEqual([]);
+    });
+
+    it("error de la BD de descarte: 500 genérico y nada cambia", async () => {
+      const row = ready(15);
+      discardFake.error = { message: "detalle interno de la base" };
+      const res = makeRes();
+      await handleMediaAbort(makeReq({ assetId: ID(15) }), res);
+      expect(res.status).toHaveBeenCalledWith(500);
+      expect(JSON.stringify(res._json)).not.toContain("detalle interno");
+      expect(row.status).toBe("ready");
+      expect(r2Mocks.deletePublicVariants).not.toHaveBeenCalled();
+    });
+  });
+
+  it("complete no resucita un asset descartado mientras se procesaba (guardia por estado)", async () => {
+    const row = reserved(20, {
+      kind: "image",
+      status: "reserved",
+      source_mime: "image/jpeg",
+      source_bytes: 1000,
+      source_width: null,
+      source_height: null,
+      processing_attempts: 0,
+      private_original_key: `objects/community/${ID(20)}/original.jpg`,
+    });
+    processImageMock.mockImplementationOnce(async () => {
+      row.status = "deleting"; // un descarte/barrido gana la carrera durante el procesado
+      return {
+        sourceWidth: 10,
+        sourceHeight: 10,
+        variants: [
+          {
+            variant: 480,
+            width: 480,
+            height: 384,
+            bytes: 20000,
+            buffer: Buffer.from("v"),
+          },
+        ],
+      };
+    });
+    const res = makeRes();
+    await handleMediaComplete(makeReq({ assetId: ID(20) }), res);
+    expect(row.status).toBe("deleting");
+    expect((res._json as { status?: string }).status).not.toBe("ready");
   });
 });

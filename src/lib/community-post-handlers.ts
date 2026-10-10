@@ -4,6 +4,10 @@ import { AdminAuthError, requireAuthenticated } from "./admin-auth.js";
 import { attemptMediaAssetCleanup } from "./cosplay-media-lifecycle.js";
 import { checkPostText, COMMUNITY_POST_MAX_MEDIA } from "./community-post-fields.js";
 import { handleCommunityAuthorPosts } from "./community-author-handlers.js";
+import {
+  AUTHOR_RESTRICTED_CODE,
+  respondAuthorRestricted,
+} from "./community-restriction.js";
 
 // Handlers HTTP de publicaciones de Comunidad (Fase 9J-1C): crear/guardar, reordenar media,
 // desadjuntar media, borrar (propio) y listar las publicaciones propias. Despachados desde
@@ -101,6 +105,19 @@ function rpcErrorMessage(error: unknown): string | null {
   return code === PLPGSQL_RAISE_EXCEPTION_CODE && typeof message === "string"
     ? message
     : null;
+}
+
+/** Escritores de publicación (save/reorder/detach): `author_restricted` se explica con la lectura
+ *  autoritativa de R5-B; el resto de errores sigue la lista cerrada. Nunca reintenta la escritura. */
+async function respondWriterFailure(
+  res: VercelResponse,
+  error: unknown,
+  client: SupabaseClient,
+  actorId: string,
+): Promise<VercelResponse> {
+  if (rpcErrorMessage(error) === AUTHOR_RESTRICTED_CODE)
+    return respondAuthorRestricted(res, client, actorId);
+  return respondRpcError(res, error);
 }
 
 function respondRpcError(res: VercelResponse, error: unknown): VercelResponse {
@@ -266,7 +283,7 @@ export async function handleCommunityPostSave(
       p_media: input.media.map((m) => ({ asset_id: m.assetId, position: m.position })),
       p_removed_media_ids: input.removedMediaIds,
     });
-    if (error) return respondRpcError(res, error);
+    if (error) return await respondWriterFailure(res, error, client, actorId);
 
     const result = data as {
       post: RawPostRow;
@@ -348,7 +365,7 @@ export async function handleCommunityPostReorderMedia(
       p_expected_version: expectedVersion,
       p_positions: parsedPositions,
     });
-    if (error) return respondRpcError(res, error);
+    if (error) return await respondWriterFailure(res, error, client, actorId);
 
     res.setHeader("Cache-Control", "no-store");
     return res.status(200).json(data);
@@ -395,7 +412,7 @@ export async function handleCommunityPostDetachMedia(
       p_expected_version: expectedVersion,
       p_media_id: mediaId,
     });
-    if (error) return respondRpcError(res, error);
+    if (error) return await respondWriterFailure(res, error, client, actorId);
 
     const row = data as { asset_id: string; version: number };
     // Limpieza real de R2 DESPUÉS de confirmar la mutación de DB — misma primitiva reutilizada

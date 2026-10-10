@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState, type ChangeEvent, type FormEvent } from "react";
 import { useMediaUpload } from "@/hooks/useMediaUpload";
 import { showActionSuccess } from "@/lib/action-notice";
+import { restrictionOutcome, type RestrictionOutcome } from "@/lib/author-restriction";
+import CommunityRestrictionNotice from "./CommunityRestrictionNotice";
 import {
   CommunityClientError,
   saveCommunityPost,
@@ -118,6 +120,10 @@ export default function CommunityPostEditorForm({
 }: CommunityPostEditorFormProps) {
   const [form, setForm] = useState<FormState>(() => initialFormState(initialPost));
   const [saveError, setSaveError] = useState<string | null>(null);
+  // R5-E: rechazo autoritativo por strike (guardado) — se conserva el borrador, nunca se reintenta.
+  const [restrictionNotice, setRestrictionNotice] = useState<RestrictionOutcome | null>(
+    null,
+  );
   const [pickerError, setPickerError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -205,6 +211,7 @@ export default function CommunityPostEditorForm({
   async function handleSave(e: FormEvent) {
     e.preventDefault();
     setSaveError(null);
+    setRestrictionNotice(null);
 
     const media = [
       ...form.existingMedia.filter((m) => existingAssetIds.has(m.assetId)),
@@ -235,7 +242,11 @@ export default function CommunityPostEditorForm({
       );
       onSaved();
     } catch (err) {
-      if (isMountedRef.current)
+      const outcome = restrictionOutcome(err);
+      if (outcome) {
+        // The editor stays open with the draft untouched; no automatic retry after expiry/revocation.
+        if (isMountedRef.current) setRestrictionNotice(outcome);
+      } else if (isMountedRef.current)
         setSaveError(
           `${form.postId === null ? "No se pudo crear la publicación" : "No se pudo actualizar la publicación"}. ${errorMessage(err)}`,
         );
@@ -393,6 +404,14 @@ export default function CommunityPostEditorForm({
         <p role="alert" className="mt-3 text-sm text-accent-live">
           {saveError}
         </p>
+      ) : null}
+      {restrictionNotice ? (
+        <CommunityRestrictionNotice
+          restriction={
+            restrictionNotice.kind === "restricted" ? restrictionNotice.restriction : null
+          }
+          changed={restrictionNotice.kind === "changed"}
+        />
       ) : null}
 
       <div className="mt-4 flex flex-wrap gap-3">

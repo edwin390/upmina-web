@@ -493,7 +493,18 @@ describe("R3 case read HTTP boundary", () => {
       req({ query: { cycleId: REPORT_ID } }),
     );
     expect(response.body).toMatchObject({ item: { cycleId: REPORT_ID } });
-    expect(fake.rpcCalls).toHaveLength(1);
+    // R5-D: the privileged bounded case read is unchanged and still first; the strike state is a
+    // SEPARATE read (non-critical enrichment) made with the same verified actor and case id.
+    expect(fake.rpcCalls.map((c) => c.name)).toEqual([
+      "community_moderation_cases_read",
+      "community_strike_state_read",
+    ]);
+    expect(fake.rpcCalls[1]!.args).toEqual({
+      p_actor_user_id: fake.rpcCalls[0]!.args.p_actor_user_id,
+      p_case_id: item().caseId,
+    });
+    // the fake has no strike RPC result: the detail is delivered WITHOUT the block, never failing
+    expect((response.body as { item: { strike?: unknown } }).item.strike).toBeUndefined();
   });
   it("cursor matches activity/cycle tie-break and roundtrips", async () => {
     fake.rpcResult = ok({
@@ -516,6 +527,175 @@ describe("R3 case read HTTP boundary", () => {
   ])("rejects malformed inputs before RPC %j", async (query) => {
     expect((await call(handleModerationCases, req({ query }))).status).toBe(400);
     expect(fake.rpcCalls).toHaveLength(0);
+  });
+  // R5-G: filtros de la cola. Validación estricta ANTES del RPC; solo viajan los filtros activos.
+  it.each([
+    { reason: "bogus" },
+    { reason: "" },
+    { hiddenOnly: "true" },
+    { hiddenOnly: "0" },
+    { author: "a" },
+    { author: "a%" },
+    { author: "x".repeat(21) },
+    { author: "ali ce" },
+    { from: "2026-13-01" },
+    { from: "2026-02-30" },
+    { from: "2026-10-01T00:00:00Z" },
+    { to: "ayer" },
+    { from: "2026-10-05", to: "2026-10-01" },
+    { cycleId: REPORT_ID, reason: "spam" },
+    { cycleId: REPORT_ID, author: "alice" },
+  ])("rechaza filtros inválidos antes del RPC %j", async (query) => {
+    expect((await call(handleModerationCases, req({ query }))).status).toBe(400);
+    expect(fake.rpcCalls).toHaveLength(0);
+  });
+  it("rechaza un filtro repetido (lista) en vez de interpretarlo", async () => {
+    const request = req({});
+    (request as unknown as { query: Record<string, unknown> }).query = {
+      reason: ["spam", "other"],
+    };
+    expect((await call(handleModerationCases, request)).status).toBe(400);
+    expect(fake.rpcCalls).toHaveLength(0);
+  });
+  it("los filtros válidos se normalizan y viajan como parámetros del RPC", async () => {
+    fake.rpcResult = ok({ cases: [], next: null });
+    const response = await call(
+      handleModerationCases,
+      req({
+        query: {
+          scope: "closed",
+          reason: "spam",
+          hiddenOnly: "1",
+          author: "AlIce_1",
+          from: "2026-09-01",
+          to: "2026-09-30",
+        },
+      }),
+    );
+    expect(response.status).toBe(200);
+    expect(fake.rpcCalls[0]!.args).toMatchObject({
+      p_scope: "closed",
+      p_reason: "spam",
+      p_hidden_only: true,
+      p_author: "alice_1",
+      p_from: "2026-09-01T00:00:00.000Z",
+      p_to: "2026-10-01T00:00:00.000Z", // «hasta» inclusivo → límite exclusivo del día siguiente
+    });
+  });
+  it("sin filtros no se envía ningún parámetro nuevo (compatible con el SQL anterior)", async () => {
+    fake.rpcResult = ok({ cases: [], next: null });
+    await call(handleModerationCases, req({}));
+    expect(Object.keys(fake.rpcCalls[0]!.args).sort()).toEqual(
+      [
+        "p_actor_user_id",
+        "p_before_activity",
+        "p_before_cycle",
+        "p_cycle_id",
+        "p_scope",
+      ].sort(),
+    );
+  });
+  it("los filtros no cambian la autorización: sin JWT/capacidad/MFA no hay RPC", async () => {
+    for (const token of [
+      null,
+      "jwt-user-aal2",
+      "jwt-moderator-aal1",
+      "jwt-moderator-stale",
+    ]) {
+      const response = await call(
+        handleModerationCases,
+        req({ token, query: { reason: "spam", author: "alice" } }),
+      );
+      expect(response.status).toBe(token === null ? 401 : 403);
+    }
+    expect(fake.rpcCalls).toHaveLength(0);
+  });
+  it("el autor no puede inyectar SQL: se rechaza antes de llegar al RPC", async () => {
+    const response = await call(
+      handleModerationCases,
+      req({ query: { author: "x'; drop table profiles;--" } }),
+    );
+    expect(response.status).toBe(400);
+    expect(fake.rpcCalls).toHaveLength(0);
+  });
+  it("el cursor se conserva junto a los filtros (misma posición, mismo conjunto)", async () => {
+    fake.rpcResult = ok({
+      cases: [item()],
+      next: { activityAt: item().activityAt, cycleId: REPORT_ID },
+    });
+    const first = await call(handleModerationCases, req({ query: { reason: "spam" } }));
+    const cursor = (first.body as { nextCursor: string }).nextCursor;
+    await call(handleModerationCases, req({ query: { cursor, reason: "spam" } }));
+    expect(fake.rpcCalls[1]!.args).toMatchObject({
+      p_before_activity: item().activityAt,
+      p_before_cycle: REPORT_ID,
+      p_reason: "spam",
+    });
+  });
+  // R5-H: contador agregado de casos pendientes.
+  it.each([0, 1, 47])("summary=pending devuelve solo el entero (%i)", async (n) => {
+    fake.rpcResult = ok(n);
+    const response = await call(
+      handleModerationCases,
+      req({ query: { summary: "pending" } }),
+    );
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual({ pending: n });
+    expect(fake.rpcCalls).toHaveLength(1);
+    expect(fake.rpcCalls[0]!.name).toBe("community_moderation_pending_count");
+    expect(Object.keys(fake.rpcCalls[0]!.args)).toEqual(["p_actor_user_id"]);
+    expect(response.headers["Cache-Control"]).toBe("no-store");
+  });
+  it.each([
+    { summary: "all" },
+    { summary: "" },
+    { summary: "pending", scope: "closed" },
+    { summary: "pending", cursor: "x" },
+    { summary: "pending", reason: "spam" },
+    { summary: "pending", cycleId: REPORT_ID },
+  ])(
+    "summary inválido o mezclado con otros parámetros → 400 sin RPC %j",
+    async (query) => {
+      expect((await call(handleModerationCases, req({ query }))).status).toBe(400);
+      expect(fake.rpcCalls).toHaveLength(0);
+    },
+  );
+  it.each([null, "jwt-user-aal2", "jwt-moderator-aal1", "jwt-moderator-stale"])(
+    "summary exige JWT/capacidad/MFA reciente (%s)",
+    async (token) => {
+      const response = await call(
+        handleModerationCases,
+        req({ token, query: { summary: "pending" } }),
+      );
+      expect(response.status).toBe(token === null ? 401 : 403);
+      expect(fake.rpcCalls).toHaveLength(0);
+    },
+  );
+  it.each([-1, 1.5, "3", null])(
+    "un contador malformado (%j) es un error interno genérico",
+    async (bad) => {
+      fake.rpcResult = ok(bad);
+      const response = await call(
+        handleModerationCases,
+        req({ query: { summary: "pending" } }),
+      );
+      expect(response.status).toBe(500);
+      expect(response.body).toEqual({ error: "Error interno" });
+    },
+  );
+  it("summary: errores de la base de datos no se filtran", async () => {
+    fake.rpcResult = rpcError("private SQL diagnostic");
+    const response = await call(
+      handleModerationCases,
+      req({ query: { summary: "pending" } }),
+    );
+    expect(response.status).toBe(500);
+    expect(JSON.stringify(response.body)).not.toContain("private");
+    fake.rpcCalls.length = 0;
+    fake.rpcResult = rpcError("actor_not_moderator");
+    expect(
+      (await call(handleModerationCases, req({ query: { summary: "pending" } }))).status,
+    ).toBe(403);
   });
   it.each([
     ["actor_not_moderator", 403],

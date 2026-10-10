@@ -19,6 +19,13 @@ import {
 const ID = (n: number) => `0b000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
 const TOK = (n: number) => `0c000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
 const FOREIGN = ID(999);
+/** Claves canónicas posibles de un asset (ordenadas como deriveAssetObjects). */
+const CANON = (domain: string, id: string) => [
+  ...(domain === "community"
+    ? ["mov", "mp4", "webm"].map((e) => `community/${id}/original.${e}`)
+    : []),
+  ...["1600", "2560", "480", "960"].map((w) => `${domain}/${id}/w${w}.webp`),
+];
 
 function fakeIo(
   options: {
@@ -102,10 +109,8 @@ describe("deriveAssetObjects", () => {
       [`community/${ID(1)}/w480.webp`, `community/${ID(1)}/w960.webp`],
     );
     expect(rejected).toBe(0);
-    expect(objects.publicKeys).toEqual([
-      `community/${ID(1)}/w480.webp`,
-      `community/${ID(1)}/w960.webp`,
-    ]);
+    // Variantes registradas + claves canónicas posibles (variantes subidas sin fila): todo del asset.
+    expect(objects.publicKeys).toEqual(CANON("community", ID(1)));
     expect(objects.privateKeys).toEqual([`staging/community/${ID(1)}/original.png`]);
   });
   it("VIDEO: the single public object is storage_key, with zero variants", () => {
@@ -119,7 +124,8 @@ describe("deriveAssetObjects", () => {
       [],
     );
     expect(rejected).toBe(0);
-    expect(objects.publicKeys).toEqual([`community/${ID(2)}/original.mp4`]);
+    expect(objects.publicKeys).toEqual(CANON("community", ID(2)));
+    expect(objects.publicKeys).toContain(`community/${ID(2)}/original.mp4`);
     expect(objects.privateKeys).toEqual([]);
   });
   it("foreign or malformed keys are counted and never returned", () => {
@@ -132,7 +138,8 @@ describe("deriveAssetObjects", () => {
       },
       [`community/${ID(3)}/../x.webp`, `cosplay/${ID(3)}/w480.webp`],
     );
-    expect(objects.publicKeys).toEqual([]);
+    // Solo sobreviven las claves canónicas del PROPIO asset; todo lo ajeno se cuenta y se descarta.
+    expect(objects.publicKeys).toEqual(CANON("community", ID(3)));
     expect(objects.privateKeys).toEqual([]);
     expect(rejected).toBe(4);
   });
@@ -600,5 +607,221 @@ describe("runMediaGcBatch", () => {
       `[media-gc] asset=${ID(1)} failed class=r2_public_delete_failed`,
     );
     expect(JSON.stringify(log.mock.calls)).not.toMatch(/secret-body|w960/);
+  });
+});
+
+// ── R6: sesiones multipart abandonadas ────────────────────────────────────────────────────────
+
+describe("runMediaGcBatch · sesión multipart abierta (R6)", () => {
+  const UP = "synthetic-upload-id-0001";
+  const KEY = (n: number) => `staging/community/${ID(n)}/original.mp4`;
+  type Step = string;
+
+  function mpEnv(
+    options: {
+      objects?: Record<string, unknown>;
+      cleared?: string | "error" | "throw";
+      finalize?: string;
+      abortError?: Error | null;
+      noAbort?: boolean;
+    } = {},
+  ) {
+    const steps: Step[] = [];
+    const db: GcDb = {
+      async rpc(name, args) {
+        if (name === "community_asset_gc_claim")
+          return {
+            data: {
+              claimed: [
+                {
+                  assetId: ID(1),
+                  domain: "community",
+                  kind: "video",
+                  claimToken: TOK(1),
+                  attempts: 0,
+                },
+              ],
+            },
+            error: null,
+          };
+        if (name === "community_asset_gc_objects") {
+          steps.push("objects");
+          return {
+            data: {
+              valid: true,
+              assetId: ID(1),
+              domain: "community",
+              kind: "video",
+              publicKeys: [],
+              privateKeys: [KEY(1)],
+              rejectedKeys: 0,
+              multipartUploadId: UP,
+              multipartKey: KEY(1),
+              ...options.objects,
+            },
+            error: null,
+          };
+        }
+        if (name === "community_asset_gc_multipart_cleared") {
+          steps.push(`cleared:${String(args.p_upload_id)}`);
+          if (options.cleared === "throw") throw new Error("network");
+          if (options.cleared === "error")
+            return { data: null, error: { message: "boom" } };
+          return { data: { result: options.cleared ?? "cleared" }, error: null };
+        }
+        if (name === "community_asset_gc_finalize") {
+          steps.push("finalize");
+          return { data: { result: options.finalize ?? "deleted" }, error: null };
+        }
+        if (name === "community_asset_gc_fail") {
+          steps.push(`fail:${String(args.p_error_class)}`);
+          return { data: { result: "retry_scheduled" }, error: null };
+        }
+        throw new Error(`unexpected rpc ${name}`);
+      },
+    };
+    const io: PhysicalDeleteIo = {
+      async deletePublic(keys) {
+        steps.push(`delete-public:${keys.length}`);
+      },
+      async deletePrivate(key) {
+        steps.push(`delete-private:${key}`);
+      },
+    };
+    if (!options.noAbort)
+      io.abortMultipart = async (key, uploadId) => {
+        steps.push(`abort:${key}:${uploadId}`);
+        if (options.abortError) throw options.abortError;
+      };
+    return { db, io, steps };
+  }
+
+  it("aborta con la clave e identificador exactos ANTES de borrar objetos y de finalizar", async () => {
+    const { db, io, steps } = mpEnv();
+    const summary = await run(db, io);
+    expect(summary).toMatchObject({ claimed: 1, finalized: 1, failed: 0 });
+    expect(steps).toEqual([
+      "objects",
+      `abort:${KEY(1)}:${UP}`,
+      `cleared:${UP}`,
+      `delete-private:${KEY(1)}`,
+      "finalize",
+    ]);
+  });
+
+  it("NoSuchUpload cuenta como éxito (la sesión ya no existe)", async () => {
+    const { db, io, steps } = mpEnv({
+      abortError: Object.assign(new Error("gone"), { name: "NoSuchUpload" }),
+    });
+    expect(await run(db, io)).toMatchObject({ finalized: 1, failed: 0 });
+    expect(steps).toContain(`cleared:${UP}`);
+    expect(steps.at(-1)).toBe("finalize");
+  });
+
+  it("si el aborto falla: no limpia el identificador, no borra objetos ni finaliza", async () => {
+    const { db, io, steps } = mpEnv({ abortError: new Error("R2 503") });
+    const summary = await run(db, io);
+    expect(summary).toMatchObject({ claimed: 1, finalized: 0, failed: 1 });
+    expect(summary.errorClasses).toEqual({ r2_multipart_abort_failed: 1 });
+    expect(steps).toEqual([
+      "objects",
+      `abort:${KEY(1)}:${UP}`,
+      "fail:r2_multipart_abort_failed",
+    ]);
+  });
+
+  it("sin capacidad de abortar falla cerrado (nunca borra con una sesión abierta)", async () => {
+    const { db, io, steps } = mpEnv({ noAbort: true });
+    expect(await run(db, io)).toMatchObject({ finalized: 0, failed: 1 });
+    expect(steps).toEqual(["objects", "fail:r2_multipart_abort_failed"]);
+  });
+
+  it("aborto OK pero la RPC de limpieza falla: nada se borra y el reintento es seguro", async () => {
+    const first = mpEnv({ cleared: "error" });
+    const r1 = await run(first.db, first.io);
+    expect(r1).toMatchObject({ finalized: 0, failed: 1 });
+    expect(r1.errorClasses).toEqual({ multipart_clear_failed: 1 });
+    expect(first.steps).toEqual([
+      "objects",
+      `abort:${KEY(1)}:${UP}`,
+      `cleared:${UP}`,
+      "fail:multipart_clear_failed",
+    ]);
+    // Reintento: la sesión ya no existe en R2 (NoSuchUpload) y la limpieza puede completarse.
+    const second = mpEnv({
+      abortError: Object.assign(new Error("gone"), { name: "NoSuchUpload" }),
+      cleared: "already_cleared",
+    });
+    expect(await run(second.db, second.io)).toMatchObject({ finalized: 1, failed: 0 });
+  });
+
+  it("limpieza con excepción de red: falla controlada, sin borrar", async () => {
+    const { db, io, steps } = mpEnv({ cleared: "throw" });
+    expect(await run(db, io)).toMatchObject({ finalized: 0, failed: 1 });
+    expect(steps.some((s) => s.startsWith("delete"))).toBe(false);
+    expect(steps).not.toContain("finalize");
+  });
+
+  it("identificador cambiado o resultado desconocido: no borra ni finaliza", async () => {
+    for (const cleared of ["upload_id_changed", "something_else"]) {
+      const { db, io, steps } = mpEnv({ cleared });
+      expect(await run(db, io)).toMatchObject({ finalized: 0, failed: 1 });
+      expect(steps.some((s) => s.startsWith("delete") || s === "finalize")).toBe(false);
+    }
+  });
+
+  it("claim ya no vigente al limpiar => stale, sin borrar; already_gone => alreadyGone", async () => {
+    const stale = mpEnv({ cleared: "invalid_claim" });
+    expect(await run(stale.db, stale.io)).toMatchObject({ stale: 1, finalized: 0 });
+    expect(stale.steps.some((s) => s.startsWith("delete"))).toBe(false);
+    const gone = mpEnv({ cleared: "already_gone" });
+    expect(await run(gone.db, gone.io)).toMatchObject({ alreadyGone: 1, finalized: 0 });
+  });
+
+  it("datos de sesión incoherentes o ajenos: invalid_object_reference y no se aborta", async () => {
+    const cases: Record<string, unknown>[] = [
+      { multipartKey: null },
+      { multipartUploadId: null },
+      { multipartUploadId: "" },
+      { multipartKey: `staging/community/${ID(2)}/original.mp4` }, // clave de otro asset
+      { multipartKey: `community/${ID(1)}/original.mp4` }, // clave pública, no staging/objects
+    ];
+    for (const objects of cases) {
+      const { db, io, steps } = mpEnv({ objects });
+      expect(await run(db, io)).toMatchObject({ finalized: 0, failed: 1 });
+      expect(steps.some((s) => s.startsWith("abort") || s.startsWith("delete"))).toBe(
+        false,
+      );
+      expect(steps.at(-1)).toBe("fail:invalid_object_reference");
+    }
+  });
+
+  it("finalize que informa multipart_pending se cuenta como fallo ya registrado (sin segundo fail)", async () => {
+    const { db, io, steps } = mpEnv({ finalize: "multipart_pending" });
+    expect(await run(db, io)).toMatchObject({ finalized: 0, failed: 1 });
+    expect(steps.filter((s) => s.startsWith("fail")).length).toBe(0);
+  });
+
+  it("un asset sin sesión multipart nunca llama al aborto ni a la limpieza", async () => {
+    const { db, io, steps } = mpEnv({
+      objects: { multipartUploadId: null, multipartKey: null },
+    });
+    expect(await run(db, io)).toMatchObject({ finalized: 1 });
+    expect(steps.some((s) => s.startsWith("abort") || s.startsWith("cleared"))).toBe(
+      false,
+    );
+    // Respuesta antigua sin los campos nuevos: mismo comportamiento.
+    const legacy = mpEnv({ objects: {} });
+    const original = legacy.db.rpc.bind(legacy.db);
+    legacy.db.rpc = async (name, args) => {
+      const res = await original(name, args);
+      if (name === "community_asset_gc_objects") {
+        const d = res.data as Record<string, unknown>;
+        delete d.multipartUploadId;
+        delete d.multipartKey;
+      }
+      return res;
+    };
+    expect(await run(legacy.db, legacy.io)).toMatchObject({ finalized: 1 });
   });
 });

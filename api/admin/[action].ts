@@ -1,5 +1,9 @@
 import { handleModerationCaseDecision } from "../../src/lib/moderation-decision-handlers.js";
 import {
+  handleModerationStrikeApply,
+  handleModerationStrikeRevoke,
+} from "../../src/lib/moderation-strike-handlers.js";
+import {
   handleCommunityAuthorPosts,
   handleCommunityAuthorNoticeAck,
 } from "../../src/lib/community-author-handlers.js";
@@ -110,6 +114,11 @@ export default function handler(req: VercelRequest, res: VercelResponse) {
       return handleCommunityAuthorNoticeAck(req, res);
     case "moderation-case-decision":
       return handleModerationCaseDecision(req, res);
+    // R5-D: acciones humanas SEPARADAS de Procede (apply: moderation+MFA; revoke: además developer/admin).
+    case "moderation-strike-apply":
+      return handleModerationStrikeApply(req, res);
+    case "moderation-strike-revoke":
+      return handleModerationStrikeRevoke(req, res);
     case "moderation-cases":
       return handleModerationCases(req, res);
     case "activate":

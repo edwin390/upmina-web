@@ -1,0 +1,129 @@
+{
+  "audit": {
+    "regionLabel": "Auditoría reciente",
+    "title": "Auditoría reciente de publicación/caso (hasta 20 acciones)",
+    "empty": "Todavía no hay acciones registradas para este caso.",
+    "actor": {
+      "system": "Sistema",
+      "human": "Acción humana"
+    },
+    "category": {
+      "automatic": "Automática",
+      "moderation": "Moderación",
+      "restoration": "Restauración",
+      "decision": "Decisión",
+      "sanction": "Sanción"
+    },
+    "unknown": {
+      "label": "Acción no reconocida",
+      "description": "Esta acción consta en el historial, pero esta versión del panel no sabe describirla."
+    },
+    "actions": {
+      "report_status_changed": {
+        "label": "Estado de un reporte actualizado",
+        "description": "Una persona de moderación cambió el estado de un reporte (flujo anterior de reportes)."
+      },
+      "post_hidden": {
+        "label": "Publicación ocultada",
+        "description": "Una persona de moderación ocultó la publicación (flujo anterior de reportes)."
+      },
+      "post_restored": {
+        "label": "Publicación restaurada",
+        "description": "Una persona de moderación devolvió la publicación a su estado visible."
+      },
+      "post_quarantined": {
+        "label": "Ocultada preventivamente",
+        "description": "El sistema ocultó la publicación de forma automática al alcanzar el umbral de reportes, a la espera de revisión humana."
+      },
+      "case_rejected": {
+        "label": "Decisión: No procede",
+        "description": "Una persona de moderación cerró el ciclo sin retirar la publicación; si estaba oculta preventivamente, vuelve a publicarse."
+      },
+      "content_actioned": {
+        "label": "Decisión: Procede",
+        "description": "Una persona de moderación decidió que los reportes proceden: la publicación se retira de la vista pública y se elimina definitivamente pasadas 72 horas."
+      },
+      "strike_applied": {
+        "label": "Strike aplicado",
+        "description": "Una persona con rol de moderación, desarrollo o administración aplicó una sanción al autor por esta decisión."
+      },
+      "strike_revoked": {
+        "label": "Strike revocado",
+        "description": "Una persona con rol de desarrollo o administración revocó la sanción al autor; no se restaura la publicación."
+      },
+      "post_purged": {
+        "label": "Publicación eliminada definitivamente",
+        "description": "El sistema eliminó definitivamente la publicación y su contenido al terminar el plazo de retención."
+      }
+    },
+    "strikeLevel": "Strike {level}",
+    "transition": {
+      "post": "Publicación: {from} → {to}",
+      "report": "Reporte: {from} → {to}",
+      "none": "—"
+    },
+    "postStatus": {
+      "published": "Publicada",
+      "hidden": "Oculta",
+      "hidden_pending_review": "Oculta preventivamente",
+      "removed_pending_purge": "Retirada por moderación"
+    },
+    "reportStatus": {
+      "open": "Abierto",
+      "reviewing": "En revisión",
+      "resolved": "Resuelto",
+      "dismissed": "Descartado",
+      "actioned": "Actuado"
+    }
+  },
+  "strikeUnavailable": {
+    "title": "Sanción al autor",
+    "message": "No se pudo consultar el estado de la sanción. Esto no significa que no haya una sanción: reintenta antes de decidir.",
+    "retry": "Reintentar consulta"
+  },
+  "queue": {
+    "filtersLabel": "Filtros de la cola",
+    "reason": "Motivo del reporte",
+    "reasonAll": "Todos los motivos",
+    "reasons": {
+      "spam": "Spam",
+      "harassment": "Acoso",
+      "hate_speech": "Discurso de odio",
+      "sexual_content": "Contenido sexual",
+      "other": "Otro"
+    },
+    "hiddenOnly": "Solo ocultas preventivamente",
+    "author": "Autor (usuario)",
+    "authorHint": "Escribe al menos 2 caracteres (letras, números o _).",
+    "from": "Desde",
+    "to": "Hasta",
+    "rangeInvalid": "La fecha inicial no puede ser posterior a la final.",
+    "clear": "Limpiar filtros",
+    "noMatches": "Ningún caso coincide con los filtros.",
+    "updating": "Actualizando…",
+    "updateFailed": "No se pudo actualizar la cola. Se muestran los resultados anteriores.",
+    "invalidPage": "Esta página ya no es válida. Vuelve al inicio de la cola.",
+    "pagination": "Paginación de la cola",
+    "previous": "Página anterior",
+    "next": "Siguiente página",
+    "first": "Volver al inicio"
+  },
+  "pending": {
+    "label": "Casos pendientes",
+    "loading": "Contando casos pendientes…",
+    "zero": "Sin casos pendientes",
+    "count": "{count, plural, one {# caso pendiente} other {# casos pendientes}}",
+    "error": "No se pudo contar los casos pendientes.",
+    "retry": "Reintentar"
+  },
+  "media": {
+    "image": "Imagen de la publicación ({position} de {total})",
+    "video": "Vídeo de la publicación ({position} de {total})",
+    "loading": "Cargando contenido…",
+    "imageError": "No se pudo cargar esta imagen.",
+    "videoError": "No se pudo cargar este vídeo.",
+    "retry": "Reintentar carga",
+    "retryHint": "Si sigue fallando, actualiza el caso: el acceso al archivo puede haber caducado.",
+    "videoFallback": "Vídeo sin vista previa"
+  }
+}

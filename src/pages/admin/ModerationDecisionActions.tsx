@@ -191,6 +191,12 @@ export default function ModerationDecisionActions({
           </button>
         )}
       </div>
+      {!canProceed && item.post === null && (
+        <p className="text-sm text-text-muted">
+          La publicación ya no existe (fue eliminada), así que no hay contenido que
+          retirar: este caso solo puede cerrarse como «No procede».
+        </p>
+      )}
       {decision &&
         createPortal(
           <dialog

@@ -5,6 +5,10 @@ import {
   type AuthorPostsResponse,
 } from "./community-author-contract";
 import {
+  parseAuthorRestriction,
+  type AuthorRestrictionView,
+} from "@/lib/author-restriction";
+import {
   classifyPrivilegedFailure,
   type PrivilegedFailure,
 } from "@/lib/privileged-response";
@@ -29,6 +33,8 @@ export class CommunityClientError extends Error {
      *  p. ej. "community_version_conflict", "profile_required", "empty_post". */
     readonly code?: string,
     readonly privilegedFailure: PrivilegedFailure | null = null,
+    /** R5-E: detalle autoritativo de `author_restricted` (null si no vino o es inválido). */
+    readonly restriction: AuthorRestrictionView | null = null,
   ) {
     super(message);
     this.name = "CommunityClientError";
@@ -77,12 +83,19 @@ async function request<T>(
   }
 
   if (!response.ok) {
-    const body = json as { error?: string; code?: string } | null;
+    const body = json as {
+      error?: string;
+      code?: string;
+      restriction?: unknown;
+    } | null;
     throw new CommunityClientError(
       body?.error ?? "Error del servidor",
       response.status,
       body?.code,
       privilegedFailure,
+      body?.code === "author_restricted"
+        ? parseAuthorRestriction(body.restriction)
+        : null,
     );
   }
   return json as T;

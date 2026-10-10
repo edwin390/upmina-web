@@ -1,0 +1,129 @@
+{
+  "audit": {
+    "regionLabel": "Recent audit trail",
+    "title": "Recent audit trail for the post/case (up to 20 actions)",
+    "empty": "No actions have been recorded for this case yet.",
+    "actor": {
+      "system": "System",
+      "human": "Human action"
+    },
+    "category": {
+      "automatic": "Automatic",
+      "moderation": "Moderation",
+      "restoration": "Restoration",
+      "decision": "Decision",
+      "sanction": "Sanction"
+    },
+    "unknown": {
+      "label": "Unrecognized action",
+      "description": "This action is in the history, but this version of the panel cannot describe it."
+    },
+    "actions": {
+      "report_status_changed": {
+        "label": "Report status updated",
+        "description": "A moderation team member changed the status of a report (earlier report workflow)."
+      },
+      "post_hidden": {
+        "label": "Post hidden",
+        "description": "A moderation team member hid the post (earlier report workflow)."
+      },
+      "post_restored": {
+        "label": "Post restored",
+        "description": "A moderation team member made the post visible again."
+      },
+      "post_quarantined": {
+        "label": "Hidden as a precaution",
+        "description": "The system hid the post automatically when the report threshold was reached, pending human review."
+      },
+      "case_rejected": {
+        "label": "Decision: Not valid",
+        "description": "A moderation team member closed the cycle without removing the post; if it was hidden as a precaution, it is published again."
+      },
+      "content_actioned": {
+        "label": "Decision: Valid",
+        "description": "A moderation team member ruled the reports valid: the post is removed from public view and permanently deleted after 72 hours."
+      },
+      "strike_applied": {
+        "label": "Strike applied",
+        "description": "Someone with a moderator, developer or admin role applied a sanction to the author for this decision."
+      },
+      "strike_revoked": {
+        "label": "Strike revoked",
+        "description": "Someone with a developer or admin role revoked the author's sanction; the post is not restored."
+      },
+      "post_purged": {
+        "label": "Post permanently deleted",
+        "description": "The system permanently deleted the post and its content when the retention period ended."
+      }
+    },
+    "strikeLevel": "Strike {level}",
+    "transition": {
+      "post": "Post: {from} → {to}",
+      "report": "Report: {from} → {to}",
+      "none": "—"
+    },
+    "postStatus": {
+      "published": "Published",
+      "hidden": "Hidden",
+      "hidden_pending_review": "Hidden as a precaution",
+      "removed_pending_purge": "Removed by moderation"
+    },
+    "reportStatus": {
+      "open": "Open",
+      "reviewing": "Under review",
+      "resolved": "Resolved",
+      "dismissed": "Dismissed",
+      "actioned": "Actioned"
+    }
+  },
+  "strikeUnavailable": {
+    "title": "Author sanction",
+    "message": "The sanction status could not be loaded. This does not mean there is no sanction: try again before deciding.",
+    "retry": "Retry lookup"
+  },
+  "queue": {
+    "filtersLabel": "Queue filters",
+    "reason": "Report reason",
+    "reasonAll": "All reasons",
+    "reasons": {
+      "spam": "Spam",
+      "harassment": "Harassment",
+      "hate_speech": "Hate speech",
+      "sexual_content": "Sexual content",
+      "other": "Other"
+    },
+    "hiddenOnly": "Only posts hidden as a precaution",
+    "author": "Author (username)",
+    "authorHint": "Type at least 2 characters (letters, numbers or _).",
+    "from": "From",
+    "to": "To",
+    "rangeInvalid": "The start date cannot be after the end date.",
+    "clear": "Clear filters",
+    "noMatches": "No cases match the filters.",
+    "updating": "Updating…",
+    "updateFailed": "The queue could not be refreshed. Previous results are shown.",
+    "invalidPage": "This page is no longer valid. Go back to the start of the queue.",
+    "pagination": "Queue pagination",
+    "previous": "Previous page",
+    "next": "Next page",
+    "first": "Back to start"
+  },
+  "pending": {
+    "label": "Pending cases",
+    "loading": "Counting pending cases…",
+    "zero": "No pending cases",
+    "count": "{count, plural, one {# pending case} other {# pending cases}}",
+    "error": "Pending cases could not be counted.",
+    "retry": "Retry"
+  },
+  "media": {
+    "image": "Post image ({position} of {total})",
+    "video": "Post video ({position} of {total})",
+    "loading": "Loading content…",
+    "imageError": "This image could not be loaded.",
+    "videoError": "This video could not be loaded.",
+    "retry": "Retry loading",
+    "retryHint": "If it keeps failing, refresh the case: file access may have expired.",
+    "videoFallback": "Video without preview"
+  }
+}

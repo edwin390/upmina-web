@@ -9,6 +9,7 @@ vi.mock("./content-freshness", () => ({ refreshCommunityContent: fresh.refresh }
 import {
   fetchModerationCase,
   fetchModerationCasePage,
+  fetchModerationPendingCount,
   ModerationClientError,
 } from "./moderation-client";
 beforeEach(() => {
@@ -286,4 +287,83 @@ it("complete queue/detail preserve valid dates and strip private extra fields", 
     vi.fn().mockResolvedValue({ ok: true, json: async () => ({ item }) }),
   );
   expect(await fetchModerationCase(ID)).toEqual(page.cases[0]);
+});
+
+// R5-G: los filtros viajan como parámetros de consulta; los vacíos no viajan.
+it("R5-G: envía solo los filtros activos, recortados y sin la @ del autor", async () => {
+  const fetch = vi
+    .fn()
+    .mockResolvedValue({ ok: true, json: async () => ({ cases: [], nextCursor: null }) });
+  vi.stubGlobal("fetch", fetch);
+  await fetchModerationCasePage("active", null, undefined, {
+    reason: "spam",
+    hiddenOnly: true,
+    author: "  @alice ",
+    from: "2026-09-01",
+    to: "2026-09-30",
+  });
+  expect(fetch.mock.calls[0]![0]).toBe(
+    "/api/admin/moderation-cases?scope=active&reason=spam&hiddenOnly=1&author=alice&from=2026-09-01&to=2026-09-30",
+  );
+  await fetchModerationCasePage("closed", "opaque", undefined, {
+    reason: "",
+    hiddenOnly: false,
+    author: "   ",
+  });
+  expect(fetch.mock.calls[1]![0]).toBe(
+    "/api/admin/moderation-cases?scope=closed&cursor=opaque",
+  );
+});
+it("R5-G: un 400 (cursor inválido o caducado) se propaga como error tipado con su estado", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn().mockResolvedValue({
+      ok: false,
+      status: 400,
+      json: async () => ({ error: "Solicitud inválida" }),
+    }),
+  );
+  await expect(fetchModerationCasePage("active", "viejo")).rejects.toMatchObject({
+    status: 400,
+  });
+});
+
+// R5-H: contador de pendientes.
+it("R5-H: pide solo summary=pending con Bearer y devuelve el entero", async () => {
+  const fetch = vi
+    .fn()
+    .mockResolvedValue({ ok: true, json: async () => ({ pending: 12 }) });
+  vi.stubGlobal("fetch", fetch);
+  expect(await fetchModerationPendingCount()).toBe(12);
+  expect(fetch.mock.calls[0]![0]).toBe("/api/admin/moderation-cases?summary=pending");
+  expect(fetch.mock.calls[0]![1]).toMatchObject({
+    headers: { Authorization: "Bearer synthetic-token" },
+    cache: "no-store",
+  });
+});
+it.each([{ pending: -1 }, { pending: 1.5 }, { pending: "3" }, {}, null])(
+  "R5-H: respuesta inválida %j → error tipado, nunca un cero",
+  async (body) => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({ ok: true, json: async () => body }),
+    );
+    await expect(fetchModerationPendingCount()).rejects.toBeInstanceOf(
+      ModerationClientError,
+    );
+  },
+);
+it("R5-H: un 403 conserva su estado para que la página gestione el acceso", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn().mockResolvedValue({
+      ok: false,
+      status: 403,
+      json: async () => ({ error: "x", code: "step_up_required" }),
+    }),
+  );
+  await expect(fetchModerationPendingCount()).rejects.toMatchObject({
+    status: 403,
+    code: "step_up_required",
+  });
 });

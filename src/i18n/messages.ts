@@ -7,14 +7,21 @@ import type { Locale } from "./locale";
 import commonEs from "./locales/es/common.json";
 import cosplayEs from "./locales/es/cosplay.json";
 import mediaEs from "./locales/es/media.json";
+import moderationEs from "./locales/es/moderation.json";
 
 export interface Messages {
   common: typeof commonEs;
   cosplay: typeof cosplayEs;
   media: typeof mediaEs;
+  moderation: typeof moderationEs;
 }
 
-const ES_MESSAGES: Messages = { common: commonEs, cosplay: cosplayEs, media: mediaEs };
+const ES_MESSAGES: Messages = {
+  common: commonEs,
+  cosplay: cosplayEs,
+  media: mediaEs,
+  moderation: moderationEs,
+};
 
 // Import perezoso SOLO para en/de (el patrón EXCLUYE es a propósito: ya está importado de forma
 // estática arriba, y si el glob también lo alcanzara, Vite generaría un chunk duplicado e
@@ -40,12 +47,13 @@ async function loadNamespace(locale: Locale, ns: keyof Messages): Promise<unknow
 export async function loadMessages(locale: Locale): Promise<Messages> {
   if (locale === "es") return ES_MESSAGES;
   try {
-    const [common, cosplay, media] = await Promise.all([
+    const [common, cosplay, media, moderation] = await Promise.all([
       loadNamespace(locale, "common"),
       loadNamespace(locale, "cosplay"),
       loadNamespace(locale, "media"),
+      loadNamespace(locale, "moderation"),
     ]);
-    return { common, cosplay, media } as Messages;
+    return { common, cosplay, media, moderation } as Messages;
   } catch {
     return ES_MESSAGES;
   }

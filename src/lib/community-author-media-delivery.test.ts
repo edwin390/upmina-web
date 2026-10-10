@@ -236,7 +236,11 @@ describe("owner media delivery by post state (secure delivery configured)", () =
   });
   it("never leaks the capability or key material through the response envelope", async () => {
     const r = await read("hidden_pending_review");
-    const text = JSON.stringify(r.body);
+    // R5-I: el valor de `cap=` es base64url con una firma ALEATORIA; escanearlo con /k1/i daba
+    // falsos positivos esporádicos (la subcadena «k1» aparece por azar). Se enmascara el token
+    // opaco y se sigue exigiendo que NADA más del sobre filtre claves o rutas.
+    const text = JSON.stringify(r.body).replace(/cap=[A-Za-z0-9._-]+/g, "cap=<opaque>");
+    expect(text).toContain("cap=<opaque>");
     expect(text).not.toMatch(/storage_key|signing|private|PKCS|k1/i);
   });
 });

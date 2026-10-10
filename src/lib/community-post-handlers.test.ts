@@ -25,6 +25,7 @@ const TOKENS: Record<string, { sub: string; aal: string }> = {
 const fake = vi.hoisted(() => ({
   rpcCalls: [] as { name: string; args: Record<string, unknown> }[],
   rpcResult: undefined as { data: unknown; error: unknown } | undefined,
+  restrictionResult: undefined as { data: unknown; error: unknown } | undefined,
   ownListResult: { data: [] as unknown[], error: null as unknown },
 }));
 
@@ -73,6 +74,10 @@ vi.mock("@supabase/supabase-js", () => ({
     },
     async rpc(name: string, args: Record<string, unknown>) {
       fake.rpcCalls.push({ name, args });
+      if (name === "community_author_restriction")
+        return (
+          fake.restrictionResult ?? { data: null, error: { message: "sin restricción" } }
+        );
       if (name === "community_author_posts_read" && fake.rpcResult) return fake.rpcResult;
       if (name === "community_author_posts_read")
         return {
@@ -299,6 +304,7 @@ beforeEach(() => {
   vi.stubEnv("SUPABASE_SERVICE_ROLE_KEY", "srk-service-role-ficticia");
   fake.rpcCalls = [];
   fake.rpcResult = undefined;
+  fake.restrictionResult = undefined;
   fake.ownListResult = { data: [], error: null };
   cleanupMock.mockReset();
   cleanupMock.mockResolvedValue({ assetId: ASSET_ID, cleaned: true });
@@ -898,5 +904,211 @@ describe("handleCommunityPostListOwn", () => {
     };
     const state = await call(handleCommunityPostListOwn, req({ method: "GET" }));
     expect(state.status).toBe(500);
+  });
+});
+
+// ────────────────────────────────────────────────────────────────────────────────────────────
+// R5-C: contrato estructurado de `author_restricted`. La BD es la autoridad; el backend solo EXPLICA
+// el rechazo con la lectura autoritativa de R5-B y proyecta campos de producto. Nunca reintenta.
+
+describe("R5-C author_restricted contract", () => {
+  const RESTRICTED = {
+    restricted: true,
+    level: 1,
+    permanent: false,
+    endsAt: "2026-10-20T00:00:00+00:00",
+    reason: "Motivo humano del strike",
+    serverNow: "2026-10-06T00:00:00+00:00",
+    // must never reach the client even if a future read returned them
+    appliedBy: "99999999-9999-4999-8999-999999999999",
+    caseId: "88888888-8888-4888-8888-888888888888",
+    decisionId: "77777777-7777-4777-8777-777777777777",
+  };
+  const SAVE = {
+    postId: POST_ID,
+    expectedVersion: 2,
+    text: "Editado",
+    media: [],
+    removedMediaIds: [],
+  };
+  const writers: [
+    string,
+    () => typeof handleCommunityPostSave,
+    Record<string, unknown>,
+    string,
+  ][] = [
+    ["save", () => handleCommunityPostSave, SAVE, "community_post_save_atomic"],
+    [
+      "reorder",
+      () => handleCommunityPostReorderMedia,
+      {
+        postId: POST_ID,
+        expectedVersion: 2,
+        positions: [{ mediaId: MEDIA_ID, position: 0 }],
+      },
+      "community_post_reorder_media",
+    ],
+    [
+      "detach",
+      () => handleCommunityPostDetachMedia,
+      { postId: POST_ID, expectedVersion: 2, mediaId: MEDIA_ID },
+      "community_post_detach_media",
+    ],
+  ];
+  it.each(writers)(
+    "%s: DB rejection → 403 with ONLY the approved restriction fields",
+    async (_n, h, body, rpc) => {
+      fake.rpcResult = rpcError("author_restricted");
+      fake.restrictionResult = ok(RESTRICTED);
+      const state = await call(h(), req({ body }));
+      expect(state.status).toBe(403);
+      expect(state.body).toEqual({
+        error: "Tu cuenta tiene una restricción de publicación",
+        code: "author_restricted",
+        restriction: {
+          level: 1,
+          permanent: false,
+          endsAt: "2026-10-20T00:00:00+00:00",
+          reason: "Motivo humano del strike",
+        },
+      });
+      const dump = JSON.stringify(state.body);
+      for (const leak of [
+        RESTRICTED.appliedBy,
+        RESTRICTED.caseId,
+        RESTRICTED.decisionId,
+        "serverNow",
+        "appliedBy",
+      ])
+        expect(dump).not.toContain(leak);
+      // the write was attempted exactly once and NEVER retried; the explanation is a read
+      expect(fake.rpcCalls.filter((c) => c.name === rpc)).toHaveLength(1);
+      expect(
+        fake.rpcCalls.filter((c) => c.name === "community_author_restriction"),
+      ).toEqual([{ name: "community_author_restriction", args: { p_user_id: USER_ID } }]);
+      expect(cleanupMock).not.toHaveBeenCalled();
+    },
+  );
+  it("permanent restriction: endsAt is null and permanent is true", async () => {
+    fake.rpcResult = rpcError("author_restricted");
+    fake.restrictionResult = ok({
+      restricted: true,
+      level: 3,
+      permanent: true,
+      endsAt: null,
+      reason: "Reincidencia",
+    });
+    const state = await call(handleCommunityPostSave, req({ body: SAVE }));
+    expect(state.status).toBe(403);
+    expect((state.body as { restriction: unknown }).restriction).toEqual({
+      level: 3,
+      permanent: true,
+      endsAt: null,
+      reason: "Reincidencia",
+    });
+  });
+  it("the restriction disappeared between the DB rejection and the read (revocation/expiry): 409, no automatic retry", async () => {
+    fake.rpcResult = rpcError("author_restricted");
+    fake.restrictionResult = ok({
+      restricted: false,
+      serverNow: "2026-10-06T00:00:00+00:00",
+    });
+    const state = await call(handleCommunityPostSave, req({ body: SAVE }));
+    expect(state.status).toBe(409);
+    expect(state.body).toMatchObject({ code: "author_restriction_changed" });
+    expect(
+      fake.rpcCalls.filter((c) => c.name === "community_post_save_atomic"),
+    ).toHaveLength(1);
+  });
+  it.each([
+    ["read error", { data: null, error: { message: "boom" } }],
+    [
+      "malformed level",
+      ok({ restricted: true, level: 9, permanent: false, endsAt: "x", reason: "r" }),
+    ],
+    [
+      "permanent with a deadline",
+      ok({ restricted: true, level: 3, permanent: true, endsAt: "x", reason: "r" }),
+    ],
+    [
+      "temporary without a deadline",
+      ok({ restricted: true, level: 1, permanent: false, endsAt: null, reason: "r" }),
+    ],
+    ["non-object payload", ok("restricted")],
+  ])(
+    "%s: still 403 author_restricted, with NO restriction detail and no raw error",
+    async (_n, result) => {
+      fake.rpcResult = rpcError("author_restricted");
+      fake.restrictionResult = result as { data: unknown; error: unknown };
+      const state = await call(handleCommunityPostSave, req({ body: SAVE }));
+      expect(state.status).toBe(403);
+      expect(state.body).toEqual({
+        error: "Tu cuenta tiene una restricción de publicación",
+        code: "author_restricted",
+      });
+    },
+  );
+  it("an unrestricted user is unaffected: a successful save never consults the restriction", async () => {
+    fake.rpcResult = ok({
+      post: {
+        id: POST_ID,
+        author_user_id: USER_ID,
+        text: "Editado",
+        status: "published",
+        version: 3,
+        created_at: "x",
+        updated_at: "x",
+        like_count: 0,
+      },
+      media: [],
+      cleanup_asset_ids: [],
+    });
+    fake.restrictionResult = ok(RESTRICTED); // irrelevant: the DB accepted the write
+    const state = await call(handleCommunityPostSave, req({ body: SAVE }));
+    expect(state.status).toBe(200);
+    expect(fake.rpcCalls.some((c) => c.name === "community_author_restriction")).toBe(
+      false,
+    );
+  });
+  it("an unexpected DB error is a generic 500: no restriction read, no raw message", async () => {
+    fake.rpcResult = {
+      data: null,
+      error: { code: "XX000", message: "relation community_user_strikes exploded" },
+    };
+    fake.restrictionResult = ok(RESTRICTED);
+    const state = await call(handleCommunityPostSave, req({ body: SAVE }));
+    expect(state.status).toBe(500);
+    const dump = JSON.stringify(state.body);
+    expect(dump).not.toMatch(/strikes|exploded|restriction/i);
+    expect(fake.rpcCalls.some((c) => c.name === "community_author_restriction")).toBe(
+      false,
+    );
+  });
+  it("own DELETE never consults the restriction and is not affected by it", async () => {
+    fake.restrictionResult = ok(RESTRICTED); // even if the user is sanctioned
+    fake.rpcResult = ok({ deleted_asset_ids: [] });
+    const state = await call(
+      handleCommunityPostDelete,
+      req({ body: { postId: POST_ID, expectedVersion: 2 } }),
+    );
+    expect(state.status).toBe(200);
+    expect(fake.rpcCalls.map((c) => c.name)).toEqual(["community_post_delete"]);
+  });
+  it("other business errors keep their existing mapping (the new code is additive)", async () => {
+    fake.rpcResult = rpcError("post_not_editable");
+    const state = await call(handleCommunityPostSave, req({ body: SAVE }));
+    expect(state.status).toBe(409);
+    expect(state.body).toMatchObject({ code: "community_post_not_editable" });
+    expect(fake.rpcCalls.some((c) => c.name === "community_author_restriction")).toBe(
+      false,
+    );
+  });
+  it("a sanctioned author is never told about the moderator, the case or the reporters", async () => {
+    fake.rpcResult = rpcError("author_restricted");
+    fake.restrictionResult = ok(RESTRICTED);
+    const state = await call(handleCommunityPostSave, req({ body: SAVE }));
+    expect(JSON.stringify(state.body)).not.toMatch(
+      /moderator|caseId|cycleId|decisionId|reporter|appliedBy|audit/i,
+    );
   });
 });

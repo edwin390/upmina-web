@@ -8,6 +8,9 @@ import cosplayDe from "./locales/de/cosplay.json";
 import mediaEs from "./locales/es/media.json";
 import mediaEn from "./locales/en/media.json";
 import mediaDe from "./locales/de/media.json";
+import moderationEs from "./locales/es/moderation.json";
+import moderationEn from "./locales/en/moderation.json";
+import moderationDe from "./locales/de/moderation.json";
 
 // Paridad ES/EN/DE (Fase 9I-1): las tres traducciones deben cubrir EXACTAMENTE el mismo árbol de
 // claves y los mismos argumentos de interpolación ICU. Una clave que falte en EN/DE se
@@ -54,6 +57,7 @@ const NAMESPACES: [string, Json, Json, Json][] = [
   ["common", commonEs, commonEn, commonDe],
   ["cosplay", cosplayEs, cosplayEn, cosplayDe],
   ["media", mediaEs, mediaEn, mediaDe],
+  ["moderation", moderationEs, moderationEn, moderationDe],
 ];
 
 describe.each(NAMESPACES)("paridad de mensajes — %s", (ns, es, en, de) => {

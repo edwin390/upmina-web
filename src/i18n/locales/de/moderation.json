@@ -1,0 +1,129 @@
+{
+  "audit": {
+    "regionLabel": "Aktuelles Prüfprotokoll",
+    "title": "Aktuelles Prüfprotokoll zu Beitrag/Fall (bis zu 20 Aktionen)",
+    "empty": "Für diesen Fall wurden noch keine Aktionen erfasst.",
+    "actor": {
+      "system": "System",
+      "human": "Menschliche Aktion"
+    },
+    "category": {
+      "automatic": "Automatisch",
+      "moderation": "Moderation",
+      "restoration": "Wiederherstellung",
+      "decision": "Entscheidung",
+      "sanction": "Sanktion"
+    },
+    "unknown": {
+      "label": "Unbekannte Aktion",
+      "description": "Diese Aktion steht im Verlauf, aber diese Version des Panels kann sie nicht beschreiben."
+    },
+    "actions": {
+      "report_status_changed": {
+        "label": "Meldungsstatus aktualisiert",
+        "description": "Eine Person aus dem Moderationsteam hat den Status einer Meldung geändert (früherer Meldungsablauf)."
+      },
+      "post_hidden": {
+        "label": "Beitrag ausgeblendet",
+        "description": "Eine Person aus dem Moderationsteam hat den Beitrag ausgeblendet (früherer Meldungsablauf)."
+      },
+      "post_restored": {
+        "label": "Beitrag wiederhergestellt",
+        "description": "Eine Person aus dem Moderationsteam hat den Beitrag wieder sichtbar gemacht."
+      },
+      "post_quarantined": {
+        "label": "Vorsorglich ausgeblendet",
+        "description": "Das System hat den Beitrag automatisch ausgeblendet, als die Meldeschwelle erreicht wurde, bis zur menschlichen Prüfung."
+      },
+      "case_rejected": {
+        "label": "Entscheidung: Nicht begründet",
+        "description": "Eine Person aus dem Moderationsteam hat den Zyklus geschlossen, ohne den Beitrag zu entfernen; war er vorsorglich ausgeblendet, wird er wieder veröffentlicht."
+      },
+      "content_actioned": {
+        "label": "Entscheidung: Begründet",
+        "description": "Eine Person aus dem Moderationsteam hat die Meldungen als begründet eingestuft: Der Beitrag wird aus der öffentlichen Ansicht entfernt und nach 72 Stunden endgültig gelöscht."
+      },
+      "strike_applied": {
+        "label": "Strike verhängt",
+        "description": "Eine Person mit Moderations-, Entwickler- oder Admin-Rolle hat für diese Entscheidung eine Sanktion gegen den Autor verhängt."
+      },
+      "strike_revoked": {
+        "label": "Strike widerrufen",
+        "description": "Eine Person mit Entwickler- oder Admin-Rolle hat die Sanktion gegen den Autor widerrufen; der Beitrag wird nicht wiederhergestellt."
+      },
+      "post_purged": {
+        "label": "Beitrag endgültig gelöscht",
+        "description": "Das System hat den Beitrag und seinen Inhalt nach Ablauf der Aufbewahrungsfrist endgültig gelöscht."
+      }
+    },
+    "strikeLevel": "Strike {level}",
+    "transition": {
+      "post": "Beitrag: {from} → {to}",
+      "report": "Meldung: {from} → {to}",
+      "none": "—"
+    },
+    "postStatus": {
+      "published": "Veröffentlicht",
+      "hidden": "Ausgeblendet",
+      "hidden_pending_review": "Vorsorglich ausgeblendet",
+      "removed_pending_purge": "Von der Moderation entfernt"
+    },
+    "reportStatus": {
+      "open": "Offen",
+      "reviewing": "In Prüfung",
+      "resolved": "Erledigt",
+      "dismissed": "Abgewiesen",
+      "actioned": "Bearbeitet"
+    }
+  },
+  "strikeUnavailable": {
+    "title": "Sanktion gegen den Autor",
+    "message": "Der Sanktionsstatus konnte nicht abgerufen werden. Das heißt nicht, dass es keine Sanktion gibt: Bitte erneut versuchen, bevor du entscheidest.",
+    "retry": "Abfrage wiederholen"
+  },
+  "queue": {
+    "filtersLabel": "Warteschlangen-Filter",
+    "reason": "Meldegrund",
+    "reasonAll": "Alle Gründe",
+    "reasons": {
+      "spam": "Spam",
+      "harassment": "Belästigung",
+      "hate_speech": "Hassrede",
+      "sexual_content": "Sexuelle Inhalte",
+      "other": "Sonstiges"
+    },
+    "hiddenOnly": "Nur vorsorglich verborgene Beiträge",
+    "author": "Autor (Benutzername)",
+    "authorHint": "Mindestens 2 Zeichen eingeben (Buchstaben, Zahlen oder _).",
+    "from": "Von",
+    "to": "Bis",
+    "rangeInvalid": "Das Startdatum darf nicht nach dem Enddatum liegen.",
+    "clear": "Filter zurücksetzen",
+    "noMatches": "Keine Fälle entsprechen den Filtern.",
+    "updating": "Wird aktualisiert…",
+    "updateFailed": "Die Warteschlange konnte nicht aktualisiert werden. Vorherige Ergebnisse werden angezeigt.",
+    "invalidPage": "Diese Seite ist nicht mehr gültig. Gehe zum Anfang der Warteschlange zurück.",
+    "pagination": "Seitennavigation der Warteschlange",
+    "previous": "Vorherige Seite",
+    "next": "Nächste Seite",
+    "first": "Zurück zum Anfang"
+  },
+  "pending": {
+    "label": "Offene Fälle",
+    "loading": "Offene Fälle werden gezählt…",
+    "zero": "Keine offenen Fälle",
+    "count": "{count, plural, one {# offener Fall} other {# offene Fälle}}",
+    "error": "Offene Fälle konnten nicht gezählt werden.",
+    "retry": "Erneut versuchen"
+  },
+  "media": {
+    "image": "Bild des Beitrags ({position} von {total})",
+    "video": "Video des Beitrags ({position} von {total})",
+    "loading": "Inhalt wird geladen…",
+    "imageError": "Dieses Bild konnte nicht geladen werden.",
+    "videoError": "Dieses Video konnte nicht geladen werden.",
+    "retry": "Laden erneut versuchen",
+    "retryHint": "Schlägt es weiter fehl, aktualisiere den Fall: Der Dateizugriff ist möglicherweise abgelaufen.",
+    "videoFallback": "Video ohne Vorschau"
+  }
+}
