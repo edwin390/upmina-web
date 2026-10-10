@@ -21,6 +21,7 @@ const {
   detachCommunityPostMedia,
   deleteCommunityPost,
 } = await import("./community-client");
+const { MediaClientError, reserveMediaUpload } = await import("./media-client");
 const { restrictionOutcome } = await import("./author-restriction");
 
 type Failure = { status?: number; code?: string; restriction: unknown };
@@ -131,5 +132,27 @@ describe("Community client: author_restricted", () => {
     await expect(
       deleteCommunityPost({ postId: "p", expectedVersion: 1 }),
     ).resolves.toBeTruthy();
+  });
+});
+
+describe("Media client: reserve rejected by the non-authoritative precheck", () => {
+  const reserveInput = {
+    domain: "community",
+    kind: "image",
+    sourceMime: "image/jpeg",
+    sourceBytes: 10,
+    sourceWidth: 1,
+    sourceHeight: 1,
+  } as never;
+  it("MediaClientError carries the restriction", async () => {
+    respond(403, { error: "x", code: "author_restricted", restriction: RESTRICTION });
+    const err = await failure(() => reserveMediaUpload(reserveInput));
+    expect(err).toBeInstanceOf(MediaClientError);
+    expect(err.restriction).toEqual(RESTRICTION);
+  });
+  it("other failures never adopt a restriction", async () => {
+    respond(400, { error: "x", code: "invalid_kind", restriction: RESTRICTION });
+    const err = await failure(() => reserveMediaUpload(reserveInput));
+    expect(err.restriction).toBeNull();
   });
 });

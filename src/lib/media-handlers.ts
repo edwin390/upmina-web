@@ -8,6 +8,7 @@ import {
   requireCapability,
   type AuthenticatedIdentity,
 } from "./admin-auth.js";
+import { accountIncompleteBody, readAccountState } from "./account-state.js";
 import {
   canTransition,
   isAnySourceMimeType,
@@ -23,6 +24,10 @@ import {
   type MediaAssetStatus,
   type MediaKind,
 } from "./media-domain.js";
+import {
+  readAuthorRestriction,
+  respondAuthorRestricted,
+} from "./community-restriction.js";
 import {
   abortPrivateMultipartUpload,
   completePrivateMultipartUpload,
@@ -150,26 +155,23 @@ async function authorizeCommunity(
     return { status: 500, body: GENERIC_ERROR_BODY };
   }
 
-  const { data, error } = await client
-    .from("profiles")
-    .select("user_id")
-    .eq("user_id", identity.userId)
-    .maybeSingle();
-  if (error) return { status: 500, body: GENERIC_ERROR_BODY };
-  if (!data) {
-    return {
-      status: 422,
-      body: {
-        error: "Configura tu @username antes de publicar",
-        code: "profile_required",
-      },
-    };
+  // AUTH-2: cuenta completa = email verificado + username. Se lee de la misma fuente que los
+  // guards de BD; si la lectura falla se FALLA CERRADO (nunca se concede la reserva).
+  const state = await readAccountState(client, identity.userId);
+  if (state === null) return { status: 500, body: GENERIC_ERROR_BODY };
+  if (state !== "complete") {
+    return { status: 403, body: accountIncompleteBody(state) };
   }
 
   return { userId: identity.userId };
 }
 
-/** Despacha a authorize()/authorizeCommunity() según `domain` — el ÚNICO punto donde ese
+/** AUTH-2: SOLO la RESERVA usa este despacho (y con él el estado de cuenta). complete/abort usan
+ *  authorizeForAssetRow (autenticación + propiedad de la fila): finalizar o liberar una reserva ya
+ *  hecha es mantenimiento técnico, no autorización para publicar, y no debe bloquearse si la cuenta
+ *  cambia de estado después (la publicación sigue bloqueada en la BD).
+ *
+ *  Despacha a authorize()/authorizeCommunity() según `domain` — el ÚNICO punto donde ese
  *  despacho ocurre; ningún handler decide esto por su cuenta. `domain` ya pasó por
  *  SUPPORTED_DOMAINS.has() antes de llegar aquí. */
 async function authorizeForDomain(
@@ -316,6 +318,16 @@ export async function handleMediaReserve(
   // recibe una respuesta hasta después de esta comprobación.
   const auth = await authorizeForDomain(req, domain, client);
   if ("status" in auth) return res.status(auth.status).json(auth.body);
+
+  // R5-C: precheck NO AUTORITATIVO. Un autor sancionado no puede publicar, así que no se le crea una
+  // reserva de subida que nunca podrá adjuntar. NO es la frontera de seguridad: los escritores de la
+  // BD rechazan la publicación aunque este chequeo se omita, falle o compita con un strike nuevo
+  // (por eso, si la lectura falla, se sigue adelante). Solo Community; Cosplay (admin) no se toca.
+  if (domain === "community") {
+    const restriction = await readAuthorRestriction(client, auth.userId);
+    if (restriction.ok && restriction.restriction)
+      return respondAuthorRestricted(res, client, auth.userId);
+  }
 
   // kind ausente => "image" (validateReservationInput lo trata así) — Cosplay y el flujo de
   // imagen de Comunidad no necesitan enviarlo. kind='video' SOLO se acepta para domain='community'

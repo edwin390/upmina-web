@@ -426,6 +426,46 @@ describe("submit a POST /api/profile", () => {
     },
   );
 
+  it("AUTH-2: 403 account_incomplete (email sin verificar) pide confirmar el correo y permite reintentar", async () => {
+    fetchMock.mockResolvedValue(
+      httpResponse(403, {
+        error: "detalle-interno-servidor",
+        code: "account_incomplete",
+        reason: "email_unverified",
+      }),
+    );
+    localStorage.setItem("upmina:locale", "es");
+    await renderAbsent();
+    type("edwin390");
+    submit();
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      /confirma tu correo electrónico antes de elegir tu username/i,
+    );
+    expect(document.body.innerHTML).not.toContain("detalle-interno-servidor");
+    expect(document.body.innerHTML).not.toContain("__account_incomplete__");
+    expect(screen.getByLabelText("Username")).toBeEnabled();
+    localStorage.clear();
+  });
+
+  it("AUTH-2: el mismo mensaje sale de las traducciones EN y DE (no está hardcodeado)", async () => {
+    for (const [locale, text] of [
+      ["en", /confirm your email address before choosing your username/i],
+      ["de", /bestätige deine e-mail-adresse, bevor du deinen benutzernamen wählst/i],
+    ] as const) {
+      localStorage.setItem("upmina:locale", locale);
+      fetchMock.mockResolvedValue(
+        httpResponse(403, { code: "account_incomplete", reason: "email_unverified" }),
+      );
+      await renderAbsent();
+      type("edwin390");
+      submit();
+      expect(await screen.findByText(text)).toBeInTheDocument();
+      cleanup();
+    }
+    localStorage.clear();
+  });
+
   it("422 no revela la lista de reservados ni el motivo", async () => {
     fetchMock.mockResolvedValue(httpResponse(422, { error: "Username no disponible" }));
     await renderAbsent();

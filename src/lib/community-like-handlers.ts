@@ -1,6 +1,10 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { AdminAuthError, requireAuthenticated } from "./admin-auth.js";
+import {
+  accountIncompleteReasonFromDbMessage,
+  respondAccountIncomplete,
+} from "./account-state.js";
 
 // Handlers HTTP de likes de Comunidad (Fase 9J-2C): dar/quitar like a una publicación propia
 // (set-like) y consultar cuáles de una lista de publicaciones ya tiene like el usuario actual
@@ -115,6 +119,12 @@ export async function handleCommunityPostSetLike(
         error && typeof error === "object"
           ? (error as { code?: unknown; message?: unknown })
           : null;
+      // AUTH-2: cuenta incompleta (like y unlike por igual); no es una sanción.
+      const incomplete =
+        message?.code === PLPGSQL_RAISE_EXCEPTION_CODE
+          ? accountIncompleteReasonFromDbMessage(message.message)
+          : null;
+      if (incomplete) return respondAccountIncomplete(res, incomplete);
       if (
         message?.code === PLPGSQL_RAISE_EXCEPTION_CODE &&
         message.message === "post_not_found"

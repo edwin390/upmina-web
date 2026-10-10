@@ -1308,6 +1308,25 @@ describe("handleModerationReportCreate — cualquier usuario AUTENTICADO (no req
     expect(state.status).toBe(status);
     expect(state.body).toEqual({ error: "No se pudo crear el reporte", code });
   });
+  it.each([
+    ["account_email_unverified", "email_unverified"],
+    ["account_username_missing", "username_missing"],
+  ])(
+    "AUTH-2: %s → 403 account_incomplete/%s (no es un permiso de moderación)",
+    async (msg, reason) => {
+      fake.rpcResult = rpcError(msg);
+      const state = await call(
+        handleModerationReportCreate,
+        req({ method: "POST", body: { postId: POST_ID, reason: "spam" } }),
+      );
+      expect(state.status).toBe(403);
+      expect(state.body).toEqual({
+        error: "Cuenta incompleta",
+        code: "account_incomplete",
+        reason,
+      });
+    },
+  );
   it("duplicate response is 200 and strips unexpected private RPC fields", async () => {
     fake.rpcResult = ok({
       ...submittedReport,

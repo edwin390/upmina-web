@@ -1,6 +1,15 @@
 import type { PrivilegedSessionIdentity } from "@/lib/privileged-session";
 import { supabase } from "@/lib/supabase";
 import {
+  ACCOUNT_INCOMPLETE,
+  parseAccountIncompleteReason,
+  type AccountIncompleteReason,
+} from "@/lib/account-incomplete";
+import {
+  parseAuthorRestriction,
+  type AuthorRestrictionView,
+} from "@/lib/author-restriction";
+import {
   classifyPrivilegedFailure,
   type PrivilegedFailure,
 } from "@/lib/privileged-response";
@@ -20,6 +29,10 @@ export class MediaClientError extends Error {
      *  cliente invente su propia lectura de `code`. Solo "step_up_required" debe iniciar MFA;
      *  "forbidden"/"unauthenticated" nunca lo hacen (MFA no concede capacidad). */
     readonly privilegedFailure: PrivilegedFailure | null = null,
+    /** R5-E: detalle autoritativo de `author_restricted` (reserva de Community), o null. */
+    readonly restriction: AuthorRestrictionView | null = null,
+    /** AUTH-2: razón de `account_incomplete` (reserva de Community), o null. */
+    readonly accountReason: AccountIncompleteReason | null = null,
   ) {
     super(message);
     this.name = "MediaClientError";
@@ -75,12 +88,23 @@ async function postJson<T>(
   }
 
   if (!response.ok) {
-    const errBody = json as { error?: string; code?: string } | null;
+    const errBody = json as {
+      error?: string;
+      code?: string;
+      restriction?: unknown;
+      reason?: unknown;
+    } | null;
     throw new MediaClientError(
       errBody?.error ?? "Error del servidor",
       response.status,
       errBody?.code,
       privilegedFailure,
+      errBody?.code === "author_restricted"
+        ? parseAuthorRestriction(errBody.restriction)
+        : null,
+      errBody?.code === ACCOUNT_INCOMPLETE
+        ? parseAccountIncompleteReason(errBody.reason)
+        : null,
     );
   }
   return json as T;
@@ -157,8 +181,12 @@ export function completeMediaUpload(
 export function abortMediaUpload(
   assetId: string,
   identity?: PrivilegedSessionIdentity,
-): Promise<{ assetId: string; status: "deleted" }> {
-  return postJson<{ assetId: string; status: "deleted" }>("abort", { assetId }, identity);
+): Promise<{ assetId: string; status: "deleted" | "deleting" }> {
+  return postJson<{ assetId: string; status: "deleted" | "deleting" }>(
+    "abort",
+    { assetId },
+    identity,
+  );
 }
 
 /** Sube `blob` con PUT a una URL presignada de R2, reportando progreso REAL de subida (XHR, no

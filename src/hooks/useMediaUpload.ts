@@ -16,6 +16,8 @@ import {
 } from "@/lib/media-transport";
 import { isMobileUploadDevice } from "@/lib/media-device";
 import type { PrivilegedFailure } from "@/lib/privileged-response";
+import type { AuthorRestrictionView } from "@/lib/author-restriction";
+import type { AccountIncompleteReason } from "@/lib/account-incomplete";
 
 // Cola de subida de medios (Fase 9I-2B): reutilizable por el arnés de desarrollo (harness) de
 // esta fase y, más adelante, por el editor ADMIN real de la Fase 9I-3 — es deliberadamente
@@ -55,6 +57,10 @@ export interface MediaQueueItem {
    *  "step_up_required" debe iniciar un flujo de MFA — la página que use este hook decide qué
    *  hacer; este hook nunca navega (es genérico, sin dependencia de react-router). */
   privilegedFailure: PrivilegedFailure | null;
+  /** R5-E: detalle autoritativo cuando la reserva fue rechazada por `author_restricted`. */
+  restriction?: AuthorRestrictionView | null;
+  /** AUTH-2: razón cuando la reserva fue rechazada por `account_incomplete`. */
+  accountReason?: AccountIncompleteReason | null;
 }
 
 interface InternalItem {
@@ -346,6 +352,8 @@ export function useMediaUpload({
           errorCode: code,
           errorMessage: message,
           privilegedFailure,
+          restriction: err instanceof MediaClientError ? err.restriction : null,
+          accountReason: err instanceof MediaClientError ? err.accountReason : null,
         });
       } finally {
         entry.running = false;

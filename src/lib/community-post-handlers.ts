@@ -1,6 +1,10 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { AdminAuthError, requireAuthenticated } from "./admin-auth.js";
+import {
+  accountIncompleteReasonFromDbMessage,
+  respondAccountIncomplete,
+} from "./account-state.js";
 import { attemptMediaAssetCleanup } from "./cosplay-media-lifecycle.js";
 import { checkPostText, COMMUNITY_POST_MAX_MEDIA } from "./community-post-fields.js";
 import { handleCommunityAuthorPosts } from "./community-author-handlers.js";
@@ -35,7 +39,6 @@ const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{
  *  Cualquier otro error de Postgres/PostgREST es un 500 genérico. */
 const RPC_ERROR_MAP: Readonly<Record<string, { status: number; code: string }>> = {
   invalid_argument: { status: 400, code: "validation" },
-  no_profile: { status: 422, code: "profile_required" },
   not_owner: { status: 403, code: "forbidden" },
   post_not_editable: { status: 409, code: "community_post_not_editable" },
   post_not_found: { status: 404, code: "not_found" },
@@ -122,6 +125,9 @@ async function respondWriterFailure(
 
 function respondRpcError(res: VercelResponse, error: unknown): VercelResponse {
   const message = rpcErrorMessage(error);
+  // AUTH-2: cuenta incompleta (email sin verificar / username pendiente); NO es una sanción.
+  const incomplete = accountIncompleteReasonFromDbMessage(message);
+  if (incomplete) return respondAccountIncomplete(res, incomplete);
   const mapped = message ? RPC_ERROR_MAP[message] : undefined;
   if (mapped)
     return res

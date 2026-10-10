@@ -1,6 +1,11 @@
 import { createClient } from "@supabase/supabase-js";
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { AdminAuthError, requireAuthenticated } from "./admin-auth.js";
+import {
+  accountIncompleteReasonFromDbMessage,
+  readAccountState,
+  respondAccountIncomplete,
+} from "./account-state.js";
 import { checkBio, checkDisplayName } from "./profile-fields.js";
 import { checkUsername } from "./profile-username.js";
 
@@ -120,6 +125,11 @@ export async function handleProfileCreate(
     const client = createClient(url, serviceRoleKey, {
       auth: { persistSession: false, autoRefreshToken: false },
     });
+    // AUTH-2: el username solo se crea con el email verificado (Supabase Auth). Lectura fallida =
+    // se rechaza. El trigger de profiles repite la regla para escrituras directas.
+    const state = await readAccountState(client, userId);
+    if (state === null) return res.status(500).json(GENERIC_ERROR_BODY);
+    if (state === "email_unverified") return respondAccountIncomplete(res, state);
     const { data, error } = await client
       .from("profiles")
       .insert({ user_id: userId, username: check.username })
@@ -127,6 +137,10 @@ export async function handleProfileCreate(
       .single();
 
     if (error) {
+      const incomplete = accountIncompleteReasonFromDbMessage(
+        (error as { message?: unknown }).message,
+      );
+      if (incomplete) return respondAccountIncomplete(res, incomplete);
       switch (classifyInsertError(error)) {
         case "conflict":
           return res.status(409).json({ error: "Username no disponible" });
@@ -274,6 +288,12 @@ export async function handleProfileUpdate(
         });
       }
 
+      // AUTH-2: cambiar el username también exige email verificado (fallo de lectura = rechazo).
+      const accountState = await readAccountState(client, userId);
+      if (accountState === null) return res.status(500).json(GENERIC_ERROR_BODY);
+      if (accountState === "email_unverified")
+        return respondAccountIncomplete(res, accountState);
+
       const { data: current, error: readError } = await client
         .from("profiles")
         .select("username, username_changed_at")
@@ -335,6 +355,10 @@ export async function handleProfileUpdate(
       .maybeSingle();
 
     if (error) {
+      const incomplete = accountIncompleteReasonFromDbMessage(
+        (error as { message?: unknown }).message,
+      );
+      if (incomplete) return respondAccountIncomplete(res, incomplete);
       const kind = classifyUpdateError(error);
       if (kind === "check_violation") {
         return res.status(422).json({ error: "Datos inválidos" });

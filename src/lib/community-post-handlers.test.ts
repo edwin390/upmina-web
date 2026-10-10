@@ -532,7 +532,6 @@ describe("handleCommunityPostSave", () => {
   });
 
   it.each([
-    ["no_profile", 422, "profile_required"],
     ["not_owner", 403, "forbidden"],
     ["post_not_found", 404, "not_found"],
     ["version_conflict", 409, "community_version_conflict"],
@@ -557,6 +556,25 @@ describe("handleCommunityPostSave", () => {
       );
       expect(state.status).toBe(status);
       expect(state.body).toMatchObject({ code });
+    },
+  );
+
+  it.each([
+    ["account_email_unverified", "email_unverified"],
+    ["account_username_missing", "username_missing"],
+    ["no_profile", "username_missing"],
+  ])(
+    "AUTH-2: RPC lanza %s → 403 account_incomplete (reason %s), distinto de author_restricted",
+    async (rpcMsg, reason) => {
+      fake.rpcResult = rpcError(rpcMsg);
+      const state = await call(
+        handleCommunityPostSave,
+        req({ body: { postId: null, text: "hola", media: [] } }),
+      );
+      expect(state.status).toBe(403);
+      expect(state.body).toMatchObject({ code: "account_incomplete", reason });
+      expect(JSON.stringify(state.body)).not.toContain("author_restricted");
+      expect(JSON.stringify(state.body)).not.toContain(rpcMsg);
     },
   );
 

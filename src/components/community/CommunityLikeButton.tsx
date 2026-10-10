@@ -1,7 +1,12 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/lib/auth-context";
 import { setCommunityPostLike } from "@/lib/community-client";
+import {
+  accountIncompleteReason,
+  type AccountIncompleteReason,
+} from "@/lib/account-incomplete";
+import { AccountIncompleteToast } from "./AccountIncompleteNotice";
 
 // Control de "me gusta" de una publicación de Comunidad (Fase 9J-2C). Reutilizable en el feed
 // (CommunityFeedCard), el detalle (PostDetailPage) y — en su variante de solo lectura, ver
@@ -62,6 +67,9 @@ export default function CommunityLikeButton({
   const [liked, setLiked] = useState(likedByMe);
   const [count, setCount] = useState(likeCount);
   const [isPending, setIsPending] = useState(false);
+  // AUTH-2: rechazo por cuenta incompleta (no es una sanción). Nunca se simula el like.
+  const [incomplete, setIncomplete] = useState<AccountIncompleteReason | null>(null);
+  const dismissIncomplete = useCallback(() => setIncomplete(null), []);
   const isMountedRef = useRef(true);
   useEffect(() => {
     isMountedRef.current = true;
@@ -115,10 +123,11 @@ export default function CommunityLikeButton({
         setLiked(result.likedByMe);
         setCount(result.likeCount);
       })
-      .catch(() => {
+      .catch((err: unknown) => {
         if (!isMountedRef.current) return;
         setLiked(prevLiked);
         setCount(prevCount);
+        setIncomplete(accountIncompleteReason(err));
       })
       .finally(() => {
         if (isMountedRef.current) setIsPending(false);
@@ -126,23 +135,28 @@ export default function CommunityLikeButton({
   }
 
   return (
-    <button
-      type="button"
-      onClick={handleClick}
-      disabled={isPending}
-      aria-pressed={liked}
-      aria-busy={isPending}
-      aria-label={liked ? `Quitar me gusta (${count})` : `Me gusta (${count})`}
-      className={
-        className ??
-        `inline-flex min-h-11 items-center gap-1.5 rounded-md px-2 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-secondary ${
-          liked ? "text-accent-live" : "text-text-secondary hover:text-text-primary"
-        }`
-      }
-    >
-      <HeartIcon filled={liked} />
-      <span aria-hidden="true">{count}</span>
-    </button>
+    <>
+      <button
+        type="button"
+        onClick={handleClick}
+        disabled={isPending}
+        aria-pressed={liked}
+        aria-busy={isPending}
+        aria-label={liked ? `Quitar me gusta (${count})` : `Me gusta (${count})`}
+        className={
+          className ??
+          `inline-flex min-h-11 items-center gap-1.5 rounded-md px-2 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-secondary ${
+            liked ? "text-accent-live" : "text-text-secondary hover:text-text-primary"
+          }`
+        }
+      >
+        <HeartIcon filled={liked} />
+        <span aria-hidden="true">{count}</span>
+      </button>
+      {incomplete ? (
+        <AccountIncompleteToast reason={incomplete} onDismiss={dismissIncomplete} />
+      ) : null}
+    </>
   );
 }
 

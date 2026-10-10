@@ -3,6 +3,11 @@ import { useMediaUpload } from "@/hooks/useMediaUpload";
 import { showActionSuccess } from "@/lib/action-notice";
 import { restrictionOutcome, type RestrictionOutcome } from "@/lib/author-restriction";
 import CommunityRestrictionNotice from "./CommunityRestrictionNotice";
+import AccountIncompleteNotice from "./AccountIncompleteNotice";
+import {
+  accountIncompleteReason,
+  type AccountIncompleteReason,
+} from "@/lib/account-incomplete";
 import {
   CommunityClientError,
   saveCommunityPost,
@@ -81,8 +86,6 @@ function errorMessage(err: unknown): string {
   if (err instanceof CommunityClientError) {
     if (err.status === 401)
       return "Tu sesión ya no es válida. Cierra sesión e inicia de nuevo.";
-    if (err.code === "profile_required")
-      return "Configura tu @username antes de publicar en Comunidad.";
     if (err.code === "empty_post")
       return "Una publicación necesita texto o al menos una imagen.";
     if (err.code === "community_version_conflict")
@@ -93,6 +96,10 @@ function errorMessage(err: unknown): string {
       return `Máximo ${COMMUNITY_POST_MAX_VIDEOS} video por publicación.`;
     if (err.code === "invalid_text")
       return `Máximo ${COMMUNITY_POST_TEXT_MAX} caracteres.`;
+    // Un archivo ya subido caducó (limpieza de subidas sin publicar) o fue descartado: el texto y el
+    // resto de archivos siguen en el formulario; solo hay que quitar el afectado y subirlo de nuevo.
+    if (err.code === "invalid_asset" || err.code === "asset_not_ready")
+      return "Alguna foto o video ya no está disponible. Quita los archivos que no se vean y vuelve a subirlos.";
     return err.message || "No se pudo completar la operación.";
   }
   return "No se pudo completar la operación. Inténtalo de nuevo.";
@@ -124,6 +131,10 @@ export default function CommunityPostEditorForm({
   const [restrictionNotice, setRestrictionNotice] = useState<RestrictionOutcome | null>(
     null,
   );
+  // AUTH-2: cuenta incompleta (email sin verificar / username pendiente). No es una sanción; el
+  // borrador queda intacto y no hay reintento automático.
+  const [incompleteNotice, setIncompleteNotice] =
+    useState<AccountIncompleteReason | null>(null);
   const [pickerError, setPickerError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -212,6 +223,7 @@ export default function CommunityPostEditorForm({
     e.preventDefault();
     setSaveError(null);
     setRestrictionNotice(null);
+    setIncompleteNotice(null);
 
     const media = [
       ...form.existingMedia.filter((m) => existingAssetIds.has(m.assetId)),
@@ -242,8 +254,11 @@ export default function CommunityPostEditorForm({
       );
       onSaved();
     } catch (err) {
-      const outcome = restrictionOutcome(err);
-      if (outcome) {
+      const incomplete = accountIncompleteReason(err);
+      const outcome = incomplete ? null : restrictionOutcome(err);
+      if (incomplete) {
+        if (isMountedRef.current) setIncompleteNotice(incomplete);
+      } else if (outcome) {
         // The editor stays open with the draft untouched; no automatic retry after expiry/revocation.
         if (isMountedRef.current) setRestrictionNotice(outcome);
       } else if (isMountedRef.current)
@@ -255,6 +270,13 @@ export default function CommunityPostEditorForm({
     }
   }
 
+  // R5-E: the media RESERVE precheck rejected an upload (non-authoritative; the DB still decides).
+  const incompleteUpload = upload.items.find(
+    (i) => i.status === "failed" && i.errorCode === "account_incomplete",
+  );
+  const restrictedUpload = upload.items.find(
+    (i) => i.status === "failed" && i.errorCode === "author_restricted",
+  );
   const textCount = codePoints(form.text);
   const canSave =
     !isSaving &&
@@ -405,6 +427,14 @@ export default function CommunityPostEditorForm({
           {saveError}
         </p>
       ) : null}
+      {incompleteNotice || incompleteUpload ? (
+        <AccountIncompleteNotice
+          reason={
+            incompleteNotice ?? incompleteUpload?.accountReason ?? "email_unverified"
+          }
+          keepsDraft
+        />
+      ) : null}
       {restrictionNotice ? (
         <CommunityRestrictionNotice
           restriction={
@@ -412,6 +442,8 @@ export default function CommunityPostEditorForm({
           }
           changed={restrictionNotice.kind === "changed"}
         />
+      ) : restrictedUpload ? (
+        <CommunityRestrictionNotice restriction={restrictedUpload.restriction ?? null} />
       ) : null}
 
       <div className="mt-4 flex flex-wrap gap-3">

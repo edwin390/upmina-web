@@ -27,6 +27,8 @@ const fakes = vi.hoisted(() => ({
   currentUsernameRow: undefined as
     { username: string; username_changed_at: string | null } | null | undefined,
   currentUsernameError: undefined as unknown,
+  // AUTH-2: lectura autoritativa de la cuenta (community_account_state).
+  accountState: "complete" as unknown,
 }));
 
 vi.mock("@supabase/supabase-js", () => ({
@@ -39,6 +41,10 @@ vi.mock("@supabase/supabase-js", () => ({
             ? { data: { claims: fakes.claims }, error: null }
             : { data: null, error: { message: "jwt invalido" } },
       },
+      rpc: async (name: string) =>
+        name === "community_account_state"
+          ? { data: fakes.accountState, error: null }
+          : { data: null, error: null },
       from: (table: string) => {
         fakes.tables.push(table);
         return {
@@ -133,6 +139,7 @@ vi.mock("@supabase/supabase-js", () => ({
 }));
 
 beforeEach(() => {
+  fakes.accountState = "complete";
   fakes.tables = [];
   fakes.updates = [];
   fakes.eqs = [];
@@ -830,5 +837,48 @@ describe("profile-fields (unidad)", () => {
   it("checkDisplayName / checkBio: null y vacío → NULL", () => {
     expect(checkDisplayName(null)).toEqual({ ok: true, value: null });
     expect(checkBio("  ")).toEqual({ ok: true, value: null });
+  });
+});
+
+describe("AUTH-2: cambiar username exige email verificado (PATCH /api/profile)", () => {
+  it("username con email sin verificar → 403 y NO hay UPDATE", async () => {
+    fakes.accountState = "email_unverified";
+    const state = await call({ username: "nuevo_user" });
+    expect(state.status).toBe(403);
+    expect(state.body).toMatchObject({
+      code: "account_incomplete",
+      reason: "email_unverified",
+    });
+    expect(fakes.updates).toHaveLength(0);
+  });
+
+  it("username con email verificado → sigue el flujo existente (cooldown, unicidad)", async () => {
+    fakes.accountState = "complete";
+    const state = await call({ username: "nuevo_user" });
+    expect(state.status).toBe(200);
+    expect(fakes.updates).toHaveLength(1);
+  });
+
+  it("falla la lectura de autoridad al cambiar username → 500 y NO hay UPDATE", async () => {
+    fakes.accountState = null;
+    const state = await call({ username: "nuevo_user" });
+    expect(state.status).toBe(500);
+    expect(fakes.updates).toHaveLength(0);
+  });
+
+  it("display_name/bio no consultan la autoridad ni se bloquean (no son el username)", async () => {
+    fakes.accountState = "email_unverified";
+    const state = await call({ bio: "hola" });
+    expect(state.status).toBe(200);
+  });
+
+  it("el trigger de la BD al cambiar username se traduce a 403", async () => {
+    fakes.result = {
+      data: null,
+      error: { code: "P0001", message: "account_email_unverified" },
+    };
+    const state = await call({ username: "nuevo_user" });
+    expect(state.status).toBe(403);
+    expect(state.body).toMatchObject({ code: "account_incomplete" });
   });
 });

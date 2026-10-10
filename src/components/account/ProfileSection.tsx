@@ -1,8 +1,16 @@
-import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type FormEvent,
+  type ReactNode,
+} from "react";
 import { Link } from "react-router-dom";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/lib/auth-context";
 import AdminAuthField from "@/components/admin/AdminAuthField";
+import VerifyEmailFirstMessage from "./VerifyEmailFirstMessage";
 import { isValidUsernameFormat, normalizeUsername } from "@/lib/profile-username";
 
 // Perfil público dentro de /account (Bloque 7C.2). Lee public.profiles con el cliente de
@@ -45,6 +53,13 @@ const READ_ERROR_MESSAGE = "No se pudo cargar tu perfil.";
 const MSG_BAD_REQUEST = "No se pudo procesar la solicitud. Revisa el username.";
 const MSG_TAKEN = "Este username no está disponible.";
 const MSG_CHOOSE_OTHER = "Elige otro username.";
+// AUTH-2: el username solo se configura con el email verificado (autoridad: servidor + BD). El
+// texto vive en el namespace `auth` (EN/ES/DE); aquí solo se guarda un marcador y se renderiza
+// <VerifyEmailFirstMessage /> en su lugar.
+const MSG_VERIFY_EMAIL_FIRST = "__account_incomplete__";
+function renderFormError(message: string): ReactNode {
+  return message === MSG_VERIFY_EMAIL_FIRST ? <VerifyEmailFirstMessage /> : message;
+}
 const MSG_SESSION = "Tu sesión ya no es válida. Cierra sesión e inicia de nuevo.";
 const MSG_GENERIC = "No se pudo crear tu perfil. Inténtalo de nuevo.";
 const DISPLAY_NAME_MAX = 40;
@@ -119,6 +134,7 @@ function editStatusMessage(
 ): string {
   if (status === 400) return MSG_EDIT_BAD_REQUEST;
   if (status === 401) return MSG_SESSION;
+  if (code === "account_incomplete") return MSG_VERIFY_EMAIL_FIRST;
   if (code === "invalid_username") return USERNAME_EDIT_INVALID;
   if (code === "username_reserved") return MSG_USERNAME_RESERVED;
   if (code === "username_taken") return MSG_USERNAME_TAKEN;
@@ -129,9 +145,10 @@ function editStatusMessage(
   return MSG_EDIT_GENERIC;
 }
 
-function statusMessage(status: number): string {
+function statusMessage(status: number, code?: string): string {
   if (status === 400) return MSG_BAD_REQUEST;
   if (status === 401) return MSG_SESSION;
+  if (code === "account_incomplete") return MSG_VERIFY_EMAIL_FIRST;
   if (status === 409) return MSG_TAKEN;
   if (status === 422) return MSG_CHOOSE_OTHER;
   return MSG_GENERIC;
@@ -394,7 +411,13 @@ export default function ProfileSection() {
           if (profile) setState({ status: "present", profile });
           else setSubmitError(MSG_GENERIC);
         } else if (isCurrent()) {
-          setSubmitError(statusMessage(response.status));
+          let code: string | undefined;
+          try {
+            code = ((await response.json()) as { code?: string } | null)?.code;
+          } catch {
+            // sin cuerpo o no es JSON: mensaje por status.
+          }
+          if (isCurrent()) setSubmitError(statusMessage(response.status, code));
         }
       } catch {
         if (isCurrent()) setSubmitError(MSG_GENERIC);
@@ -565,7 +588,7 @@ export default function ProfileSection() {
 
           {editError ? (
             <p role="alert" className="mt-4 text-sm text-accent-live">
-              {editError}
+              {renderFormError(editError)}
             </p>
           ) : null}
 
@@ -617,7 +640,7 @@ export default function ProfileSection() {
 
           {submitError ? (
             <p role="alert" className="mt-4 text-sm text-accent-live">
-              {submitError}
+              {renderFormError(submitError)}
             </p>
           ) : null}
 

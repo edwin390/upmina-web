@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { AdminAuthError, STEP_UP_REQUIRED_CODE } from "./admin-auth";
@@ -80,9 +81,14 @@ function resetMediaDb() {
   mediaDb.media_asset_variants = [];
   mediaDb.profiles = [];
   mediaAssetsUpdateCalls.length = 0;
+  restrictionFake.calls = [];
+  restrictionFake.result = undefined;
   discardFake.calls = [];
   discardFake.referenced = new Set();
   discardFake.error = null;
+  accountFake.verified = true;
+  accountFake.failRead = false;
+  accountFake.calls = 0;
 }
 
 // Registra cada payload de UPDATE sobre media_assets, en orden — el fake DB no aplica CHECK
@@ -174,6 +180,18 @@ class FakeQueryBuilder {
   }
 }
 
+// R5-C: lectura autoritativa de la restricción (community_author_restriction) del fake.
+const restrictionFake: {
+  calls: string[];
+  result: { data: unknown; error: unknown } | undefined;
+} = {
+  calls: [],
+  result: undefined,
+};
+
+// AUTH-2: lectura autoritativa de la cuenta (community_account_state) del fake.
+const accountFake = { verified: true, failRead: false, calls: 0 };
+
 // R5-S1: espejo en memoria de community_media_asset_discard (la lógica real se prueba contra SQL en
 // media-abandoned-cleanup.test.ts). Aquí solo importa cómo reacciona el handler a cada resultado.
 const discardFake: {
@@ -184,7 +202,7 @@ const discardFake: {
 
 function fakeCreateClient() {
   return {
-    async rpc(name: string, args?: { p_asset_id?: string }) {
+    async rpc(name: string, args?: { p_user_id?: string; p_asset_id?: string }) {
       if (name === "community_media_asset_discard") {
         discardFake.calls.push(args);
         if (discardFake.error) return { data: null, error: discardFake.error };
@@ -199,7 +217,15 @@ function fakeCreateClient() {
         row.status = "deleting";
         return { data: { result: "marked" }, error: null };
       }
-      return { data: null, error: { message: "rpc inesperado" } };
+      if (name === "community_account_state") {
+        accountFake.calls += 1;
+        if (accountFake.failRead) return { data: null, error: { message: "boom" } };
+        if (!accountFake.verified) return { data: "email_unverified", error: null };
+        const hasProfile = mediaDb.profiles.some((p) => p.user_id === args?.p_user_id);
+        return { data: hasProfile ? "complete" : "username_missing", error: null };
+      }
+      restrictionFake.calls.push(name);
+      return restrictionFake.result ?? { data: { restricted: false }, error: null };
     },
     from(tableName: "media_assets" | "media_asset_variants" | "profiles") {
       const table = mediaDb[tableName];
@@ -820,8 +846,12 @@ describe("handleMediaAbort — limpieza segura, nunca por clave arbitraria del c
       res,
     );
     expect(res.status).toHaveBeenCalledWith(200);
+    expect(res._json).toEqual({ assetId: id, status: "deleted" });
     expect(r2Mocks.deletePrivateObject).toHaveBeenCalledWith(
       `staging/cosplay/${id}/original.jpg`,
+    );
+    expect(r2Mocks.deletePrivateObject).not.toHaveBeenCalledWith(
+      "objects/cosplay/OTRO-ASSET/original.jpg",
     );
     expect(mediaDb.media_assets).toHaveLength(0);
   });
@@ -875,16 +905,48 @@ describe("domain='community' (9J-1C): autenticado + perfil existente, nunca cosp
     });
   });
 
-  it("reserve: sin perfil de Comunidad → 422 profile_required, sin fila creada", async () => {
+  it("reserve: sin username (cuenta incompleta) → 403 account_incomplete/username_missing, sin fila creada", async () => {
     const res = makeRes();
     await handleMediaReserve(
       makeReq({ domain: "community", sourceMime: "image/jpeg", sourceBytes: 1000 }),
       res,
     );
-    expect(res.status).toHaveBeenCalledWith(422);
+    expect(res.status).toHaveBeenCalledWith(403);
     expect(res.json).toHaveBeenCalledWith(
-      expect.objectContaining({ code: "profile_required" }),
+      expect.objectContaining({ code: "account_incomplete", reason: "username_missing" }),
     );
+    expect(mediaDb.media_assets).toHaveLength(0);
+  });
+
+  it("reserve: email sin verificar → 403 account_incomplete/email_unverified (no author_restricted), sin fila", async () => {
+    mediaDb.profiles.push({ user_id: COMMUNITY_USER });
+    accountFake.verified = false;
+    const res = makeRes();
+    await handleMediaReserve(
+      makeReq({ domain: "community", sourceMime: "image/jpeg", sourceBytes: 1000 }),
+      res,
+    );
+    expect(res.status).toHaveBeenCalledWith(403);
+    expect(res.json).toHaveBeenCalledWith(
+      expect.objectContaining({ code: "account_incomplete", reason: "email_unverified" }),
+    );
+    expect(res.json).not.toHaveBeenCalledWith(
+      expect.objectContaining({ code: "author_restricted" }),
+    );
+    expect(mediaDb.media_assets).toHaveLength(0);
+    // Ni siquiera se consulta la sanción: la cuenta incompleta no está sancionada.
+    expect(restrictionFake.calls).toEqual([]);
+  });
+
+  it("reserve: si falla la lectura de autoridad, FALLA CERRADO (500) y no crea fila", async () => {
+    mediaDb.profiles.push({ user_id: COMMUNITY_USER });
+    accountFake.failRead = true;
+    const res = makeRes();
+    await handleMediaReserve(
+      makeReq({ domain: "community", sourceMime: "image/jpeg", sourceBytes: 1000 }),
+      res,
+    );
+    expect(res.status).toHaveBeenCalledWith(500);
     expect(mediaDb.media_assets).toHaveLength(0);
   });
 
@@ -1330,6 +1392,11 @@ describe("R4-D2: creator-preview delivery for Community uploads", () => {
   });
 });
 
+// ────────────────────────────────────────────────────────────────────────────────────────────
+// R5-C: precheck NO AUTORITATIVO de la reserva de media de Community. La seguridad real vive en los
+// escritores de la BD (community_post_save*, reorder, detach): este chequeo solo evita crear
+// reservas de subida para un autor que no podrá publicar.
+
 describe("R5-S1: abort seguro — nunca se pierde la fila antes de confirmar R2", () => {
   const OWNER = "community-owner-1";
   const ID = (n: number) => `0e000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
@@ -1537,5 +1604,291 @@ describe("R5-S1: abort seguro — nunca se pierde la fila antes de confirmar R2"
     await handleMediaComplete(makeReq({ assetId: ID(20) }), res);
     expect(row.status).toBe("deleting");
     expect((res._json as { status?: string }).status).not.toBe("ready");
+  });
+});
+
+describe("R5-C: Community media reserve restriction precheck (non-authoritative)", () => {
+  const USER = "community-user-r5c";
+  const RESTRICTED = {
+    restricted: true,
+    level: 2,
+    permanent: false,
+    endsAt: "2026-11-01T00:00:00+00:00",
+    reason: "Motivo humano",
+    serverNow: "2026-10-06T00:00:00+00:00",
+    appliedBy: "no-debe-salir",
+  };
+  const reserve = (domain = "community") =>
+    makeReq({ domain, sourceMime: "image/jpeg", sourceBytes: 1000 });
+  beforeEach(() => {
+    requireCapabilityMock.mockRejectedValue(new AdminAuthError("No autorizado", 403));
+    requireAuthenticatedMock.mockResolvedValue({
+      userId: USER,
+      aal: "aal1",
+      mfaVerifiedAt: null,
+    });
+    mediaDb.profiles.push({ user_id: USER });
+  });
+
+  it("a sanctioned author gets a deterministic 403 and NO reservation/asset is created", async () => {
+    restrictionFake.result = { data: RESTRICTED, error: null };
+    const res = makeRes();
+    await handleMediaReserve(reserve(), res);
+    expect(res.status).toHaveBeenCalledWith(403);
+    expect(res.json).toHaveBeenCalledWith({
+      error: "Tu cuenta tiene una restricción de publicación",
+      code: "author_restricted",
+      restriction: {
+        level: 2,
+        permanent: false,
+        endsAt: RESTRICTED.endsAt,
+        reason: "Motivo humano",
+      },
+    });
+    expect(
+      JSON.stringify((res.json as ReturnType<typeof vi.fn>).mock.calls),
+    ).not.toContain("no-debe-salir");
+    expect(mediaDb.media_assets).toHaveLength(0);
+  });
+  it("allowed when there is no current restriction (expired / revoked)", async () => {
+    restrictionFake.result = { data: { restricted: false }, error: null };
+    const res = makeRes();
+    await handleMediaReserve(reserve(), res);
+    expect(res.status).toHaveBeenCalledWith(200);
+    expect(mediaDb.media_assets).toHaveLength(1);
+  });
+  it("NOT the security boundary: if the read fails the reserve proceeds (the DB writers still reject publication)", async () => {
+    restrictionFake.result = { data: null, error: { message: "boom" } };
+    const res = makeRes();
+    await handleMediaReserve(reserve(), res);
+    expect(res.status).toHaveBeenCalledWith(200);
+    expect(mediaDb.media_assets).toHaveLength(1);
+  });
+  it("Cosplay (admin) reservations never consult the restriction", async () => {
+    restrictionFake.result = { data: RESTRICTED, error: null };
+    requireCapabilityMock.mockResolvedValue({
+      userId: "admin-1",
+      role: "admin",
+      capabilities: ["cosplay_admin"],
+      aal: "aal2",
+      mfaVerifiedAt: Math.floor(Date.now() / 1000),
+    });
+    const res = makeRes();
+    await handleMediaReserve(reserve("cosplay"), res);
+    expect(restrictionFake.calls).toEqual([]);
+  });
+
+  describe("completion and abort are deliberately NOT blocked", () => {
+    // A reservation made BEFORE the strike must still converge: blocking complete would strand the
+    // private staging object with no processing and no cleanup path. The publication write stays
+    // blocked in the DB, so the finished asset simply never gets attached (the abandoned-asset sweep
+    // is out of scope here).
+    const ASSET = "0b2ad7a0-1c0e-4a8d-9a11-0c4f59f0a0aa";
+    it("complete still processes an asset reserved before the strike (no restriction read)", async () => {
+      restrictionFake.result = { data: RESTRICTED, error: null };
+      mediaDb.media_assets.push({
+        id: ASSET,
+        domain: "community",
+        status: "reserved",
+        source_mime: "image/jpeg",
+        source_bytes: 1000,
+        private_original_key: `staging/community/${ASSET}/original.jpg`,
+        multipart_upload_id: null,
+        processing_attempts: 0,
+        created_by: USER,
+      });
+      const res = makeRes();
+      await handleMediaComplete(makeReq({ assetId: ASSET }), res);
+      const body = (res.json as ReturnType<typeof vi.fn>).mock.calls[0][0];
+      expect(body.status).toBe("ready");
+      expect(restrictionFake.calls).toEqual([]);
+    });
+    it("abort still lets a sanctioned owner release their own reservation (cleanup path stays open)", async () => {
+      restrictionFake.result = { data: RESTRICTED, error: null };
+      mediaDb.media_assets.push({
+        id: ASSET,
+        domain: "community",
+        status: "reserved",
+        private_original_key: `staging/community/${ASSET}/original.jpg`,
+        multipart_upload_id: null,
+        created_by: USER,
+      });
+      const res = makeRes();
+      await handleMediaAbort(makeReq({ assetId: ASSET }), res);
+      expect(res.status).toHaveBeenCalledWith(200);
+      expect(restrictionFake.calls).toEqual([]);
+    });
+    // AUTH-2: la finalización técnica (complete/abort) NO es autorización para publicar. Solo exige
+    // autenticación + propiedad de la fila; el estado de cuenta solo se consulta al RESERVAR.
+    describe.each([
+      ["email sin verificar", () => (accountFake.verified = false)],
+      ["lectura de autoridad fallida", () => (accountFake.failRead = true)],
+      ["sin perfil / username", () => (mediaDb.profiles.length = 0)],
+    ])("AUTH-2: cuenta incompleta sobrevenida (%s)", (_name, degrade) => {
+      const row = (createdBy = USER) => ({
+        id: ASSET,
+        domain: "community",
+        status: "reserved",
+        source_mime: "image/jpeg",
+        source_bytes: 1000,
+        private_original_key: `staging/community/${ASSET}/original.jpg`,
+        multipart_upload_id: null,
+        processing_attempts: 0,
+        created_by: createdBy,
+      });
+      it("complete sigue procesando la reserva previa del propietario, sin consultar el estado de cuenta", async () => {
+        degrade();
+        mediaDb.media_assets.push(row());
+        const res = makeRes();
+        await handleMediaComplete(makeReq({ assetId: ASSET }), res);
+        expect((res.json as ReturnType<typeof vi.fn>).mock.calls[0][0].status).toBe(
+          "ready",
+        );
+        expect(accountFake.calls).toBe(0);
+      });
+      it("abort sigue liberando la reserva del propietario (limpieza intacta)", async () => {
+        degrade();
+        mediaDb.media_assets.push({ ...row(), source_mime: undefined });
+        const res = makeRes();
+        await handleMediaAbort(makeReq({ assetId: ASSET }), res);
+        expect(res.status).toHaveBeenCalledWith(200);
+        expect(accountFake.calls).toBe(0);
+      });
+      it("la propiedad se conserva: un usuario ajeno sigue recibiendo el 404 genérico", async () => {
+        degrade();
+        mediaDb.media_assets.push(row("otro-usuario"));
+        for (const handler of [handleMediaComplete, handleMediaAbort]) {
+          const res = makeRes();
+          await handler(makeReq({ assetId: ASSET }), res);
+          expect(res.status).toHaveBeenCalledWith(404);
+        }
+        expect(mediaDb.media_assets[0].status).toBe("reserved");
+      });
+      it("pero NO se permiten nuevas reservas (fallo cerrado)", async () => {
+        degrade();
+        const res = makeRes();
+        await handleMediaReserve(reserve(), res);
+        expect(res.status).not.toHaveBeenCalledWith(200);
+        expect(mediaDb.media_assets).toHaveLength(0);
+      });
+    });
+    it("AUTH-2 static: solo reserve usa el estado de cuenta; complete/abort usan propiedad (authorizeForAssetRow)", () => {
+      const src = readFileSync("src/lib/media-handlers.ts", "utf8");
+      const body = (name: string) =>
+        src
+          .slice(src.indexOf(`export async function ${name}`))
+          .split("\nexport async function ")[0];
+      expect(body("handleMediaReserve")).toContain("authorizeForDomain");
+      for (const name of ["handleMediaComplete", "handleMediaAbort"]) {
+        expect(body(name), name).toContain("authorizeForAssetRow");
+        expect(body(name), name).not.toMatch(
+          /readAccountState|authorizeForDomain|authorizeCommunity/,
+        );
+      }
+    });
+    it("static: only the reserve handler references the restriction", () => {
+      const src = readFileSync("src/lib/media-handlers.ts", "utf8");
+      const body = (name: string) =>
+        src
+          .slice(src.indexOf(`export async function ${name}`))
+          .split("\nexport async function ")[0];
+      expect(body("handleMediaReserve")).toContain("readAuthorRestriction");
+      expect(body("handleMediaComplete")).not.toMatch(/Restriction/);
+      expect(body("handleMediaAbort")).not.toMatch(/Restriction/);
+    });
+  });
+
+  // AUTH-2 + R5-C: una cuenta incompleta que ADEMÁS tiene un strike vigente. Son dominios distintos: gana
+  // `account_incomplete` (el estado de cuenta se evalúa primero, igual que en el guard de la BD) y la
+  // restricción ni siquiera se consulta. El precheck NO es la autorización: la BD rechaza la publicación.
+  describe("AUTH-2 × R5-C: cuenta incompleta Y restringida", () => {
+    const ASSET2 = "0b2ad7a0-1c0e-4a8d-9a11-0c4f59f0a0bb";
+    const both: [string, () => void, string][] = [
+      ["email sin verificar", () => (accountFake.verified = false), "email_unverified"],
+      ["sin perfil / username", () => (mediaDb.profiles.length = 0), "username_missing"],
+    ];
+    it.each(both)(
+      "reserve (%s): 403 account_incomplete, NO author_restricted, sin consultar la restricción ni crear fila",
+      async (_name, degrade, reason) => {
+        restrictionFake.result = { data: RESTRICTED, error: null };
+        degrade();
+        const res = makeRes();
+        await handleMediaReserve(reserve(), res);
+        expect(res.status).toHaveBeenCalledWith(403);
+        const body = (res.json as ReturnType<typeof vi.fn>).mock.calls[0][0];
+        expect(body).toMatchObject({ code: "account_incomplete", reason });
+        expect(body).not.toHaveProperty("restriction");
+        expect(JSON.stringify(body)).not.toContain("Motivo humano");
+        expect(restrictionFake.calls).toEqual([]);
+        expect(mediaDb.media_assets).toHaveLength(0);
+      },
+    );
+    it("reserve: cuenta completa + strike vigente → author_restricted (R5 intacto)", async () => {
+      restrictionFake.result = { data: RESTRICTED, error: null };
+      const res = makeRes();
+      await handleMediaReserve(reserve(), res);
+      expect((res.json as ReturnType<typeof vi.fn>).mock.calls[0][0]).toMatchObject({
+        code: "author_restricted",
+      });
+      expect(mediaDb.media_assets).toHaveLength(0);
+    });
+    const owned = (createdBy = USER) => ({
+      id: ASSET2,
+      domain: "community",
+      status: "reserved",
+      source_mime: "image/jpeg",
+      source_bytes: 1000,
+      private_original_key: `staging/community/${ASSET2}/original.jpg`,
+      multipart_upload_id: null,
+      processing_attempts: 0,
+      created_by: createdBy,
+    });
+    it.each(both)(
+      "complete (%s + strike): el propietario finaliza su reserva previa sin leer cuenta ni restricción",
+      async (_name, degrade) => {
+        restrictionFake.result = { data: RESTRICTED, error: null };
+        degrade();
+        mediaDb.media_assets.push(owned());
+        const res = makeRes();
+        await handleMediaComplete(makeReq({ assetId: ASSET2 }), res);
+        expect((res.json as ReturnType<typeof vi.fn>).mock.calls[0][0].status).toBe(
+          "ready",
+        );
+        expect(restrictionFake.calls).toEqual([]);
+        expect(accountFake.calls).toBe(0);
+      },
+    );
+    it.each(both)(
+      "abort (%s + strike): el propietario cancela su reserva previa; un ajeno sigue recibiendo 404",
+      async (_name, degrade) => {
+        restrictionFake.result = { data: RESTRICTED, error: null };
+        degrade();
+        mediaDb.media_assets.push({ ...owned("otro-usuario"), source_mime: undefined });
+        const foreign = makeRes();
+        await handleMediaAbort(makeReq({ assetId: ASSET2 }), foreign);
+        expect(foreign.status).toHaveBeenCalledWith(404);
+        expect(mediaDb.media_assets[0].status).toBe("reserved");
+        mediaDb.media_assets.length = 0;
+        mediaDb.media_assets.push({ ...owned(), source_mime: undefined });
+        const mine = makeRes();
+        await handleMediaAbort(makeReq({ assetId: ASSET2 }), mine);
+        expect(mine.status).toHaveBeenCalledWith(200);
+        expect(restrictionFake.calls).toEqual([]);
+      },
+    );
+    it("el precheck declara no ser la autorización: la comprobación autoritativa de publicación vive en la BD", () => {
+      const src = readFileSync("src/lib/media-handlers.ts", "utf8");
+      expect(src).toMatch(/precheck NO AUTORITATIVO/);
+      const sql = readFileSync(
+        "supabase/migrations/20261025120000_account_complete_authority.sql",
+        "utf8",
+      );
+      // Los 4 escritores usan el guard que (re)emite 20261025: cuenta completa y luego restricción.
+      expect(sql).toMatch(/community_assert_author_may_write/);
+      expect(sql).toMatch(
+        /community_assert_account_complete\(p_user_id\);\s*if coalesce\(/,
+      );
+      expect(sql).toMatch(/raise exception 'author_restricted'/);
+    });
   });
 });

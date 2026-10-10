@@ -1,4 +1,7 @@
 import { describe, expect, it } from "vitest";
+import authEs from "./locales/es/auth.json";
+import authEn from "./locales/en/auth.json";
+import authDe from "./locales/de/auth.json";
 import commonEs from "./locales/es/common.json";
 import commonEn from "./locales/en/common.json";
 import commonDe from "./locales/de/common.json";
@@ -54,6 +57,7 @@ function icuArgNames(message: string): string[] {
 }
 
 const NAMESPACES: [string, Json, Json, Json][] = [
+  ["auth", authEs, authEn, authDe],
   ["common", commonEs, commonEn, commonDe],
   ["cosplay", cosplayEs, cosplayEn, cosplayDe],
   ["media", mediaEs, mediaEn, mediaDe],

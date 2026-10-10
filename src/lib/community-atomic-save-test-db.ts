@@ -41,7 +41,7 @@ export async function createAtomicTestDatabase(): Promise<TestDatabase> {
   )![0];
   await db.exec(`
     create role anon; create role authenticated; create role service_role;
-    create schema auth; create table auth.users(id uuid primary key);
+    create schema auth; create table auth.users(id uuid primary key, email_confirmed_at timestamptz default now());
     create table public.profiles(user_id uuid primary key references auth.users);
     create table public.media_assets(id uuid primary key, domain text, status text, kind text,
       created_by uuid, updated_at timestamptz default now());

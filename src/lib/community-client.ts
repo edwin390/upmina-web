@@ -5,6 +5,11 @@ import {
   type AuthorPostsResponse,
 } from "./community-author-contract";
 import {
+  ACCOUNT_INCOMPLETE,
+  parseAccountIncompleteReason,
+  type AccountIncompleteReason,
+} from "@/lib/account-incomplete";
+import {
   parseAuthorRestriction,
   type AuthorRestrictionView,
 } from "@/lib/author-restriction";
@@ -35,6 +40,8 @@ export class CommunityClientError extends Error {
     readonly privilegedFailure: PrivilegedFailure | null = null,
     /** R5-E: detalle autoritativo de `author_restricted` (null si no vino o es inválido). */
     readonly restriction: AuthorRestrictionView | null = null,
+    /** AUTH-2: razón de `account_incomplete` (distinta de una sanción). */
+    readonly accountReason: AccountIncompleteReason | null = null,
   ) {
     super(message);
     this.name = "CommunityClientError";
@@ -87,6 +94,7 @@ async function request<T>(
       error?: string;
       code?: string;
       restriction?: unknown;
+      reason?: unknown;
     } | null;
     throw new CommunityClientError(
       body?.error ?? "Error del servidor",
@@ -95,6 +103,9 @@ async function request<T>(
       privilegedFailure,
       body?.code === "author_restricted"
         ? parseAuthorRestriction(body.restriction)
+        : null,
+      body?.code === ACCOUNT_INCOMPLETE
+        ? parseAccountIncompleteReason(body.reason)
         : null,
     );
   }

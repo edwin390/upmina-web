@@ -4,12 +4,14 @@ import type { Locale } from "./locale";
 // a propósito (es el idioma de reserva final: si el idioma activo fallara al cargar, o si un
 // consumidor pide un mensaje antes de que termine la carga perezosa, ES debe estar disponible
 // sin otro round-trip).
+import authEs from "./locales/es/auth.json";
 import commonEs from "./locales/es/common.json";
 import cosplayEs from "./locales/es/cosplay.json";
 import mediaEs from "./locales/es/media.json";
 import moderationEs from "./locales/es/moderation.json";
 
 export interface Messages {
+  auth: typeof authEs;
   common: typeof commonEs;
   cosplay: typeof cosplayEs;
   media: typeof mediaEs;
@@ -17,6 +19,7 @@ export interface Messages {
 }
 
 const ES_MESSAGES: Messages = {
+  auth: authEs,
   common: commonEs,
   cosplay: cosplayEs,
   media: mediaEs,
@@ -47,13 +50,14 @@ async function loadNamespace(locale: Locale, ns: keyof Messages): Promise<unknow
 export async function loadMessages(locale: Locale): Promise<Messages> {
   if (locale === "es") return ES_MESSAGES;
   try {
-    const [common, cosplay, media, moderation] = await Promise.all([
+    const [auth, common, cosplay, media, moderation] = await Promise.all([
+      loadNamespace(locale, "auth"),
       loadNamespace(locale, "common"),
       loadNamespace(locale, "cosplay"),
       loadNamespace(locale, "media"),
       loadNamespace(locale, "moderation"),
     ]);
-    return { common, cosplay, media, moderation } as Messages;
+    return { auth, common, cosplay, media, moderation } as Messages;
   } catch {
     return ES_MESSAGES;
   }

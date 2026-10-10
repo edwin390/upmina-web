@@ -25,6 +25,8 @@ const fakes = vi.hoisted(() => ({
   insertResult: undefined as { data: unknown; error: unknown } | undefined,
   insertThrows: undefined as unknown,
   ops: [] as string[],
+  accountState: "username_missing" as unknown,
+  accountStateError: false,
 }));
 
 vi.mock("@supabase/supabase-js", () => ({
@@ -39,6 +41,10 @@ vi.mock("@supabase/supabase-js", () => ({
       },
       rpc: async (name: string) => {
         fakes.rpcCalls.push(name);
+        if (name === "community_account_state")
+          return fakes.accountStateError
+            ? { data: null, error: { message: "boom" } }
+            : { data: fakes.accountState, error: null };
         return { data: null, error: null };
       },
       from: (table: string) => {
@@ -89,6 +95,8 @@ beforeEach(() => {
   fakes.insertResult = undefined;
   fakes.insertThrows = undefined;
   fakes.ops = [];
+  fakes.accountState = "username_missing";
+  fakes.accountStateError = false;
   fetchSpy.mockReset();
   vi.stubGlobal("fetch", fetchSpy);
   vi.stubEnv("VITE_SUPABASE_URL", SUPABASE_URL);
@@ -533,7 +541,8 @@ describe("no hay escalación de privilegios ni acoplamiento con admin", () => {
     await call({ body: { username: "admin" } });
     await call({ body: { username: "edwin390", role: "admin" } });
     expect(fakes.tables.every((t) => t === "profiles")).toBe(true);
-    expect(fakes.rpcCalls).toHaveLength(0);
+    // AUTH-2: la única RPC permitida es la lectura de autoridad de la cuenta.
+    expect(fakes.rpcCalls.every((name) => name === "community_account_state")).toBe(true);
   });
 
   it("nunca llama a /api/admin/me ni a ninguna otra URL (sin fetch)", async () => {
@@ -567,5 +576,50 @@ describe("no hay escalación de privilegios ni acoplamiento con admin", () => {
     const json = JSON.stringify(state.body);
     expect(json).not.toContain(SERVICE_ROLE_KEY);
     expect(json).not.toContain(VALID_TOKEN);
+  });
+});
+
+describe("AUTH-2: el username exige email verificado (POST /api/profile)", () => {
+  it("email sin verificar → 403 account_incomplete/email_unverified y NO se inserta", async () => {
+    fakes.accountState = "email_unverified";
+    const state = await call();
+    expect(state.status).toBe(403);
+    expect(state.body).toMatchObject({
+      code: "account_incomplete",
+      reason: "email_unverified",
+    });
+    expect(fakes.inserts).toHaveLength(0);
+  });
+
+  it("email verificado y sin username → crea el perfil (201)", async () => {
+    fakes.accountState = "username_missing";
+    const state = await call();
+    expect(state.status).toBe(201);
+    expect(fakes.inserts).toHaveLength(1);
+  });
+
+  it("falla la lectura de autoridad → 500 genérico (falla cerrado) y NO se inserta", async () => {
+    fakes.accountStateError = true;
+    const state = await call();
+    expect(state.status).toBe(500);
+    expect(fakes.inserts).toHaveLength(0);
+  });
+
+  it("estado inesperado de la lectura → falla cerrado (500), no concede", async () => {
+    fakes.accountState = "algo-raro";
+    const state = await call();
+    expect(state.status).toBe(500);
+    expect(fakes.inserts).toHaveLength(0);
+  });
+
+  it("el trigger de la BD (escritura directa) también se traduce a 403 sin exponer el mensaje", async () => {
+    fakes.insertResult = {
+      data: null,
+      error: { code: "P0001", message: "account_email_unverified" },
+    };
+    const state = await call();
+    expect(state.status).toBe(403);
+    expect(state.body).toMatchObject({ reason: "email_unverified" });
+    expect(JSON.stringify(state.body)).not.toContain("account_email_unverified");
   });
 });

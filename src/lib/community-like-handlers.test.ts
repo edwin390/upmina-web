@@ -293,6 +293,24 @@ describe("handleCommunityPostSetLike — like/unlike", () => {
   });
 });
 
+describe("handleCommunityPostSetLike — AUTH-2: cuenta incompleta", () => {
+  it.each([
+    ["account_email_unverified", "email_unverified"],
+    ["account_username_missing", "username_missing"],
+  ])("RPC lanza %s → 403 account_incomplete/%s (like y unlike)", async (msg, reason) => {
+    for (const liked of [true, false]) {
+      fake.rpcResult = rpcError(msg);
+      const state = await call(
+        handleCommunityPostSetLike,
+        req({ body: { postId: POST_ID, liked } }),
+      );
+      expect(state.status).toBe(403);
+      expect(state.body).toMatchObject({ code: "account_incomplete", reason });
+      expect(JSON.stringify(state.body)).not.toContain(msg);
+    }
+  });
+});
+
 describe("handleCommunityPostSetLike — publicación inelegible (fail-closed)", () => {
   it("publicación inexistente → 404, nunca el mensaje crudo de Postgres", async () => {
     fake.rpcResult = rpcError("post_not_found");

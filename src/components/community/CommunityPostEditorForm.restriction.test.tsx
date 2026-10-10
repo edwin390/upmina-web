@@ -2,8 +2,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import CommunityPostEditorForm from "./CommunityPostEditorForm";
 import { CommunityClientError, type CommunityOwnPost } from "@/lib/community-client";
+import { MediaClientError } from "@/lib/media-client";
 
-// R5-E: el rechazo AUTORITATIVO por strike (guardado) se muestra con el aviso
+// R5-E: el rechazo AUTORITATIVO por strike (guardado y reserva de media) se muestra con el aviso
 // central, conservando el borrador, sin reintento automático y sin ocultar nada del borrado propio.
 
 const mocks = vi.hoisted(() => ({
@@ -194,5 +195,32 @@ describe("authoritative save rejection (create and edit)", () => {
     publish();
     const notice = await screen.findByTestId("restriction-notice");
     expect(notice.textContent).not.toMatch(/moderador|reporte|caso|decisión|decision/i);
+  });
+});
+
+describe("media reserve precheck rejection", () => {
+  it("the notice appears immediately with the authoritative detail; no upload state; text draft untouched", async () => {
+    mocks.reserve.mockRejectedValue(
+      new MediaClientError(
+        "Tu cuenta tiene una restricción",
+        403,
+        "author_restricted",
+        null,
+        RESTRICTION,
+      ),
+    );
+    const { container } = render(
+      <CommunityPostEditorForm initialPost={null} onSaved={vi.fn()} onCancel={vi.fn()} />,
+    );
+    type("con foto");
+    fireEvent.change(container.querySelector('input[type="file"]')!, {
+      target: { files: [new File(["bytes"], "a.jpg", { type: "image/jpeg" })] },
+    });
+    const notice = await screen.findByTestId("restriction-notice");
+    expect(notice).toHaveTextContent("Strike 2");
+    expect(notice).toHaveTextContent("Motivo: Motivo completo del strike");
+    expect(mocks.complete).not.toHaveBeenCalled();
+    expect(mocks.put).not.toHaveBeenCalled();
+    expect(screen.getByLabelText("Texto de la publicación")).toHaveValue("con foto");
   });
 });

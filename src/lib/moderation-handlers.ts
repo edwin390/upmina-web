@@ -1,6 +1,10 @@
 import { createClient } from "@supabase/supabase-js";
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import {
+  accountIncompleteReasonFromDbMessage,
+  respondAccountIncomplete,
+} from "./account-state.js";
+import {
   decodeFeedCursor,
   encodeFeedCursor,
   mapFeedMediaRow,
@@ -526,6 +530,9 @@ export async function handleModerationReportCreate(
     });
     if (error) {
       const businessError = rpcBusinessError(error);
+      // AUTH-2: una cuenta incompleta no puede crear un reporte (ni contribuir al umbral).
+      const incomplete = accountIncompleteReasonFromDbMessage(businessError);
+      if (incomplete) return respondAccountIncomplete(res, incomplete);
       if (
         businessError &&
         Object.prototype.hasOwnProperty.call(CREATE_KNOWN_ERRORS, businessError)

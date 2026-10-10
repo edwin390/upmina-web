@@ -28,7 +28,7 @@ describe("9K-2 PostgreSQL workflow", () => {
       /create table public.community_posts \([\s\S]*?\n\);/,
     )![0];
     await db.exec(`create role anon; create role authenticated; create role service_role;
-      create schema auth; create table auth.users(id uuid primary key);
+      create schema auth; create table auth.users(id uuid primary key, email_confirmed_at timestamptz default now());
       create table public.admin_roles(user_id uuid primary key,role text not null);
       ${posts}
       ${migration("20261007120000_moderation_foundation.sql")}
