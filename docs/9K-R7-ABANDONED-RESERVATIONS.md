@@ -104,3 +104,10 @@ Solo `rkqeqbqwdswhpzwqptac`; migración `20261028120000_media_abandoned_reservat
 `a9c4e223-7d01-4bf2-a564-a2f17c8b18a9` · community/video · `reserved` · `private_original_key` exactamente `staging/community/a9c4e223-…/original.mp4` · 92 174 109 B · `multipart_upload_id` presente (longitud 343, huella `d3bfdafc9e86`) · sin enlaces · sin claim/intentos · **`created_at = updated_at = 2026-10-09 23:06:39.885064+00`** (posterior al corte). R2 (propietario): `OPEN_SESSION`, `initiated 23:06:40.110Z`, `parts=2`, `bytes=16 777 216`.
 Política: `false · 24:00:00 · 20 · 2026-10-09 23:00:00+00 · last_run_at NULL`. Único asset posterior al corte: A. Resto de assets: huella `bddc979f…`, 154 totales, 0 `deleting`, 1 con multipart (A). Los 5 pendientes históricos: `PROTEGIDO_HISTORICO (nunca)`.
 **Elegibilidad con `min_age = 2 h`:** `max(created_at, updated_at) + 2 h = 2026-10-10 01:06:39.885Z`. El marcador exige `created_at ≤ ahora − 2 h` y `updated_at ≤ ahora − 2 h` con `ahora = clock_timestamp()` del tick; el tick de 01:05:00 queda por debajo (23:05:00 < 23:06:39.9), así que **el primer tick que lo marcaría es el de 2026-10-10 01:10:00Z**. Con 24 h sería 2026-10-11 ~23:10Z.
+
+## Actualización 2026-10-10: umbral operativo de 4 horas
+
+El propietario decidió que una reserva se considera abandonada tras **4 h** de inactividad (el valor por defecto de la
+tabla sigue siendo 24 h; el mínimo duro, 2 h). En DEV se fijó `min_age = interval '4 hours'` solo en la política, sin
+cambios de código ni de migración. El cron conserva su frecuencia de 5 minutos. Resultados reales de la prueba y
+pendientes: `docs/9K-R7-FINAL-VALIDATION.md` §15.

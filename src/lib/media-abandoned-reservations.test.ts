@@ -813,3 +813,49 @@ describe("prueba acelerada B/C/D/E/F con el marcador y el GC reales", () => {
     expect(await mark(null)).toMatchObject({ candidates: 0, marked: 0 });
   });
 });
+
+describe("umbral de 4 horas (decisión de R7: solo cambia min_age de la política)", () => {
+  it("el CHECK admite 4 h y la función usa exactamente ese valor", async () => {
+    await enable("min_age = interval '4 hours'");
+    expect((await policy()).min_age).toBe("04:00:00");
+    expect(await mark()).toMatchObject({ status: "ran", minAge: "04:00:00" });
+  });
+
+  it("A protegido, B abandonado, C reciente y D activo: solo B se marca; el límite exacto es 4 h", async () => {
+    await enable("min_age = interval '4 hours', batch_limit = 1");
+    await asset(1, "reserved", { created: "2026-10-09T23:06:39Z", multipart: true }); // A: anterior al corte
+    await db.query("update media_abandon_policy set protected_before = $1", [
+      "2026-10-10T14:47:55Z",
+    ]);
+    await asset(2, "reserved", { created: ago(4.2), multipart: true }); // B: >4 h sin actividad
+    await asset(3, "reserved", { created: ago(1), multipart: true }); // C: reciente
+    await asset(4, "reserved", {
+      created: ago(10),
+      updated: ago(0.5),
+      multipart: true,
+    }); // D: antigua pero con actividad hace 30 min
+    await asset(5, "reserved", { created: ago(3.99) }); // por debajo del umbral
+    const r = await mark();
+    expect(r).toMatchObject({ status: "ran", candidates: 1, marked: 1 });
+    expect(await statusOf(2)).toBe("deleting");
+    for (const n of [1, 3, 4, 5]) expect(await statusOf(n)).toBe("reserved");
+  });
+
+  it("una subida con actividad reciente no se elimina por superar las 4 h desde su creación", async () => {
+    await enable("min_age = interval '4 hours'");
+    await asset(1, "processing", { created: ago(9), updated: ago(3.9) }); // actividad hace 3,9 h
+    await asset(2, "processing", { created: ago(9), updated: ago(4) }); // actividad hace 4 h: se marca
+    expect(await mark()).toMatchObject({ candidates: 1, marked: 1 });
+    expect(await statusOf(1)).toBe("processing");
+    expect(await statusOf(2)).toBe("deleting");
+  });
+
+  it("ready y failed no se tocan con 4 h (los vínculos con publicaciones exigen ready)", async () => {
+    await enable("min_age = interval '4 hours'");
+    await asset(1, "ready", { created: ago(100) });
+    await asset(2, "failed", { created: ago(100) });
+    expect(await mark()).toMatchObject({ candidates: 0, marked: 0 });
+    expect(await statusOf(1)).toBe("ready");
+    expect(await statusOf(2)).toBe("failed");
+  });
+});
