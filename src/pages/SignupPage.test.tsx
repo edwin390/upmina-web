@@ -18,6 +18,7 @@ vi.mock("@/lib/auth-context", () => ({
     user: authFakes.session?.user ?? null,
     loading: authFakes.loading,
     signOut: async () => {},
+    refreshSession: async () => {},
   }),
 }));
 
@@ -53,6 +54,7 @@ function signupTree() {
         <Route path="/signup" element={<SignupPage />} />
         <Route path="/login" element={<p>Login stub</p>} />
         <Route path="/" element={<p>Home stub</p>} />
+        <Route path="/account" element={<p>Account stub</p>} />
       </Routes>
       <LocationProbe />
     </MemoryRouter>
@@ -85,6 +87,7 @@ function fillAndSubmit(
 }
 
 beforeEach(() => {
+  localStorage.setItem("upmina:locale", "en");
   authFakes.session = null;
   authFakes.loading = false;
   supabaseFakes.signUpImpl = undefined;
@@ -94,6 +97,7 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup();
+  localStorage.clear();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
 });
@@ -160,12 +164,22 @@ describe("/signup — registro", () => {
     renderSignup();
     fillAndSubmit("fan@example.com", "clave-sintetica-1");
 
-    expect(await screen.findByRole("status")).toHaveTextContent(
-      "Revisa tu correo para confirmar tu cuenta.",
-    );
+    // AUTH-1: "Check your inbox" con el email usado y el aviso de Spam/Junk.
+    expect(await screen.findByText("Check your inbox")).toBeInTheDocument();
+    expect(
+      screen.getByText(/We sent a confirmation link to fan@example\.com\./),
+    ).toBeTruthy();
+    expect(screen.getByText(/Check your Spam or Junk folder\./)).toBeTruthy();
+    expect(screen.getByRole("button", { name: /resend/i })).toBeInTheDocument();
+    // Solo email + password; el único option es el retorno del enlace (/login). Sin `data` (roles/metadata).
     expect(supabaseFakes.signUpCalls).toEqual([
-      { email: "fan@example.com", password: "clave-sintetica-1" },
+      {
+        email: "fan@example.com",
+        password: "clave-sintetica-1",
+        options: { emailRedirectTo: `${window.location.origin}/login` },
+      },
     ]);
+    expect(JSON.stringify(supabaseFakes.signUpCalls)).not.toContain('"data"');
     expect(screen.queryByLabelText("Email")).toBeNull();
     // No asume sesión ni navega a ningún sitio (ni /admin ni /).
     expect(screen.getByTestId("location")).toHaveTextContent("/signup");
@@ -190,7 +204,7 @@ describe("/signup — registro", () => {
     await act(async () => {
       resolveSignUp({ error: null });
     });
-    expect(await screen.findByRole("status")).toBeInTheDocument();
+    expect(await screen.findByText("Check your inbox")).toBeInTheDocument();
     expect(supabaseFakes.signUpCalls).toHaveLength(1);
   });
 
@@ -203,7 +217,7 @@ describe("/signup — registro", () => {
     supabaseFakes.signUpImpl = undefined;
     submitForm();
 
-    expect(await screen.findByRole("status")).toHaveTextContent(/revisa tu correo/i);
+    expect(await screen.findByText("Check your inbox")).toBeInTheDocument();
     expect(supabaseFakes.signUpCalls).toHaveLength(2);
   });
 
@@ -230,7 +244,7 @@ describe("/signup — registro", () => {
     render(<StrictMode>{signupTree()}</StrictMode>);
     fillAndSubmit();
 
-    expect(await screen.findByRole("status")).toHaveTextContent(/revisa tu correo/i);
+    expect(await screen.findByText("Check your inbox")).toBeInTheDocument();
     expect(supabaseFakes.signUpCalls).toHaveLength(1);
   });
 });
@@ -279,5 +293,45 @@ describe("/signup — errores de Supabase", () => {
     );
     expect(document.body.innerHTML).not.toContain("db-connection-refused");
     expect(fetch).not.toHaveBeenCalled();
+  });
+});
+
+describe("/signup — AUTH-1: pendiente de confirmación", () => {
+  it("signUp con session:null: el email mostrado es el normalizado y no queda ninguna contraseña en pantalla", async () => {
+    renderSignup();
+    fillAndSubmit("  fan@example.com  ", "clave-sintetica-1");
+
+    expect(await screen.findByText(/fan@example\.com\./)).toBeTruthy();
+    expect(document.body.textContent).not.toContain("clave-sintetica-1");
+    expect(document.querySelector("input[type=password]")).toBeNull();
+  });
+
+  it("pendiente → autenticado: al llegar la sesión (otra pestaña confirmó) continúa en /account sin recargar", async () => {
+    const view = renderSignup();
+    fillAndSubmit();
+    expect(await screen.findByText("Check your inbox")).toBeInTheDocument();
+
+    authFakes.session = { user: { email: "fan@example.com" } };
+    view.rerender(signupTree());
+
+    expect(screen.getByText("Account stub")).toBeInTheDocument();
+    expect(screen.queryByText("Check your inbox")).toBeNull();
+  });
+
+  it("sin pendiente, una sesión previa sigue yendo a / (comportamiento existente)", () => {
+    authFakes.session = { user: { email: "fan@example.com" } };
+    renderSignup();
+    expect(screen.getByText("Home stub")).toBeInTheDocument();
+  });
+
+  it("error normal de signUp sigue mostrando el mensaje genérico y NO el estado pendiente", async () => {
+    supabaseFakes.signUpImpl = async () => ({ error: new Error("boom") });
+    renderSignup();
+    fillAndSubmit();
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "No se pudo crear la cuenta. Inténtalo de nuevo.",
+    );
+    expect(screen.queryByText("Check your inbox")).toBeNull();
   });
 });

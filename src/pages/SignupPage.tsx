@@ -4,6 +4,8 @@ import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/lib/auth-context";
 import AdminAuthCard from "@/components/admin/AdminAuthCard";
 import AdminAuthField from "@/components/admin/AdminAuthField";
+import EmailVerificationPending from "@/components/auth/EmailVerificationPending";
+import { confirmationRedirectUrl } from "@/lib/auth-link-error";
 
 // /signup (Bloque 6D). Registro público con email + contraseña sobre el MISMO cliente de
 // Supabase y el MISMO AuthProvider global (un solo listener). Crea exclusivamente una
@@ -43,7 +45,9 @@ export default function SignupPage() {
   const [confirmPassword, setConfirmPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [isSubmitted, setIsSubmitted] = useState(false);
+  // Email con el que se registró (AUTH-1): no nulo = esperando confirmación. No es secreto y
+  // no se persiste; la contraseña nunca se guarda en estado tras el envío.
+  const [submittedEmail, setSubmittedEmail] = useState<string | null>(null);
   // Guard síncrono contra doble submit (el estado tarda un render en reflejarse).
   const submittingRef = useRef(false);
   // Si la página se desmontó mientras signUp estaba pendiente (p. ej. el AuthProvider ya
@@ -78,9 +82,12 @@ export default function SignupPage() {
     setIsSubmitting(true);
     try {
       // Deliberadamente sin `options.data`: ningún metadata de rol viaja en el signup.
+      const trimmedEmail = email.trim();
       const { error: signUpError } = await supabase.auth.signUp({
-        email: email.trim(),
+        email: trimmedEmail,
         password,
+        // Retorno del enlace de confirmación: /login (allow-list de Supabase; si no está, usa su Site URL).
+        options: { emailRedirectTo: confirmationRedirectUrl() },
       });
       if (!isMountedRef.current) return;
       if (signUpError) {
@@ -89,7 +96,7 @@ export default function SignupPage() {
       }
       setPassword("");
       setConfirmPassword("");
-      setIsSubmitted(true);
+      setSubmittedEmail(trimmedEmail);
     } catch (err) {
       if (isMountedRef.current) setError(signupErrorMessage(err));
     } finally {
@@ -111,24 +118,13 @@ export default function SignupPage() {
   }
 
   if (session) {
-    return <Navigate to="/" replace />;
+    // Tras confirmar el correo (esta pestaña estaba esperando) se continúa en /account, donde
+    // vive el onboarding de username existente; una sesión previa sigue yendo a /.
+    return <Navigate to={submittedEmail ? "/account" : "/"} replace />;
   }
 
-  if (isSubmitted) {
-    return (
-      <AdminAuthCard
-        title="Revisa tu correo"
-        footer={
-          <Link to="/login" className={SECONDARY_LINK_CLASS}>
-            Ya tengo una cuenta
-          </Link>
-        }
-      >
-        <p className="text-sm text-text-secondary" role="status">
-          Revisa tu correo para confirmar tu cuenta.
-        </p>
-      </AdminAuthCard>
-    );
+  if (submittedEmail) {
+    return <EmailVerificationPending email={submittedEmail} source="signup" />;
   }
 
   return (

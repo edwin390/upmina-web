@@ -338,3 +338,65 @@ describe("AuthProvider — limpieza del token de invitación pendiente", () => {
     expect(authFakes.signOutCalls).toBe(1);
   });
 });
+
+describe("AuthProvider — refreshSession (AUTH-1)", () => {
+  function RefreshProbe() {
+    const { session, refreshSession, identityGeneration } = useAuth();
+    return (
+      <div>
+        <span data-testid="session">{session ? "con-sesion" : "sin-sesion"}</span>
+        <span data-testid="generation">{identityGeneration}</span>
+        <button onClick={() => void refreshSession()}>Refrescar</button>
+      </div>
+    );
+  }
+
+  async function mountAndRefresh() {
+    render(
+      <AuthProvider>
+        <RefreshProbe />
+      </AuthProvider>,
+    );
+    await act(async () => {});
+    await act(async () => {
+      screen.getByRole("button", { name: "Refrescar" }).click();
+    });
+  }
+
+  it("adopta una sesión creada por otra pestaña (sin evento) y avanza la identidad", async () => {
+    authFakes.session = null;
+    render(
+      <AuthProvider>
+        <RefreshProbe />
+      </AuthProvider>,
+    );
+    await act(async () => {});
+    expect(screen.getByTestId("session")).toHaveTextContent("sin-sesion");
+    const before = Number(screen.getByTestId("generation").textContent);
+
+    authFakes.session = fakeSession();
+    await act(async () => {
+      screen.getByRole("button", { name: "Refrescar" }).click();
+    });
+
+    expect(screen.getByTestId("session")).toHaveTextContent("con-sesion");
+    expect(Number(screen.getByTestId("generation").textContent)).toBe(before + 1);
+  });
+
+  it("misma identidad: no cambia nada (ni generación)", async () => {
+    authFakes.session = fakeSession();
+    await mountAndRefresh();
+    expect(screen.getByTestId("session")).toHaveTextContent("con-sesion");
+    const generation = Number(screen.getByTestId("generation").textContent);
+    await act(async () => {
+      screen.getByRole("button", { name: "Refrescar" }).click();
+    });
+    expect(Number(screen.getByTestId("generation").textContent)).toBe(generation);
+  });
+
+  it("sin sesión persistida: nunca borra ni inventa estado", async () => {
+    authFakes.session = null;
+    await mountAndRefresh();
+    expect(screen.getByTestId("session")).toHaveTextContent("sin-sesion");
+  });
+});

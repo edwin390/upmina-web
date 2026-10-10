@@ -1,5 +1,6 @@
 import {
   createContext,
+  useCallback,
   useContext,
   useEffect,
   useMemo,
@@ -40,6 +41,11 @@ interface AuthContextValue {
   loading: boolean;
   /** Cierra la sesión actual de Supabase Auth. No-op si Supabase no está configurado. */
   signOut: () => Promise<void>;
+  /** AUTH-1: relee la sesión persistida (otra pestaña/ventana pudo crearla) y, si hay una
+   *  identidad nueva, la publica igual que onAuthStateChange. Nunca borra una sesión ni
+   *  hace red propia: solo getSession(). Respaldo acotado de la sincronización nativa de
+   *  supabase-js. */
+  refreshSession: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
@@ -52,6 +58,32 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
   const [identityGeneration, setIdentityGeneration] = useState(0);
   const identityRef = useRef<string | null>(null);
+  const mountedRef = useRef(true);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+
+  const refreshSession = useCallback(async () => {
+    try {
+      const { supabase } = await import("./supabase");
+      if (!supabase) return;
+      const { data } = await supabase.auth.getSession();
+      const next = data.session;
+      if (!next || !mountedRef.current) return;
+      if (next.user.id === identityRef.current) return;
+      discardPendingInvitationIfUserChanged(next.user.id);
+      setIdentityGeneration((generation) => generation + 1);
+      identityRef.current = next.user.id;
+      setSession(next);
+      setLoading(false);
+    } catch {
+      // Respaldo oportunista: un fallo aquí no cambia el estado de autenticación conocido.
+    }
+  }, []);
 
   useEffect(() => {
     let isMounted = true;
@@ -127,9 +159,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       user: session?.user ?? null,
       loading,
       signOut,
+      refreshSession,
       identityGeneration,
     }),
-    [session, loading, identityGeneration],
+    [session, loading, identityGeneration, refreshSession],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

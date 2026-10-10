@@ -1,7 +1,7 @@
 import { StrictMode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { Link, MemoryRouter, Route, Routes } from "react-router-dom";
+import { Link, MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 
 // Fija /login (Bloque 6C): formulario público email + contraseña sobre el cliente
 // Supabase existente. useAuth se mockea (el AuthProvider ya está cubierto por
@@ -18,6 +18,7 @@ vi.mock("@/lib/auth-context", () => ({
     user: authFakes.session?.user ?? null,
     loading: authFakes.loading,
     signOut: async () => {},
+    refreshSession: async () => {},
   }),
 }));
 
@@ -227,14 +228,80 @@ describe("/login — envío", () => {
     expect(screen.getByRole("button", { name: /iniciar sesión/i })).toBeEnabled();
   });
 
-  it("'email no confirmado' no se distingue: mensaje genérico (sin enumeración de cuentas)", async () => {
+  it("email_not_confirmed: muestra el estado pendiente con el email escrito, sin el texto bruto del proveedor ni la contraseña", async () => {
+    localStorage.setItem("upmina:locale", "en");
+    supabaseFakes.signInImpl = async () => ({
+      error: Object.assign(new Error("Email not confirmed"), {
+        code: "email_not_confirmed",
+      }),
+    });
+    renderLogin();
+    fillAndSubmit("fan@example.com", "clave-sintetica-1");
+
+    expect(await screen.findByText("Check your inbox")).toBeInTheDocument();
+    expect(screen.getByText(/fan@example\.com hasn't been confirmed yet\./)).toBeTruthy();
+    expect(screen.getByText(/Spam or Junk/)).toBeTruthy();
+    expect(screen.getByRole("button", { name: /resend/i })).toBeInTheDocument();
+    expect(document.body.textContent).not.toContain("Email not confirmed");
+    expect(document.body.textContent).not.toContain("clave-sintetica-1");
+    expect(document.querySelector("input[type=password]")).toBeNull();
+    expect(screen.queryByRole("alert")).toBeNull();
+    localStorage.clear();
+  });
+
+  it("email_not_confirmed (solo mensaje, sin code): también activa el estado pendiente", async () => {
+    localStorage.setItem("upmina:locale", "en");
     supabaseFakes.signInImpl = async () => ({ error: new Error("Email not confirmed") });
     renderLogin();
     fillAndSubmit();
 
-    const alert = await screen.findByRole("alert");
-    expect(alert).toHaveTextContent("No se pudo iniciar sesión. Inténtalo de nuevo.");
-    expect(alert).not.toHaveTextContent(/confirm/i);
+    expect(await screen.findByText("Check your inbox")).toBeInTheDocument();
+    localStorage.clear();
+  });
+
+  it("pendiente: 'Use a different account' vuelve al formulario vacío de contraseña", async () => {
+    localStorage.setItem("upmina:locale", "en");
+    supabaseFakes.signInImpl = async () => ({
+      error: Object.assign(new Error("x"), { code: "email_not_confirmed" }),
+    });
+    renderLogin();
+    fillAndSubmit();
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Use a different account" }),
+    );
+
+    expect(await screen.findByLabelText("Contraseña")).toHaveValue("");
+    expect(screen.queryByText("Check your inbox")).toBeNull();
+    localStorage.clear();
+  });
+
+  it("pendiente → autenticado: al llegar la sesión continúa en /account (sin returnTo)", async () => {
+    localStorage.setItem("upmina:locale", "en");
+    supabaseFakes.signInImpl = async () => ({
+      error: Object.assign(new Error("x"), { code: "email_not_confirmed" }),
+    });
+    const view = renderLogin();
+    fillAndSubmit();
+    expect(await screen.findByText("Check your inbox")).toBeInTheDocument();
+
+    authFakes.session = { user: { email: "fan@example.com" } };
+    view.rerender(loginTree());
+
+    expect(screen.getByText("Account stub")).toBeInTheDocument();
+    localStorage.clear();
+  });
+
+  it("credenciales incorrectas sigue sin activar el estado pendiente (sin enumeración)", async () => {
+    supabaseFakes.signInImpl = async () => ({
+      error: new Error("Invalid login credentials"),
+    });
+    renderLogin();
+    fillAndSubmit();
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Email o contraseña incorrectos.",
+    );
+    expect(screen.queryByText("Check your inbox")).toBeNull();
   });
 
   it("error inesperado (excepción): mensaje genérico, sin detalles internos", async () => {
@@ -343,5 +410,96 @@ describe("/login — returnTo seguro", () => {
     await screen.findByText("Admin stub");
     // Login no consulta roles ni AAL: ninguna llamada de red.
     expect(fetch).not.toHaveBeenCalled();
+  });
+});
+
+describe("/login — AUTH-1: retorno del enlace de confirmación", () => {
+  const EXPIRED =
+    "#error=access_denied&error_code=otp_expired&error_description=Email+link+is+invalid+or+has+expired";
+  const SUCCESS =
+    "#access_token=synthetic-token&refresh_token=synthetic-refresh&type=signup";
+  function Probe({ onLocation }: { onLocation: (l: string) => void }) {
+    const l = useLocation();
+    onLocation(`${l.pathname}${l.search}|${l.hash}`);
+    return null;
+  }
+  const treeWithProbe = (entry: string, onLocation: (l: string) => void) => (
+    <MemoryRouter initialEntries={[entry]}>
+      <Probe onLocation={onLocation} />
+      <Routes>
+        <Route path="/login" element={<LoginPage />} />
+        <Route path="/" element={<p>Home stub</p>} />
+        <Route path="/account" element={<p>Account stub</p>} />
+        <Route path="/community" element={<p>Comunidad stub</p>} />
+      </Routes>
+    </MemoryRouter>
+  );
+  beforeEach(() => localStorage.setItem("upmina:locale", "en"));
+  afterEach(() => localStorage.clear());
+
+  it("enlace caducado: aviso controlado, formulario disponible, sin texto del proveedor ni llamadas", async () => {
+    renderLogin(`/login${EXPIRED}`);
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent(
+      "This confirmation link has expired or was already used",
+    );
+    expect(alert).toHaveTextContent("request a new email");
+    expect(document.body.textContent).not.toMatch(
+      /Email link is invalid|access_denied|otp_expired/,
+    );
+    expect(screen.getByLabelText("Email")).toBeInTheDocument();
+    expect(supabaseFakes.signInCalls).toHaveLength(0);
+  });
+
+  it("enlace inválido (otro error): aviso 'no pudimos confirmar'", async () => {
+    renderLogin("/login#error=access_denied&error_code=bad_jwt");
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "We couldn't confirm your email with that link",
+    );
+  });
+
+  it("el fragmento de error se retira de la URL (sin bucles) y el aviso permanece", async () => {
+    const seen: string[] = [];
+    render(treeWithProbe(`/login?returnTo=%2Fcommunity${EXPIRED}`, (l) => seen.push(l)));
+    await waitFor(() => expect(seen.at(-1)).toBe("/login?returnTo=%2Fcommunity|"));
+    expect(screen.getByRole("alert")).toHaveTextContent("has expired");
+    // Estable: tras limpiar la URL no hay más navegaciones.
+    const count = seen.length;
+    await act(async () => {});
+    expect(seen.length).toBe(count);
+  });
+
+  it("tras el aviso, iniciar sesión con email sin verificar lleva al reenvío (flujo normal)", async () => {
+    supabaseFakes.signInImpl = async () => ({
+      error: Object.assign(new Error("x"), { code: "email_not_confirmed" }),
+    });
+    renderLogin(`/login${EXPIRED}`);
+    await screen.findByRole("alert");
+    fillAndSubmit();
+    expect(await screen.findByText("Check your inbox")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /resend/i })).toBeInTheDocument();
+  });
+
+  it("sin fragmento no hay aviso", () => {
+    renderLogin("/login");
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("confirmación correcta (sesión llegó por el enlace) sin returnTo → /account (alta de username de AUTH-2)", () => {
+    authFakes.session = { user: { email: "fan@example.com" } };
+    renderLogin(`/login${SUCCESS}`);
+    expect(screen.getByText("Account stub")).toBeInTheDocument();
+  });
+
+  it("confirmación correcta con returnTo seguro → respeta el destino", () => {
+    authFakes.session = { user: { email: "fan@example.com" } };
+    renderLogin(`/login?returnTo=%2Fcommunity${SUCCESS}`);
+    expect(screen.getByText("Comunidad stub")).toBeInTheDocument();
+  });
+
+  it("sesión previa sin fragmento sigue yendo a / (comportamiento existente)", () => {
+    authFakes.session = { user: { email: "fan@example.com" } };
+    renderLogin("/login");
+    expect(screen.getByText("Home stub")).toBeInTheDocument();
   });
 });

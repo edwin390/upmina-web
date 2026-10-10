@@ -10,6 +10,9 @@ import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/lib/auth-context";
 import AdminAuthCard from "@/components/admin/AdminAuthCard";
 import AdminAuthField from "@/components/admin/AdminAuthField";
+import EmailVerificationPending from "@/components/auth/EmailVerificationPending";
+import AuthLinkErrorNotice from "@/components/auth/AuthLinkErrorNotice";
+import { isAuthLinkSuccess, parseAuthLinkError } from "@/lib/auth-link-error";
 import { parseSafeReturnTo } from "@/lib/safe-return-to";
 
 // /login (Bloque 6C). Login público con email + contraseña sobre el MISMO cliente de
@@ -27,6 +30,15 @@ import { parseSafeReturnTo } from "@/lib/safe-return-to";
 // destino no concede nada: cada superficie privilegiada decide por su cuenta (rol + MFA reciente).
 const INVALID_CREDENTIALS_MESSAGE = "Email o contraseña incorrectos.";
 const GENERIC_ERROR_MESSAGE = "No se pudo iniciar sesión. Inténtalo de nuevo.";
+
+/** AUTH-1: Supabase responde `email_not_confirmed` solo con credenciales correctas. */
+function isEmailNotConfirmed(error: unknown): boolean {
+  if (typeof error !== "object" || error === null) return false;
+  const code = (error as { code?: unknown }).code;
+  if (code === "email_not_confirmed") return true;
+  const message = error instanceof Error ? error.message : "";
+  return /email not confirmed/i.test(message);
+}
 
 function loginErrorMessage(error: unknown): string {
   const message = error instanceof Error ? error.message : "";
@@ -47,12 +59,28 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  // AUTH-1: email pendiente de confirmación (no nulo = estado "Check your inbox").
+  const [pendingEmail, setPendingEmail] = useState<string | null>(null);
+  // AUTH-1: resultado del enlace de confirmación del correo (fragmento #...), leído una sola vez.
+  // Fallo (caducado/ya usado/inválido) = aviso controlado; éxito = continuar en /account (onboarding).
+  const [linkError] = useState(() => parseAuthLinkError(location.hash));
+  const [arrivedFromLink] = useState(() => isAuthLinkSuccess(location.hash));
   // Guard síncrono contra doble submit (el estado tarda un render en reflejarse).
   const submittingRef = useRef(false);
   // El AuthProvider puede redirigir a / (sesión ya llegada por onAuthStateChange) antes de
   // que resuelva signInWithPassword: si /login ya se desmontó, la respuesta tardía no debe
   // volver a navegar ni tocar estado. El efecto se re-arma solo (React StrictMode).
   const isMountedRef = useRef(true);
+  // Un fallo del enlace deja de estar en la URL (sin bucles ni avisos al recargar).
+  useEffect(() => {
+    if (linkError === null) return;
+    navigate(
+      { pathname: location.pathname, search: location.search },
+      { replace: true, state: location.state },
+    );
+    // Solo al montar: linkError es estable.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   useEffect(() => {
     isMountedRef.current = true;
     return () => {
@@ -79,6 +107,12 @@ export default function LoginPage() {
       });
       if (!isMountedRef.current) return;
       if (signInError) {
+        if (isEmailNotConfirmed(signInError)) {
+          // La contraseña no se conserva en ningún estado una vez detectado el caso.
+          setPassword("");
+          setPendingEmail(email.trim());
+          return;
+        }
         setError(loginErrorMessage(signInError));
         return;
       }
@@ -105,7 +139,23 @@ export default function LoginPage() {
   }
 
   if (session) {
-    return <Navigate to={destination} replace state={location.state} />;
+    // Si esta pestaña esperaba la confirmación y no hay returnTo, continúa en /account
+    // (onboarding de username existente); con returnTo seguro se respeta el destino.
+    const target =
+      (pendingEmail !== null || arrivedFromLink) && rawReturnTo === null
+        ? "/account"
+        : destination;
+    return <Navigate to={target} replace state={location.state} />;
+  }
+
+  if (pendingEmail !== null) {
+    return (
+      <EmailVerificationPending
+        email={pendingEmail}
+        source="login"
+        onBack={() => setPendingEmail(null)}
+      />
+    );
   }
 
   return (
@@ -118,6 +168,7 @@ export default function LoginPage() {
       }
     >
       <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+        {linkError ? <AuthLinkErrorNotice kind={linkError} /> : null}
         <AdminAuthField
           label="Email"
           id="public-login-email"
