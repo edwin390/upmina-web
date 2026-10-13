@@ -10,7 +10,9 @@ import { checkPostText, COMMUNITY_POST_MAX_MEDIA } from "./community-post-fields
 import { handleCommunityAuthorPosts } from "./community-author-handlers.js";
 import {
   AUTHOR_RESTRICTED_CODE,
+  readAuthorRestriction,
   respondAuthorRestricted,
+  RESTRICTION_UNAVAILABLE_BODY,
 } from "./community-restriction.js";
 
 // Handlers HTTP de publicaciones de Comunidad (Fase 9J-1C): crear/guardar, reordenar media,
@@ -54,6 +56,8 @@ const RPC_ERROR_MAP: Readonly<Record<string, { status: number; code: string }>> 
   asset_not_ready: { status: 400, code: "asset_not_ready" },
   asset_already_attached: { status: 409, code: "asset_already_attached" },
   empty_post: { status: 422, code: "empty_post" },
+  // COPY-1 2B: retirada o apelación de copyright activa; la publicación y sus archivos no se pueden borrar todavía.
+  post_copyright_protected: { status: 409, code: "community_post_copyright_protected" },
 };
 
 function getServiceRoleClient(): SupabaseClient | null {
@@ -495,3 +499,31 @@ export async function handleCommunityPostDelete(
 // El actor sale del JWT verificado. R4-C delega la proyección privada y el reloj a la RPC de autor.
 
 export const handleCommunityPostListOwn = handleCommunityAuthorPosts;
+
+/** R5-F: GET autenticado de la restricción de publicación VIGENTE de quien llama. La identidad sale
+ *  SOLO del JWT verificado (requireAuthenticated): ningún parámetro de query ni de body se lee, así
+ *  que no se puede consultar la sanción de otra persona. Sin caché. Si la lectura no puede
+ *  completarse responde 503: el cliente no debe abrir el editor suponiendo que no hay sanción. */
+export async function handleCommunityAuthorRestriction(
+  req: VercelRequest,
+  res: VercelResponse,
+): Promise<VercelResponse> {
+  res.setHeader("Cache-Control", "private, no-store");
+  if (req.method !== "GET") {
+    res.setHeader("Allow", "GET");
+    return res.status(405).json({ error: "Método no permitido" });
+  }
+  const userId = await authorizeAuthenticated(req, res);
+  if (!userId) return res;
+  const client = getServiceRoleClient();
+  if (!client) return res.status(500).json(GENERIC_ERROR_BODY);
+  const read = await readAuthorRestriction(client, userId);
+  if (!read.ok) return res.status(503).json(RESTRICTION_UNAVAILABLE_BODY);
+  return res
+    .status(200)
+    .json(
+      read.restriction
+        ? { restricted: true, restriction: read.restriction }
+        : { restricted: false, restriction: null },
+    );
+}

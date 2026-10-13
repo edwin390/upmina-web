@@ -1,6 +1,12 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import type { VercelRequest } from "@vercel/node";
-import { getLatestTotpTimestamp, isMfaRecent } from "./privileged-mfa.js";
+import {
+  getLatestPasswordTimestamp,
+  getLatestTotpTimestamp,
+  isMfaRecent,
+  isPasswordRecent,
+  PRIVILEGED_MFA_WINDOW_SECONDS,
+} from "./privileged-mfa.js";
 
 // Base de Auth/AuthZ server-side reutilizable para operaciones privilegiadas de Upmina
 // Web (Instagram/TikTok admin, futuros Cosplays/moderación). SOLO servidor: nunca se
@@ -36,7 +42,12 @@ export type PrivilegedRole = "admin" | "moderator" | "developer";
 /** Capacidades explícitas. Ninguna jerarquía implícita ADMIN > DEVELOPER > MODERATOR: cada
  *  operación privilegiada declara la capacidad que necesita y solo esta matriz decide. */
 export type Capability =
-  "moderation" | "technical" | "social_admin" | "team_admin" | "cosplay_admin";
+  | "moderation"
+  | "technical"
+  | "social_admin"
+  | "team_admin"
+  | "cosplay_admin"
+  | "developer_panel";
 
 /** ÚNICA fuente de verdad rol → capacidades (server-side). Añadir un rol o una capacidad
  *  exige tocar solo esta tabla; el Record fuerza que ningún rol quede sin definir.
@@ -45,7 +56,9 @@ export type Capability =
  *  concede esta capacidad, solo el rol actual. */
 const ROLE_CAPABILITIES: Readonly<Record<PrivilegedRole, readonly Capability[]>> = {
   moderator: ["moderation"],
-  developer: ["moderation", "technical"],
+  // developer_panel (Developer Panel V1): SOLO developer. Admin no la tiene y developer no hereda
+  // ninguna capacidad de admin (ni team_admin ni social_admin ni cosplay_admin).
+  developer: ["moderation", "technical", "developer_panel"],
   admin: ["moderation", "technical", "social_admin", "team_admin", "cosplay_admin"],
 };
 
@@ -61,6 +74,9 @@ function isPrivilegedRole(value: unknown): value is PrivilegedRole {
   return value === "admin" || value === "moderator" || value === "developer";
 }
 
+const SESSION_ID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 /** Identidad autenticada: solo lo que devuelven las claims YA verificadas del JWT. */
 export interface AuthenticatedIdentity {
   userId: string;
@@ -70,6 +86,13 @@ export interface AuthenticatedIdentity {
    *  no hay ninguno con forma válida. Nunca proviene del cliente. Se combina con `aal` en
    *  identityHasRecentMfa: por sí solo no autoriza nada. */
   mfaVerifiedAt: number | null;
+  /** Segundos UNIX del último inicio de sesión con CONTRASEÑA según el claim `amr` verificado, o
+   *  null. Solo la recuperación de MFA (fase 2) lo usa, para exigir credenciales recientes. */
+  passwordVerifiedAt: number | null;
+  /** Id de la sesión de Supabase Auth (claim `session_id` del JWT VERIFICADO), o ausente si el
+   *  claim no tiene forma de uuid. Solo sirve para que el backend consulte en la base de datos
+   *  QUÉ factor acreditó esa sesión (reinvitación tras retirar privilegios); no autoriza nada. */
+  sessionId?: string;
 }
 
 /** Identidad autenticada + rol privilegiado confirmado en admin_roles. */
@@ -119,6 +142,14 @@ export function identityHasRecentMfa(
   nowSeconds?: number,
 ): boolean {
   return isMfaRecent(identity.aal, identity.mfaVerifiedAt, nowSeconds);
+}
+
+/** ¿La identidad autenticó con contraseña hace poco? (recuperación de MFA fase 2). */
+export function identityHasRecentPassword(
+  identity: Pick<AuthenticatedIdentity, "passwordVerifiedAt">,
+  nowSeconds?: number,
+): boolean {
+  return isPasswordRecent(identity.passwordVerifiedAt, nowSeconds);
 }
 
 /** Fallo de infraestructura (Supabase mal configurado, error de red/consulta) durante la
@@ -240,7 +271,17 @@ export async function requireAuthenticated(
     throw new AdminAuthError("No autenticado", 401);
   }
 
-  return { userId: sub, aal, mfaVerifiedAt: getLatestTotpTimestamp(claims?.amr) };
+  const sessionId =
+    typeof claims?.session_id === "string" && SESSION_ID_PATTERN.test(claims.session_id)
+      ? claims.session_id
+      : undefined;
+  return {
+    userId: sub,
+    aal,
+    mfaVerifiedAt: getLatestTotpTimestamp(claims?.amr),
+    passwordVerifiedAt: getLatestPasswordTimestamp(claims?.amr),
+    ...(sessionId ? { sessionId } : {}),
+  };
 }
 
 /** Lee el rol privilegiado de `userId` (ya verificado). `null` = sin fila, o fila con un
@@ -316,6 +357,7 @@ export async function requirePrivileged(req: VercelRequest): Promise<PrivilegedI
 export async function requireCapability(
   req: VercelRequest,
   capability: Capability,
+  options: { totpWindowSeconds?: number } = {},
 ): Promise<CapabilityIdentity> {
   const identity = await requireAuthenticated(req);
 
@@ -328,6 +370,20 @@ export async function requireCapability(
     throw stepUpRequiredError();
   }
 
+  // Autorización REFORZADA (opcional): el último TOTP verificado debe caer dentro de una ventana más
+  // corta que la general. Se mide con el timestamp `amr` del JWT verificado; aal2 no es recencia.
+  if (
+    options.totpWindowSeconds !== undefined &&
+    !isMfaRecent(
+      identity.aal,
+      identity.mfaVerifiedAt,
+      undefined,
+      Math.min(options.totpWindowSeconds, PRIVILEGED_MFA_WINDOW_SECONDS),
+    )
+  ) {
+    throw stepUpRequiredError();
+  }
+
   return { userId: identity.userId, role, capabilities: capabilitiesForRole(role) };
 }
 
@@ -336,6 +392,10 @@ export interface AccessSummary {
   role: PrivilegedRole | null;
   capabilities: Capability[];
   mfaRecent: boolean;
+  /** Identidad VERIFICADA (del JWT). Solo para uso del servidor (p. ej. reconciliar la recuperación de
+   *  MFA); el handler de /access NO la devuelve al navegador. */
+  userId: string;
+  sessionId?: string;
 }
 
 /**
@@ -352,6 +412,8 @@ export async function getAccessSummary(req: VercelRequest): Promise<AccessSummar
     role,
     capabilities: role === null ? [] : capabilitiesForRole(role),
     mfaRecent: identityHasRecentMfa(identity),
+    userId: identity.userId,
+    ...(identity.sessionId ? { sessionId: identity.sessionId } : {}),
   };
 }
 

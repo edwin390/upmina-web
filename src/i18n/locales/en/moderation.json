@@ -90,6 +90,9 @@
       "harassment": "Harassment",
       "hate_speech": "Hate speech",
       "sexual_content": "Sexual content",
+      "violence": "Violence",
+      "off_topic": "Unrelated to Mina",
+      "ai_generated": "AI-generated",
       "other": "Other"
     },
     "hiddenOnly": "Only posts hidden as a precaution",
@@ -125,5 +128,508 @@
     "retry": "Retry loading",
     "retryHint": "If it keeps failing, refresh the case: file access may have expired.",
     "videoFallback": "Video without preview"
+  },
+  "report": {
+    "trigger": "Report",
+    "triggerLabel": "Report this post",
+    "reported": "Reported",
+    "title": "Report post",
+    "intro": "Tell us what is wrong with this post. The moderation team will review it; your identity is not shown to other users.",
+    "reasonLegend": "Reason for the report",
+    "reasons": {
+      "harassment": "Harassment or bullying",
+      "hate_speech": "Discrimination or hate speech",
+      "sexual_content": "Sexual content",
+      "violence": "Violence or threats",
+      "off_topic": "Content unrelated to Mina",
+      "ai_generated": "AI-generated images or videos",
+      "spam": "Spam or deception",
+      "other": "Something else"
+    },
+    "copyrightNote": "If you are the copyright holder of what was posted, this report is not the right channel: use the copyright claim form.",
+    "copyrightLink": "Open the copyright claim form",
+    "detailLabel": "Explanation (optional)",
+    "detailHelp": "Do not include personal data about yourself or others.",
+    "counter": "{count} of {max} characters",
+    "submit": "Send report",
+    "sending": "Sending…",
+    "cancel": "Cancel",
+    "close": "Close",
+    "successTitle": "Report sent",
+    "successBody": "Thank you. The moderation team will review it.",
+    "successAlready": "You had already reported this post. Your report is still under review.",
+    "errors": {
+      "reasonRequired": "Choose a reason.",
+      "detailTooLong": "The explanation cannot exceed {max} characters.",
+      "detailInvalid": "The explanation contains characters that are not allowed.",
+      "selfReport": "You cannot report your own post.",
+      "notFound": "This post no longer exists.",
+      "notReportable": "This post can no longer be reported.",
+      "unauthenticated": "Log in to report.",
+      "generic": "We could not send the report. Please try again in a few minutes."
+    }
+  },
+  "copyright": {
+    "form": {
+      "title": "Copyright claim",
+      "intro": "If you are a rights holder, or act on behalf of one, and you believe a community post infringes your work, tell us here. You do not need an account.",
+      "manualReview": "A member of the moderation team reviews every claim. Sending one does not automatically hide or remove any post.",
+      "legend": {
+        "claimant": "Your details",
+        "work": "The work and the post",
+        "statements": "Statements"
+      },
+      "fields": {
+        "claimantName": "Full name",
+        "claimantEmail": "Contact email",
+        "organization": "Organisation (optional)",
+        "relationship": "Your relationship to the work",
+        "workDescription": "Describe the work",
+        "infringementDescription": "What in the post infringes it",
+        "evidenceUrls": "Links that show you hold the rights",
+        "postUrl": "Link to the post",
+        "signature": "Signature (your full name)"
+      },
+      "hints": {
+        "workDescription": "Title, author, year and where it was first published.",
+        "infringementDescription": "Explain which content in the post is yours or copies your work.",
+        "evidenceUrls": "One link per line (up to 5, http or https only). File attachments are not accepted.",
+        "postUrl": "Paste the post address (for example, the one ending in /community/…).",
+        "signature": "Typing your name counts as signing this claim."
+      },
+      "relationship": {
+        "placeholder": "Select an option",
+        "owner": "I am the rights holder",
+        "authorized_representative": "I represent the rights holder with their authorisation"
+      },
+      "statements": {
+        "intro": "By submitting you confirm that:",
+        "rightsHolder": "I am the rights holder of the work described, or I am authorised to act on their behalf.",
+        "goodFaith": "I believe in good faith that the use described is not authorised by the rights holder, their agent or the law.",
+        "accurate": "The information in this claim is accurate to the best of my knowledge.",
+        "accept": "I confirm these statements"
+      },
+      "errors": {
+        "required": "This field is required.",
+        "tooShort": "This is too short.",
+        "tooLong": "This is too long.",
+        "invalid": "This value is not valid.",
+        "evidenceUrlsInvalid": "Check the links: one per line, starting with http:// or https://, with no spaces.",
+        "evidenceUrlsTooMany": "You can include at most 5 links.",
+        "statementsRequired": "You must confirm the statements to send the claim."
+      },
+      "submit": "Send claim",
+      "submitting": "Sending…",
+      "received": {
+        "title": "Claim received",
+        "body": "Thank you. The moderation team will review it and, if more information is needed, will write to the email you gave.",
+        "reference": "Reference",
+        "referenceHint": "Keep this reference in case you need to mention it."
+      },
+      "failures": {
+        "rateLimited": "You have sent too many claims. Try again in {minutes} min.",
+        "invalid": "We could not validate the form. Check the details and try again.",
+        "unavailable": "We could not send the claim. Try again in a few minutes; your details are still in the form."
+      }
+    },
+    "panel": {
+      "sections": {
+        "label": "Moderation sections",
+        "reports": "Community reports",
+        "copyright": "Copyright"
+      },
+      "title": "Copyright claims",
+      "safeNote": "Reviewing a claim only changes its status. A post is hidden only through the explicit “Remove the post” action, which requires a second confirmation.",
+      "scope": {
+        "open": "Open",
+        "closed": "Closed"
+      },
+      "refresh": "Refresh",
+      "loading": "Loading claims…",
+      "loadError": "Claims could not be loaded.",
+      "retry": "Retry",
+      "empty": {
+        "open": "There are no open claims.",
+        "closed": "There are no closed claims yet."
+      },
+      "next": "Next page",
+      "open": "Open details",
+      "postFound": {
+        "yes": "Post found",
+        "no": "Post not found"
+      },
+      "status": {
+        "received": "Received",
+        "in_review": "In review",
+        "needs_info": "Needs information",
+        "dismissed": "Dismissed",
+        "withdrawn": "Withdrawn by claimant",
+        "removed": "Post removed",
+        "appeal_pending": "Appeal pending",
+        "restored": "Restored after appeal",
+        "purged": "Permanently deleted"
+      },
+      "relationship": {
+        "owner": "Rights holder",
+        "authorized_representative": "Authorised representative"
+      },
+      "detail": {
+        "title": "Claim details",
+        "close": "Close details",
+        "loading": "Loading details…",
+        "loadError": "The claim could not be loaded.",
+        "fields": {
+          "claimant": "Claimant",
+          "email": "Email",
+          "organization": "Organisation",
+          "relationship": "Relationship to the work",
+          "work": "Work",
+          "infringement": "What infringes it",
+          "evidence": "Evidence links",
+          "claimedPost": "Post given",
+          "snapshot": "Post text when the claim was received",
+          "snapshotEmpty": "No text, or post not found",
+          "mediaCount": "Media attached when received",
+          "currentStatus": "Current post status",
+          "postGone": "The post no longer exists",
+          "signature": "Signature",
+          "statements": "Statements version",
+          "received": "Received"
+        },
+        "eventsTitle": "Claim history",
+        "actor": {
+          "claimant": "Claimant",
+          "human": "Moderation"
+        }
+      },
+      "events": {
+        "received": "Claim received",
+        "review_started": "Review started",
+        "info_requested": "More information requested",
+        "review_resumed": "Review resumed",
+        "note": "Note added",
+        "dismissed": "Claim dismissed",
+        "withdrawn": "Claim withdrawn by the claimant",
+        "removed": "Post removed (hidden)",
+        "notified": "Notice sent to the author",
+        "notification_failed": "Failed to send the notice to the author",
+        "token_reissued": "Appeal link reissued",
+        "appeal_submitted": "Appeal submitted by the author",
+        "appeal_accepted": "Appeal accepted",
+        "appeal_rejected": "Appeal rejected",
+        "restored": "Post restored",
+        "purged": "Post permanently deleted",
+        "strike_applied": "Strike applied",
+        "strike_notified": "Strike notice sent to the author",
+        "strike_notification_failed": "Strike notice to the author failed"
+      },
+      "actions": {
+        "title": "Review",
+        "noteLabel": "Review note",
+        "noteHelp": "Required to request information, dismiss, record a withdrawal or add a note. Up to 1000 characters.",
+        "start_review": "Start review",
+        "request_info": "Request more information",
+        "resume_review": "Resume review",
+        "dismiss": "Dismiss claim",
+        "withdraw": "Record claimant withdrawal",
+        "add_note": "Add note",
+        "submitting": "Saving…",
+        "done": "Review recorded.",
+        "closed": "This claim is closed and can no longer be changed.",
+        "errors": {
+          "note_required": "Write a note for this action.",
+          "invalid_note": "The note is not valid (1 to 1000 characters, no control characters).",
+          "version_conflict": "The claim changed while you were reviewing it. We reloaded the data; check it and try again.",
+          "invalid_transition": "That action is no longer possible in the current status.",
+          "generic": "The review could not be recorded. Try again."
+        }
+      },
+      "removal": {
+        "title": "Removal, appeal and deletion",
+        "working": "Working…",
+        "remove": {
+          "intro": "Removing HIDES the post immediately without deleting its files, and emails the author (in English) the reference, the reason and a personal appeal link. Before removing, manually check the claimant's legitimacy and evidence.",
+          "noPost": "It cannot be removed: the post could not be found.",
+          "notPublished": "It cannot be removed: the post is not published (current status: {status}).",
+          "reasonLabel": "Reason for the removal (the author receives it)",
+          "reasonHelp": "10 to 1000 characters. It is copied as written into the email to the author: write it in English and without the claimant's personal data.",
+          "review": "Review and remove…",
+          "done": "Post removed. The author was notified by email."
+        },
+        "confirm": {
+          "reference": "Reference",
+          "post": "Post",
+          "noText": "(no text)",
+          "details": "Details",
+          "media": "{count} attached files",
+          "version": "version {version}",
+          "reason": "Reason the author will receive",
+          "removeTitle": "Confirm the removal",
+          "removeWarning": "The post will be hidden right now. Nothing is deleted. An email in English will be sent to the author with the reference, the reason and a personal appeal link.",
+          "removeConfirm": "Confirm removal",
+          "cancel": "Cancel",
+          "purgeTitle": "Confirm permanent deletion",
+          "purgeWarning": "The post will be deleted and its exclusive files will be marked for deletion. This cannot be undone.",
+          "purgeConfirm": "Delete permanently"
+        },
+        "info": {
+          "removedAt": "Removed on",
+          "reason": "Reason",
+          "currentPost": "Current post status",
+          "postGone": "It no longer exists",
+          "notice": "Initial notice to the author",
+          "noticeSent": "Sent on {date}",
+          "noticePending": "Not sent",
+          "attempts": "Failed attempts: {count}",
+          "lastError": "Last error: {error}",
+          "window": "Appeal window",
+          "deadline": "Window ends",
+          "deadlinePending": "Starts once the initial notice is confirmed as sent."
+        },
+        "window": {
+          "m60": "1 hour (test environment)",
+          "m1440": "24 hours"
+        },
+        "noticeErrors": {
+          "not_configured": "email is not configured",
+          "rejected": "the provider rejected the message",
+          "rate_limited": "email provider rate limit",
+          "provider_unavailable": "email provider unavailable",
+          "timeout": "timed out",
+          "invalid_response": "invalid provider response",
+          "no_recipient": "the author's account has no email"
+        },
+        "notice": {
+          "failedNow": "The decision was saved, but the notice to the author could not be sent ({error}). It remains pending a resend.",
+          "resent": "Notice sent to the author.",
+          "initialPending": "The initial notice to the author has not been sent yet: the appeal window has not started and permanent deletion is blocked.",
+          "resendInitial": "Retry the notice to the author",
+          "resolutionPending": "The resolution notice to the author is pending.",
+          "resendResolution": "Retry the resolution notice",
+          "resolutionSent": "Resolution notice sent on {date}."
+        },
+        "appeal": {
+          "title": "Author's appeal",
+          "status": "Appeal status",
+          "statuses": {
+            "pending": "Pending a decision",
+            "accepted": "Accepted",
+            "rejected": "Rejected"
+          },
+          "submittedAt": "Submitted on",
+          "contact": "Contact",
+          "reason": "Reason",
+          "reasons": {
+            "own_work": "It is my own work",
+            "authorized": "I have permission or a licence",
+            "not_infringing": "It does not infringe copyright",
+            "legal_exception": "Use covered by a legal exception",
+            "mistake": "The content was identified by mistake",
+            "other": "Another reason"
+          },
+          "explanation": "Explanation",
+          "evidenceText": "Evidence (text)",
+          "evidenceUrls": "Evidence (links)",
+          "resolvedAt": "Resolved on",
+          "resolutionNote": "Justification for the decision",
+          "noteLabel": "Justification for the decision (required; included in the email to the author)",
+          "noteHelp": "1 to 1000 characters. Accepting restores the post if it is still as the removal left it; rejecting keeps it hidden.",
+          "accept": "Accept appeal and restore",
+          "reject": "Reject appeal",
+          "acceptedDone": "Appeal accepted: the post was restored and the case moves to the history.",
+          "rejectedDone": "Appeal rejected: the post stays hidden."
+        },
+        "purge": {
+          "title": "Permanent deletion (manual)",
+          "intro": "Nothing is deleted when the window ends. Only a moderator can do this once every condition is met; the server checks them again.",
+          "button": "Delete permanently",
+          "blockers": {
+            "appeal_pending": "An appeal is waiting for a decision.",
+            "not_removed": "The post is not in a removed state.",
+            "notification_pending": "The initial notice to the author has not been sent successfully yet.",
+            "window_open": "The appeal window is still open.",
+            "resolution_notice_pending": "The resolution notice to the author is pending."
+          },
+          "noteLabel": "Deletion note (required)",
+          "done": "Post deleted. {marked} files were marked for deletion; {retained} were kept because they are shared or belong elsewhere.",
+          "assetsPending": "{count} files are waiting for the storage cleanup process.",
+          "assetsDone": "All marked files have been deleted."
+        },
+        "closed": {
+          "restored": "Post restored on {date}.",
+          "purged": "Post deleted on {date}."
+        },
+        "errors": {
+          "note_required": "Write the justification or note this action requires.",
+          "invalid_reason": "The reason must be 10 to 1000 characters long and cannot contain control characters.",
+          "invalid_note": "The text is not valid (1 to 1000 characters, no control characters).",
+          "version_conflict": "The case changed while you were reviewing it. We reloaded the data; check it and try again.",
+          "invalid_transition": "That action is no longer possible in the current status.",
+          "confirmation_mismatch": "The confirmation does not match the claim.",
+          "post_state_conflict": "The post is no longer in the expected state.",
+          "post_version_conflict": "The post changed since you saw it. We reloaded the data; check it and try again.",
+          "post_not_found": "The post no longer exists.",
+          "restore_unsafe": "It cannot be restored safely: the post changed since the removal. The appeal remains pending.",
+          "purge_blocked": "The conditions for permanent deletion are not met yet.",
+          "generic": "The action could not be completed. Try again."
+        }
+      },
+      "strike": {
+        "title": "Copyright strike",
+        "intro": "A strike is a human decision, independent from the deletion: it can only be applied once the post has been permanently deleted. It counts together with Community strikes when the level is decided.",
+        "loading": "Loading the strike status…",
+        "loadError": "The strike status could not be loaded.",
+        "retry": "Retry",
+        "apply": "Apply strike…",
+        "confirm": {
+          "title": "Confirm the strike",
+          "reference": "Claim",
+          "level": "Level to apply",
+          "reasonLabel": "Reason for the strike (the author receives it)",
+          "reasonHelp": "Required, up to 1000 characters. It is copied as written into the email to the author: write it in English and without personal data of the claimant.",
+          "reasonError": "Write a reason (1000 characters at most).",
+          "irreversible": "The author will receive an email in English with the level, the duration and this reason. There is no new appeal: only an administrator can correct it with the existing controls.",
+          "submit": "Confirm strike",
+          "working": "Applying…",
+          "cancel": "Cancel"
+        },
+        "effect": {
+          "1": "Blocks new Community posts and edits for 14 days.",
+          "2": "Blocks new Community posts and edits for 1 month.",
+          "3": "Permanently blocks new Community posts and edits."
+        },
+        "applied": {
+          "title": "Strike applied",
+          "level": "Level",
+          "starts": "From",
+          "ends": "Until",
+          "permanent": "Permanent",
+          "reason": "Reason",
+          "revoked": "Revoked on {date}"
+        },
+        "notice": {
+          "title": "Notice to the author",
+          "sent": "Sent by email.",
+          "pending": "Waiting to be sent.",
+          "failed": "Sending failed ({error}). You can retry.",
+          "resend": "Resend notice",
+          "resending": "Resending…"
+        },
+        "blockers": {
+          "claim_not_purged": "A strike can only be applied once the post has been permanently deleted.",
+          "author_unavailable": "A strike cannot be applied: the author account is no longer available.",
+          "self_strike_forbidden": "You cannot apply a strike to your own content.",
+          "strike_already_issued": "This claim already has a strike."
+        },
+        "done": "Strike applied.",
+        "doneNoticeFailed": "Strike applied, but the email notice failed: you can resend it.",
+        "errors": {
+          "level_changed": "The level changed while you were confirming. Review the new level and confirm again.",
+          "strike_already_issued": "This claim already has a strike.",
+          "claim_not_purged": "A strike can only be applied after the permanent deletion.",
+          "author_unavailable": "The author account is no longer available.",
+          "self_strike_forbidden": "You cannot apply a strike to your own content.",
+          "reason_required": "Write a reason.",
+          "generic": "The action could not be completed. Please try again."
+        }
+      }
+    },
+    "appeal": {
+      "title": "Appeal a copyright removal",
+      "intro": "If you think we removed one of your posts by mistake, you can appeal here. A moderator decides every appeal; submitting it does not restore anything by itself.",
+      "loading": "Checking the link…",
+      "incomplete": {
+        "title": "Incomplete link",
+        "body": "Open the personal link from the email you received again to appeal. If you switched devices, open that link there."
+      },
+      "signIn": {
+        "title": "Sign in with the author account",
+        "body": "To appeal you must sign in with the same account that published the removed post. You will come back to this page afterwards.",
+        "button": "Sign in"
+      },
+      "notAvailable": {
+        "title": "Appeal not available",
+        "body": "This link is not valid for your account, or the appeal is no longer available. Check that you are signed in with the author account and that you opened the latest link in the email."
+      },
+      "reference": "Reference",
+      "removalReason": "Reason for the removal",
+      "deadline": "You can appeal until",
+      "state": {
+        "submitted": {
+          "title": "Appeal submitted",
+          "body": "You already submitted an appeal for this removal. We will email you when it is decided."
+        },
+        "expired": {
+          "title": "The appeal window has ended",
+          "body": "Appeals are no longer accepted for this removal. The post stays hidden; a moderator will decide the next steps."
+        },
+        "closed": {
+          "title": "This case is closed",
+          "body": "This removal can no longer be appealed."
+        }
+      },
+      "appealStatus": {
+        "pending": "Status: waiting for a decision.",
+        "accepted": "Status: appeal accepted.",
+        "rejected": "Status: appeal rejected."
+      },
+      "noUploads": "We only ask for text and links. Do not upload identity documents or files: this form does not accept them.",
+      "legend": {
+        "contact": "Contact details",
+        "appeal": "Your appeal",
+        "statement": "Statement"
+      },
+      "fields": {
+        "contactName": "Contact name",
+        "contactEmail": "Contact email",
+        "reason": "Reason for the appeal",
+        "explanation": "Explain why the removal is a mistake",
+        "evidenceText": "Evidence (text)",
+        "evidenceUrls": "Evidence (links)"
+      },
+      "hints": {
+        "explanation": "10 to 2000 characters.",
+        "evidence": "Give evidence as text, as links or both (at least one).",
+        "evidenceUrls": "One link per line (maximum 5, http or https only)."
+      },
+      "reasons": {
+        "placeholder": "Select a reason",
+        "own_work": "It is my own work",
+        "authorized": "I have permission or a licence",
+        "not_infringing": "It does not infringe copyright",
+        "legal_exception": "Use covered by a legal exception",
+        "mistake": "The content was identified by mistake",
+        "other": "Another reason"
+      },
+      "statement": "I declare that the information in this appeal is true and accurate to the best of my knowledge.",
+      "errors": {
+        "required": "This field is required.",
+        "tooShort": "It is too short.",
+        "tooLong": "It is too long.",
+        "invalid": "The value is not valid.",
+        "evidenceRequired": "Provide evidence as text or links.",
+        "evidenceUrlsInvalid": "Check the links: one per line, starting with http:// or https://, with no spaces.",
+        "evidenceUrlsTooMany": "You can include at most 5 links.",
+        "statementRequired": "You must confirm the statement to submit the appeal."
+      },
+      "submit": "Submit appeal",
+      "submitting": "Sending…",
+      "submitted": {
+        "title": "Appeal submitted",
+        "body": "Thank you. The moderation team will review it and email you the decision. The post is not deleted while the appeal is pending."
+      },
+      "failures": {
+        "invalid": "We could not validate the form. Check your details and try again.",
+        "error": "We could not complete the operation. Try again in a few minutes.",
+        "alreadySubmitted": "An appeal was already submitted for this removal.",
+        "windowClosed": "The appeal window has already ended.",
+        "notAvailable": "This appeal is no longer available.",
+        "unauthenticated": "Your session ended. Sign in again and open the link in the email once more."
+      }
+    }
+  },
+  "caseDetail": {
+    "title": "Report details",
+    "close": "Close details"
   }
 }

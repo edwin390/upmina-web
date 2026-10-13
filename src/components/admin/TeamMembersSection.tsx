@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { usePrivilegedFailureReporter } from "@/hooks/privileged-failure";
+import DeveloperRestoreControls from "@/components/admin/DeveloperRestoreControls";
 import { supabase } from "@/lib/supabase";
 
 // Sección "Miembros del equipo" de /admin (Bloque 9F). Solo PRESENTACIÓN: el dashboard la monta
@@ -164,6 +165,21 @@ function omitKey(
   return copy;
 }
 
+/** Resultado de la invalidación del MFA tras retirar el acceso (MFA fase 1). */
+function mfaSuffix(body: unknown): { text: string; pending: boolean } {
+  const status = (body as { mfa_reset?: { status?: unknown } } | null)?.mfa_reset?.status;
+  if (status === "completed") {
+    return { text: " Su autenticador anterior quedó invalidado.", pending: false };
+  }
+  if (status === "pending") {
+    return {
+      text: " Atención: el acceso se retiró, pero su autenticador anterior todavía no se pudo invalidar. Puedes reintentarlo en «Autenticadores pendientes de restablecer».",
+      pending: true,
+    };
+  }
+  return { text: "", pending: false };
+}
+
 function revokedSuffix(body: unknown): string {
   const n = (body as { revoked_invitations?: unknown } | null)?.revoked_invitations;
   if (typeof n !== "number" || !Number.isInteger(n) || n <= 0) return "";
@@ -180,7 +196,12 @@ type ListState =
 type Confirmation =
   { id: string; kind: "role"; role: MemberRole } | { id: string; kind: "remove" };
 
-export default function TeamMembersSection() {
+export default function TeamMembersSection({
+  onMfaChanged,
+}: {
+  /** Se avisa tras una retirada para que el panel recargue los autenticadores pendientes. */
+  onMfaChanged?: () => void;
+} = {}) {
   const headingId = useId();
   const baseId = useId();
   const reportFailure = usePrivilegedFailureReporter();
@@ -306,7 +327,11 @@ export default function TeamMembersSection() {
         if (!isMountedRef.current) return;
         setConfirming(null);
         setSelectedRoles((prev) => omitKey(prev, action.id));
-        setNotice(`${isRoleChange ? MSG_ROLE_OK : MSG_REMOVE_OK}${revokedSuffix(body)}`);
+        const mfa = isRoleChange ? { text: "", pending: false } : mfaSuffix(body);
+        setNotice(
+          `${isRoleChange ? MSG_ROLE_OK : MSG_REMOVE_OK}${revokedSuffix(body)}${mfa.text}`,
+        );
+        if (!isRoleChange) onMfaChanged?.();
         listHeadingRef.current?.focus(); // la fila cambia o desaparece: el foco no se pierde
         void loadList(false);
         return;
@@ -400,7 +425,12 @@ export default function TeamMembersSection() {
             const validSelection = selected && selected !== member.role ? selected : "";
             const isConfirming = confirming?.id === member.user_id;
             const isBusy = busyId === member.user_id;
-            const otherRoles = ROLES.filter((r) => r !== member.role);
+            // Developer es independiente de Admin: Admin no lo asigna, no lo retira ni lo modifica
+            // (lo gestiona el operador). El servidor y la base de datos lo rechazan además.
+            const isProtected = member.role === "developer";
+            const otherRoles = ROLES.filter(
+              (r) => r !== member.role && r !== "developer",
+            );
 
             return (
               <li
@@ -436,7 +466,27 @@ export default function TeamMembersSection() {
                   </div>
                 </div>
 
-                {!member.is_self && !isConfirming ? (
+                {isProtected && !member.is_self ? (
+                  // Developer es independiente de Admin: Admin no lo cambia con el selector normal ni lo
+                  // retira con el selector normal; solo puede RESTAURARLO (Admin o Moderador) o quitarle el acceso con
+                  // confirmación y TOTP reciente.
+                  <DeveloperRestoreControls
+                    userId={member.user_id}
+                    name={name}
+                    disabled={busyId !== null}
+                    isLastDeveloper={
+                      list.members.filter((m) => m.role === "developer").length === 1
+                    }
+                    onRestored={(message, removed) => {
+                      setNotice(message);
+                      if (removed) onMfaChanged?.();
+                      void loadList(true);
+                    }}
+                    onStale={() => void loadList(true)}
+                  />
+                ) : null}
+
+                {!member.is_self && !isConfirming && !isProtected ? (
                   <div className="mt-3 flex flex-wrap items-end gap-3">
                     <div className="min-w-0 sm:w-56">
                       <label

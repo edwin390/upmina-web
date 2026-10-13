@@ -24,6 +24,7 @@ const authFakes = vi.hoisted(() => ({
   session: null as null | { access_token: string; user: { id: string } },
   loading: false,
   signOut: vi.fn(),
+  refreshCalls: 0,
 }));
 
 vi.mock("@/lib/auth-context", () => ({
@@ -40,6 +41,10 @@ vi.mock("@/lib/supabase", () => ({
     auth: {
       async getSession() {
         return { data: { session: authFakes.session } };
+      },
+      async refreshSession() {
+        authFakes.refreshCalls++;
+        return { data: { session: authFakes.session }, error: null };
       },
     },
   },
@@ -162,6 +167,7 @@ beforeEach(() => {
   authFakes.session = null;
   authFakes.loading = false;
   authFakes.signOut.mockReset();
+  authFakes.refreshCalls = 0;
   state.access = () => access(null, true);
   state.activate = () => json(200, { role: "admin" });
   state.activateCalls = 0;
@@ -607,6 +613,59 @@ describe("activación explícita", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent(/error interno/i);
     expect(screen.queryByTestId("mfa")).toBeNull();
     expect(readPendingInvitation("A")).toBe(TOKEN);
+  });
+
+  it("MFA fase 1 — 403 mfa_reenroll_required: conserva el token, renueva la sesión, pide un autenticador NUEVO y no reintenta solo", async () => {
+    state.activate = () =>
+      json(403, { error: "Debes configurar", code: "mfa_reenroll_required" });
+    fireEvent.click(await ready());
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent(/autenticador nuevo/i);
+    expect(alert).toHaveTextContent(/cierra sesión y vuelve a entrar/i);
+    expect(
+      screen.getByRole("link", { name: /verificación en dos pasos/i }),
+    ).toBeInTheDocument();
+    expect(authFakes.refreshCalls).toBe(1);
+    expect(readPendingInvitation("A")).toBe(TOKEN);
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 30));
+    });
+    expect(state.activateCalls).toBe(1); // sin POST automático
+  });
+
+  it("MFA fase 1 — tras renovar, si el servidor ya no reconoce un MFA reciente, el recorrido pasa por /admin/mfa para enrolar", async () => {
+    state.activate = () =>
+      json(403, { error: "Debes configurar", code: "mfa_reenroll_required" });
+    const button = await ready();
+    state.access = () => access(null, false); // la sesión renovada ya no es aal2 reciente
+    fireEvent.click(button);
+
+    expect(await screen.findByTestId("mfa")).toHaveTextContent(
+      "/admin/mfa?returnTo=/admin/activate",
+    );
+    expect(readPendingInvitation("A")).toBe(TOKEN);
+  });
+
+  it("MFA fase 1 — 503 mfa_cleanup_pending: mensaje de espera, conserva el token, sin enlace a MFA ni renovar la sesión", async () => {
+    state.activate = () =>
+      json(503, { error: "Estamos terminando", code: "mfa_cleanup_pending" });
+    fireEvent.click(await ready());
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent(
+      /terminando de restablecer tu autenticador anterior/i,
+    );
+    expect(screen.queryByRole("link", { name: /verificación en dos pasos/i })).toBeNull();
+    expect(authFakes.refreshCalls).toBe(0);
+    expect(readPendingInvitation("A")).toBe(TOKEN);
+  });
+
+  it("MFA fase 1 — un 403 con otro código o un 503 genérico NO se interpretan como reenrolamiento", async () => {
+    state.activate = () => json(403, { error: "x", code: "mfa_reenroll_required " });
+    fireEvent.click(await ready());
+    expect(await screen.findByRole("alert")).toHaveTextContent(/error interno/i);
+    expect(authFakes.refreshCalls).toBe(0);
   });
 
   it("step_up_required: conserva el token → MFA → vuelve → NO se activa solo → otro clic explícito", async () => {

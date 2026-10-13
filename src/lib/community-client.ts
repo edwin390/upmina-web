@@ -286,3 +286,19 @@ export async function fetchCommunityLikedByMe(postIds: string[]): Promise<{
     query: { postIds: postIds.join(",") },
   });
 }
+
+/** R5-F: restricción de publicación VIGENTE de la sesión actual (el servidor la deduce del JWT; no se
+ *  envía ningún id). `null` = el servidor confirmó que no hay sanción. Cualquier fallo (red, 5xx,
+ *  respuesta con forma inesperada) LANZA: nunca se interpreta como «sin restricción». Sin caché. */
+export async function fetchAuthorRestriction(): Promise<AuthorRestrictionView | null> {
+  const body = await request<{ restricted?: unknown; restriction?: unknown }>(
+    "community-author-restriction",
+    { method: "GET" },
+  );
+  if (body?.restricted === false) return null;
+  if (body?.restricted === true) {
+    const parsed = parseAuthorRestriction(body.restriction);
+    if (parsed) return parsed;
+  }
+  throw new CommunityClientError("Respuesta inválida del servidor");
+}

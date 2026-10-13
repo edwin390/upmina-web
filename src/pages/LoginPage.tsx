@@ -12,6 +12,10 @@ import AdminAuthCard from "@/components/admin/AdminAuthCard";
 import AdminAuthField from "@/components/admin/AdminAuthField";
 import EmailVerificationPending from "@/components/auth/EmailVerificationPending";
 import AuthLinkErrorNotice from "@/components/auth/AuthLinkErrorNotice";
+import {
+  ForgotPasswordLink,
+  PasswordUpdatedNotice,
+} from "@/components/auth/PasswordRecoveryLinks";
 import { isAuthLinkSuccess, parseAuthLinkError } from "@/lib/auth-link-error";
 import { parseSafeReturnTo } from "@/lib/safe-return-to";
 
@@ -169,6 +173,10 @@ export default function LoginPage() {
     >
       <form onSubmit={handleSubmit} className="flex flex-col gap-4">
         {linkError ? <AuthLinkErrorNotice kind={linkError} /> : null}
+        {(location.state as { passwordUpdated?: unknown } | null)?.passwordUpdated ===
+        true ? (
+          <PasswordUpdatedNotice />
+        ) : null}
         <AdminAuthField
           label="Email"
           id="public-login-email"
@@ -192,6 +200,9 @@ export default function LoginPage() {
           disabled={isSubmitting}
           errorId={error ? "public-login-error" : undefined}
         />
+        <div className="-mt-2 text-right">
+          <ForgotPasswordLink />
+        </div>
 
         {error ? (
           <p id="public-login-error" role="alert" className="text-sm text-accent-live">

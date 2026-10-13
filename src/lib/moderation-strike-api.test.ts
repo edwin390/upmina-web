@@ -248,8 +248,11 @@ async function call(
   await handler(q, res);
   return state;
 }
+// El aviso por correo del strike es un efecto secundario separado (se prueba en community-strike-notice.test.ts): aquí se inyecta uno
+// nulo para seguir comprobando que el handler solo habla con la BD a través de community_strike_apply.
+const noNotice = { notify: async () => undefined };
 const apply = (token: string | null, body: unknown) =>
-  call(handleModerationStrikeApply, req({ token, body }));
+  call((q, r) => handleModerationStrikeApply(q, r, noNotice), req({ token, body }));
 const revoke = (token: string | null, body: unknown) =>
   call(handleModerationStrikeRevoke, req({ token, body }));
 const names = () => h.rpcLog.map((c) => c.name);
@@ -1172,5 +1175,78 @@ describe("R5-B / R5-C invariants are untouched by the API layer", () => {
   });
   it("R5-B migration is byte-identical to the reviewed one", () => {
     expect(R5B.length).toBeGreaterThan(1000);
+  });
+});
+
+describe("APPLY — aviso por correo del strike confirmado", () => {
+  const withNotify = (
+    token: string,
+    body: unknown,
+    notify: (a: string, s: string) => Promise<unknown>,
+  ) =>
+    call((q, r) => handleModerationStrikeApply(q, r, { notify }), req({ token, body }));
+
+  it("un strike CONFIRMADO dispara exactamente un aviso con el id real del strike y el actor verificado", async () => {
+    const d = await decision();
+    const notify = vi.fn(async () => undefined);
+    const s = await withNotify(
+      "mod-fresh",
+      { decisionId: d.decisionId, reason: REASON },
+      notify,
+    );
+    expect(s.status).toBe(201);
+    expect(notify).toHaveBeenCalledTimes(1);
+    expect(notify).toHaveBeenCalledWith(
+      expect.any(String),
+      (s.body as { strike: { id: string } }).strike.id,
+    );
+  });
+
+  it("un fallo del aviso (excepción) no cambia la respuesta ni repite el strike", async () => {
+    const d = await decision();
+    const notify = vi.fn(async () => {
+      throw new Error("proveedor caído");
+    });
+    const s = await withNotify(
+      "mod-fresh",
+      { decisionId: d.decisionId, reason: REASON },
+      notify,
+    );
+    expect(s.status).toBe(201);
+    expect(notify).toHaveBeenCalledTimes(1);
+    expect(names().filter((n) => n === "community_strike_apply")).toHaveLength(1);
+  });
+
+  it("sin strike no hay correo: doble envío (el segundo falla), decisión inexistente, cuerpo inválido y sin MFA", async () => {
+    const d = await decision();
+    const notify = vi.fn(async () => undefined);
+    const first = await withNotify(
+      "mod-fresh",
+      { decisionId: d.decisionId, reason: REASON },
+      notify,
+    );
+    expect(first.status).toBe(201);
+    const second = await withNotify(
+      "mod-fresh",
+      { decisionId: d.decisionId, reason: REASON },
+      notify,
+    );
+    expect(second.status).toBe(409);
+    expect(second.body).toMatchObject({ code: "strike_already_issued" });
+    const missing = await withNotify(
+      "mod-fresh",
+      { decisionId: "0e000000-0000-4000-8000-0000000fffff", reason: REASON },
+      notify,
+    );
+    expect(missing.status).toBe(404);
+    const invalid = await withNotify("mod-fresh", { decisionId: d.decisionId }, notify);
+    expect(invalid.status).toBe(400);
+    const noMfa = await withNotify(
+      "mod-stale",
+      { decisionId: d.decisionId, reason: REASON },
+      notify,
+    );
+    expect([401, 403]).toContain(noMfa.status);
+    expect(notify).toHaveBeenCalledTimes(1); // solo el strike realmente creado
   });
 });

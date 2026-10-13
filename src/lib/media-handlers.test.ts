@@ -1607,7 +1607,7 @@ describe("R5-S1: abort seguro — nunca se pierde la fila antes de confirmar R2"
   });
 });
 
-describe("R5-C: Community media reserve restriction precheck (non-authoritative)", () => {
+describe("R5-C/R5-F: Community media reserve restriction precheck (fail-closed)", () => {
   const USER = "community-user-r5c";
   const RESTRICTED = {
     restricted: true,
@@ -1657,12 +1657,58 @@ describe("R5-C: Community media reserve restriction precheck (non-authoritative)
     expect(res.status).toHaveBeenCalledWith(200);
     expect(mediaDb.media_assets).toHaveLength(1);
   });
-  it("NOT the security boundary: if the read fails the reserve proceeds (the DB writers still reject publication)", async () => {
+  it.each([
+    ["error técnico de la RPC", { data: null, error: { message: "boom" } }],
+    ["respuesta vacía", { data: null, error: null }],
+    ["forma inesperada", { data: { restricted: "talvez" }, error: null }],
+    [
+      "nivel fuera de rango",
+      {
+        data: { restricted: true, level: 7, permanent: false, endsAt: null, reason: "x" },
+        error: null,
+      },
+    ],
+  ])(
+    "FAIL-CLOSED (%s): 503 restriction_unavailable ANTES de crear fila, sesión R2 o URLs",
+    async (_name, result) => {
+      restrictionFake.result = result;
+      const res = makeRes();
+      await handleMediaReserve(reserve(), res);
+      expect(res.status).toHaveBeenCalledWith(503);
+      expect(res.json).toHaveBeenCalledWith(
+        expect.objectContaining({ code: "restriction_unavailable" }),
+      );
+      expect(
+        JSON.stringify((res.json as ReturnType<typeof vi.fn>).mock.calls),
+      ).not.toMatch(/boom/);
+      expect(mediaDb.media_assets).toHaveLength(0);
+      expect(r2Mocks.presignPrivatePut).not.toHaveBeenCalled();
+      expect(r2Mocks.createPrivateMultipartUpload).not.toHaveBeenCalled();
+    },
+  );
+  it("FAIL-CLOSED también para un vídeo multipart: ninguna sesión R2", async () => {
     restrictionFake.result = { data: null, error: { message: "boom" } };
     const res = makeRes();
+    await handleMediaReserve(
+      makeReq({
+        domain: "community",
+        kind: "video",
+        sourceMime: "video/mp4",
+        sourceBytes: 90 * 1024 * 1024,
+      }),
+      res,
+    );
+    expect(res.status).toHaveBeenCalledWith(503);
+    expect(r2Mocks.createPrivateMultipartUpload).not.toHaveBeenCalled();
+    expect(mediaDb.media_assets).toHaveLength(0);
+  });
+  it("con restricción vigente: 403 antes de reservar, sin URL ni sesión R2", async () => {
+    restrictionFake.result = { data: RESTRICTED, error: null };
+    const res = makeRes();
     await handleMediaReserve(reserve(), res);
-    expect(res.status).toHaveBeenCalledWith(200);
-    expect(mediaDb.media_assets).toHaveLength(1);
+    expect(res.status).toHaveBeenCalledWith(403);
+    expect(r2Mocks.presignPrivatePut).not.toHaveBeenCalled();
+    expect(r2Mocks.createPrivateMultipartUpload).not.toHaveBeenCalled();
   });
   it("Cosplay (admin) reservations never consult the restriction", async () => {
     restrictionFake.result = { data: RESTRICTED, error: null };
@@ -1876,9 +1922,10 @@ describe("R5-C: Community media reserve restriction precheck (non-authoritative)
         expect(restrictionFake.calls).toEqual([]);
       },
     );
-    it("el precheck declara no ser la autorización: la comprobación autoritativa de publicación vive en la BD", () => {
+    it("el precheck declara ser fail-closed y no la autorización: la comprobación autoritativa de publicación vive en la BD", () => {
       const src = readFileSync("src/lib/media-handlers.ts", "utf8");
-      expect(src).toMatch(/precheck NO AUTORITATIVO/);
+      expect(src).toMatch(/FAIL-CLOSED/);
+      expect(src).toMatch(/escritores de la BD siguen siendo la autoridad/);
       const sql = readFileSync(
         "supabase/migrations/20261025120000_account_complete_authority.sql",
         "utf8",

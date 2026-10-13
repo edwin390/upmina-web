@@ -17,6 +17,8 @@ const errors: Record<string, number> = {
   cycle_state_conflict: 409,
   post_state_conflict: 409,
   decision_already_exists: 409,
+  // COPY-1 2B: la publicación tiene una retirada o apelación de copyright activa; no puede eliminarse por este camino.
+  post_copyright_protected: 409,
 };
 export async function handleModerationCaseDecision(
   req: VercelRequest,

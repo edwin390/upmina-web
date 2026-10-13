@@ -90,6 +90,9 @@
       "harassment": "Acoso",
       "hate_speech": "Discurso de odio",
       "sexual_content": "Contenido sexual",
+      "violence": "Violencia",
+      "off_topic": "Ajeno a Mina",
+      "ai_generated": "Generado con IA",
       "other": "Otro"
     },
     "hiddenOnly": "Solo ocultas preventivamente",
@@ -125,5 +128,508 @@
     "retry": "Reintentar carga",
     "retryHint": "Si sigue fallando, actualiza el caso: el acceso al archivo puede haber caducado.",
     "videoFallback": "Vídeo sin vista previa"
+  },
+  "report": {
+    "trigger": "Reportar",
+    "triggerLabel": "Reportar esta publicación",
+    "reported": "Reportada",
+    "title": "Reportar publicación",
+    "intro": "Cuéntanos qué pasa con esta publicación. El equipo de moderación la revisará; tu identidad no se muestra a otros usuarios.",
+    "reasonLegend": "Motivo del reporte",
+    "reasons": {
+      "harassment": "Acoso o intimidación",
+      "hate_speech": "Discriminación o discurso de odio",
+      "sexual_content": "Contenido sexual",
+      "violence": "Violencia o amenazas",
+      "off_topic": "Contenido ajeno a Mina",
+      "ai_generated": "Imágenes o videos generados con IA",
+      "spam": "Spam o engaño",
+      "other": "Otro motivo"
+    },
+    "copyrightNote": "Si eres el titular de los derechos de autor de lo publicado, este reporte no es el canal adecuado: usa el formulario de reclamación de copyright.",
+    "copyrightLink": "Abrir el formulario de copyright",
+    "detailLabel": "Explicación (opcional)",
+    "detailHelp": "No incluyas datos personales tuyos ni de otras personas.",
+    "counter": "{count} de {max} caracteres",
+    "submit": "Enviar reporte",
+    "sending": "Enviando…",
+    "cancel": "Cancelar",
+    "close": "Cerrar",
+    "successTitle": "Reporte enviado",
+    "successBody": "Gracias. El equipo de moderación lo revisará.",
+    "successAlready": "Ya habías reportado esta publicación. Tu reporte sigue en revisión.",
+    "errors": {
+      "reasonRequired": "Elige un motivo.",
+      "detailTooLong": "La explicación no puede superar {max} caracteres.",
+      "detailInvalid": "La explicación contiene caracteres no permitidos.",
+      "selfReport": "No puedes reportar tu propia publicación.",
+      "notFound": "Esta publicación ya no existe.",
+      "notReportable": "Esta publicación ya no se puede reportar.",
+      "unauthenticated": "Inicia sesión para reportar.",
+      "generic": "No pudimos enviar el reporte. Inténtalo de nuevo en unos minutos."
+    }
+  },
+  "copyright": {
+    "form": {
+      "title": "Reclamación de derechos de autor",
+      "intro": "Si eres titular de derechos, o actúas en su nombre, y crees que una publicación de la comunidad infringe tu obra, cuéntanoslo aquí. No necesitas una cuenta.",
+      "manualReview": "Una persona del equipo de moderación revisa cada reclamación. Enviarla no retira ni oculta ninguna publicación de forma automática.",
+      "legend": {
+        "claimant": "Tus datos",
+        "work": "La obra y la publicación",
+        "statements": "Declaraciones"
+      },
+      "fields": {
+        "claimantName": "Nombre completo",
+        "claimantEmail": "Correo de contacto",
+        "organization": "Organización (opcional)",
+        "relationship": "Tu relación con la obra",
+        "workDescription": "Describe la obra",
+        "infringementDescription": "Qué parte de la publicación la infringe",
+        "evidenceUrls": "Enlaces que demuestren tu titularidad",
+        "postUrl": "Enlace de la publicación",
+        "signature": "Firma (tu nombre completo)"
+      },
+      "hints": {
+        "workDescription": "Título, autoría, año y dónde se publicó originalmente.",
+        "infringementDescription": "Explica qué contenido de la publicación es tuyo o copia tu obra.",
+        "evidenceUrls": "Un enlace por línea (máximo 5, solo http o https). No se aceptan archivos adjuntos.",
+        "postUrl": "Pega la dirección de la publicación (por ejemplo, la que termina en /community/…).",
+        "signature": "Escribir tu nombre equivale a firmar esta reclamación."
+      },
+      "relationship": {
+        "placeholder": "Selecciona una opción",
+        "owner": "Soy el titular de los derechos",
+        "authorized_representative": "Represento al titular con su autorización"
+      },
+      "statements": {
+        "intro": "Al enviar confirmas que:",
+        "rightsHolder": "Soy el titular de los derechos de la obra descrita, o estoy autorizado/a para actuar en su nombre.",
+        "goodFaith": "Creo de buena fe que el uso descrito no está autorizado por el titular, su representante ni la ley.",
+        "accurate": "La información de esta reclamación es exacta, según mi mejor conocimiento.",
+        "accept": "Confirmo estas declaraciones"
+      },
+      "errors": {
+        "required": "Este campo es obligatorio.",
+        "tooShort": "Es demasiado corto.",
+        "tooLong": "Es demasiado largo.",
+        "invalid": "El valor no es válido.",
+        "evidenceUrlsInvalid": "Revisa los enlaces: uno por línea, empiezan por http:// o https:// y no llevan espacios.",
+        "evidenceUrlsTooMany": "Puedes incluir como máximo 5 enlaces.",
+        "statementsRequired": "Debes confirmar las declaraciones para enviar la reclamación."
+      },
+      "submit": "Enviar reclamación",
+      "submitting": "Enviando…",
+      "received": {
+        "title": "Reclamación recibida",
+        "body": "Gracias. El equipo de moderación la revisará y, si necesita más información, te escribirá al correo que indicaste.",
+        "reference": "Referencia",
+        "referenceHint": "Guarda esta referencia por si necesitas mencionarla."
+      },
+      "failures": {
+        "rateLimited": "Has enviado demasiadas reclamaciones. Inténtalo de nuevo en {minutes} min.",
+        "invalid": "No pudimos validar el formulario. Revisa los datos e inténtalo de nuevo.",
+        "unavailable": "No pudimos enviar la reclamación. Inténtalo de nuevo en unos minutos; tus datos siguen en el formulario."
+      }
+    },
+    "panel": {
+      "sections": {
+        "label": "Secciones de moderación",
+        "reports": "Reportes de Community",
+        "copyright": "Copyright"
+      },
+      "title": "Reclamaciones de copyright",
+      "safeNote": "Revisar una reclamación solo cambia su estado. La publicación únicamente se oculta con la acción explícita «Retirar la publicación», que exige una segunda confirmación.",
+      "scope": {
+        "open": "Abiertas",
+        "closed": "Cerradas"
+      },
+      "refresh": "Actualizar",
+      "loading": "Cargando reclamaciones…",
+      "loadError": "No se pudieron cargar las reclamaciones.",
+      "retry": "Reintentar",
+      "empty": {
+        "open": "No hay reclamaciones abiertas.",
+        "closed": "Todavía no hay reclamaciones cerradas."
+      },
+      "next": "Siguiente página",
+      "open": "Abrir detalles",
+      "postFound": {
+        "yes": "Publicación encontrada",
+        "no": "Publicación no encontrada"
+      },
+      "status": {
+        "received": "Recibida",
+        "in_review": "En revisión",
+        "needs_info": "Falta información",
+        "dismissed": "Descartada",
+        "withdrawn": "Retirada por el reclamante",
+        "removed": "Publicación retirada",
+        "appeal_pending": "Apelación pendiente",
+        "restored": "Restaurada tras apelación",
+        "purged": "Eliminada definitivamente"
+      },
+      "relationship": {
+        "owner": "Titular de los derechos",
+        "authorized_representative": "Representante autorizado"
+      },
+      "detail": {
+        "title": "Detalles de la reclamación",
+        "close": "Cerrar detalles",
+        "loading": "Cargando el detalle…",
+        "loadError": "No se pudo cargar la reclamación.",
+        "fields": {
+          "claimant": "Reclamante",
+          "email": "Correo",
+          "organization": "Organización",
+          "relationship": "Relación con la obra",
+          "work": "Obra",
+          "infringement": "Qué infringe",
+          "evidence": "Enlaces de prueba",
+          "claimedPost": "Publicación indicada",
+          "snapshot": "Texto de la publicación al recibir la reclamación",
+          "snapshotEmpty": "Sin texto o publicación no encontrada",
+          "mediaCount": "Medios adjuntos al recibirla",
+          "currentStatus": "Estado actual de la publicación",
+          "postGone": "La publicación ya no existe",
+          "signature": "Firma",
+          "statements": "Versión de las declaraciones",
+          "received": "Recibida"
+        },
+        "eventsTitle": "Historial de la reclamación",
+        "actor": {
+          "claimant": "Reclamante",
+          "human": "Moderación"
+        }
+      },
+      "events": {
+        "received": "Reclamación recibida",
+        "review_started": "Revisión iniciada",
+        "info_requested": "Se pidió más información",
+        "review_resumed": "Revisión reanudada",
+        "note": "Nota añadida",
+        "dismissed": "Reclamación descartada",
+        "withdrawn": "Reclamación retirada por el reclamante",
+        "removed": "Publicación retirada (oculta)",
+        "notified": "Aviso enviado al autor",
+        "notification_failed": "Fallo al enviar el aviso al autor",
+        "token_reissued": "Enlace de apelación reemitido",
+        "appeal_submitted": "Apelación presentada por el autor",
+        "appeal_accepted": "Apelación aceptada",
+        "appeal_rejected": "Apelación rechazada",
+        "restored": "Publicación restaurada",
+        "purged": "Publicación eliminada definitivamente",
+        "strike_applied": "Strike aplicado",
+        "strike_notified": "Aviso del strike enviado al autor",
+        "strike_notification_failed": "Falló el aviso del strike al autor"
+      },
+      "actions": {
+        "title": "Revisión",
+        "noteLabel": "Nota de revisión",
+        "noteHelp": "Obligatoria para pedir información, descartar, registrar una retirada o añadir una nota. Máximo 1000 caracteres.",
+        "start_review": "Iniciar revisión",
+        "request_info": "Pedir más información",
+        "resume_review": "Reanudar revisión",
+        "dismiss": "Descartar reclamación",
+        "withdraw": "Registrar retirada del reclamante",
+        "add_note": "Añadir nota",
+        "submitting": "Guardando…",
+        "done": "Revisión registrada.",
+        "closed": "Esta reclamación está cerrada y ya no admite cambios.",
+        "errors": {
+          "note_required": "Escribe una nota para esta acción.",
+          "invalid_note": "La nota no es válida (1 a 1000 caracteres, sin caracteres de control).",
+          "version_conflict": "La reclamación cambió mientras la revisabas. Hemos recargado los datos; revisa y vuelve a intentarlo.",
+          "invalid_transition": "Esa acción ya no es posible en el estado actual.",
+          "generic": "No se pudo registrar la revisión. Inténtalo de nuevo."
+        }
+      },
+      "removal": {
+        "title": "Retirada, apelación y eliminación",
+        "working": "Procesando…",
+        "remove": {
+          "intro": "Retirar OCULTA la publicación al instante, sin borrar sus archivos, y avisa al autor por correo (en inglés) con la referencia, el motivo y un enlace personal de apelación. Antes de retirar, comprueba manualmente la legitimidad de la persona reclamante y sus pruebas.",
+          "noPost": "No se puede retirar: la publicación no se ha localizado.",
+          "notPublished": "No se puede retirar: la publicación no está publicada (estado actual: {status}).",
+          "reasonLabel": "Motivo de la retirada (lo recibe el autor)",
+          "reasonHelp": "Entre 10 y 1000 caracteres. Se copia tal cual en el correo al autor: escríbelo en inglés y sin datos personales de la persona reclamante.",
+          "review": "Revisar y retirar…",
+          "done": "Publicación retirada. El autor ha sido avisado por correo."
+        },
+        "confirm": {
+          "reference": "Referencia",
+          "post": "Publicación",
+          "noText": "(sin texto)",
+          "details": "Datos",
+          "media": "{count} archivos adjuntos",
+          "version": "versión {version}",
+          "reason": "Motivo que recibirá el autor",
+          "removeTitle": "Confirmar la retirada",
+          "removeWarning": "La publicación se ocultará ahora mismo. No se elimina nada. Se enviará un correo en inglés al autor con la referencia, el motivo y un enlace personal de apelación.",
+          "removeConfirm": "Confirmar retirada",
+          "cancel": "Cancelar",
+          "purgeTitle": "Confirmar la eliminación definitiva",
+          "purgeWarning": "Se eliminará la publicación y se marcarán sus archivos exclusivos para su borrado. No se puede deshacer.",
+          "purgeConfirm": "Eliminar definitivamente"
+        },
+        "info": {
+          "removedAt": "Retirada el",
+          "reason": "Motivo",
+          "currentPost": "Estado actual de la publicación",
+          "postGone": "Ya no existe",
+          "notice": "Aviso inicial al autor",
+          "noticeSent": "Enviado el {date}",
+          "noticePending": "Sin enviar",
+          "attempts": "Intentos fallidos: {count}",
+          "lastError": "Último error: {error}",
+          "window": "Plazo de apelación",
+          "deadline": "Plazo hasta",
+          "deadlinePending": "Empieza cuando se confirme el envío del aviso inicial."
+        },
+        "window": {
+          "m60": "1 hora (entorno de pruebas)",
+          "m1440": "24 horas"
+        },
+        "noticeErrors": {
+          "not_configured": "el correo no está configurado",
+          "rejected": "el proveedor rechazó el mensaje",
+          "rate_limited": "límite del proveedor de correo",
+          "provider_unavailable": "proveedor de correo no disponible",
+          "timeout": "tiempo de espera agotado",
+          "invalid_response": "respuesta no válida del proveedor",
+          "no_recipient": "la cuenta del autor no tiene correo"
+        },
+        "notice": {
+          "failedNow": "La decisión se ha guardado, pero el aviso al autor no se pudo enviar ({error}). Queda pendiente de reenvío.",
+          "resent": "Aviso enviado al autor.",
+          "initialPending": "El aviso inicial al autor no se ha enviado todavía: el plazo de apelación no ha empezado y la eliminación definitiva está bloqueada.",
+          "resendInitial": "Reintentar el aviso al autor",
+          "resolutionPending": "El aviso de resolución al autor está pendiente de envío.",
+          "resendResolution": "Reintentar el aviso de resolución",
+          "resolutionSent": "Aviso de resolución enviado el {date}."
+        },
+        "appeal": {
+          "title": "Apelación del autor",
+          "status": "Estado de la apelación",
+          "statuses": {
+            "pending": "Pendiente de resolver",
+            "accepted": "Aceptada",
+            "rejected": "Rechazada"
+          },
+          "submittedAt": "Presentada el",
+          "contact": "Contacto",
+          "reason": "Razón",
+          "reasons": {
+            "own_work": "Es obra propia",
+            "authorized": "Tengo autorización o licencia",
+            "not_infringing": "No infringe derechos de autor",
+            "legal_exception": "Uso amparado por una excepción legal",
+            "mistake": "Se identificó el contenido por error",
+            "other": "Otra razón"
+          },
+          "explanation": "Explicación",
+          "evidenceText": "Pruebas (texto)",
+          "evidenceUrls": "Pruebas (enlaces)",
+          "resolvedAt": "Resuelta el",
+          "resolutionNote": "Justificación de la decisión",
+          "noteLabel": "Justificación de la decisión (obligatoria; se incluye en el correo al autor)",
+          "noteHelp": "Entre 1 y 1000 caracteres. Aceptar restaura la publicación si sigue como la dejó la retirada; rechazar la mantiene oculta.",
+          "accept": "Aceptar apelación y restaurar",
+          "reject": "Rechazar apelación",
+          "acceptedDone": "Apelación aceptada: la publicación se ha restaurado y el caso pasa al historial.",
+          "rejectedDone": "Apelación rechazada: la publicación sigue oculta."
+        },
+        "purge": {
+          "title": "Eliminación definitiva (manual)",
+          "intro": "Nada se elimina por vencimiento del plazo. Esta acción solo la puede hacer una persona de moderación cuando se cumplen todas las condiciones; el servidor las vuelve a comprobar.",
+          "button": "Eliminar definitivamente",
+          "blockers": {
+            "appeal_pending": "Hay una apelación pendiente de resolver.",
+            "not_removed": "La publicación no está en estado de retirada.",
+            "notification_pending": "El aviso inicial al autor aún no se ha enviado correctamente.",
+            "window_open": "El plazo de apelación sigue abierto.",
+            "resolution_notice_pending": "El aviso de resolución al autor está pendiente de envío."
+          },
+          "noteLabel": "Nota de la eliminación (obligatoria)",
+          "done": "Publicación eliminada. {marked} archivos marcados para su borrado; {retained} conservados por estar compartidos o ser ajenos.",
+          "assetsPending": "{count} archivos esperan al proceso de limpieza de almacenamiento.",
+          "assetsDone": "Todos los archivos marcados ya se han eliminado."
+        },
+        "closed": {
+          "restored": "Publicación restaurada el {date}.",
+          "purged": "Publicación eliminada el {date}."
+        },
+        "errors": {
+          "note_required": "Escribe la justificación o la nota que exige esta acción.",
+          "invalid_reason": "El motivo debe tener entre 10 y 1000 caracteres y no puede llevar caracteres de control.",
+          "invalid_note": "El texto no es válido (1 a 1000 caracteres, sin caracteres de control).",
+          "version_conflict": "El caso cambió mientras lo revisabas. Hemos recargado los datos; revisa y vuelve a intentarlo.",
+          "invalid_transition": "Esa acción ya no es posible en el estado actual.",
+          "confirmation_mismatch": "La confirmación no coincide con la reclamación.",
+          "post_state_conflict": "La publicación ya no está en el estado esperado.",
+          "post_version_conflict": "La publicación cambió desde que la viste. Hemos recargado los datos; revisa y vuelve a intentarlo.",
+          "post_not_found": "La publicación ya no existe.",
+          "restore_unsafe": "No se puede restaurar con seguridad: la publicación cambió desde la retirada. La apelación sigue pendiente.",
+          "purge_blocked": "Todavía no se cumplen las condiciones para eliminar definitivamente.",
+          "generic": "No se pudo completar la acción. Inténtalo de nuevo."
+        }
+      },
+      "strike": {
+        "title": "Strike de Copyright",
+        "intro": "El strike es una decisión humana e independiente de la eliminación: solo puede aplicarse cuando la publicación ya fue eliminada definitivamente. Cuenta junto a los strikes de Community para decidir el nivel.",
+        "loading": "Cargando el estado del strike…",
+        "loadError": "No se pudo cargar el estado del strike.",
+        "retry": "Reintentar",
+        "apply": "Aplicar strike…",
+        "confirm": {
+          "title": "Confirmar el strike",
+          "reference": "Reclamación",
+          "level": "Nivel que se aplicará",
+          "reasonLabel": "Motivo del strike (lo recibe el autor)",
+          "reasonHelp": "Obligatorio, hasta 1000 caracteres. Se copia tal cual en el correo al autor: escríbelo en inglés y sin datos personales de la persona reclamante.",
+          "reasonError": "Escribe un motivo (máximo 1000 caracteres).",
+          "irreversible": "El autor recibirá un correo en inglés con el nivel, la duración y este motivo. No hay apelación nueva: solo un administrador puede corregirlo con los controles existentes.",
+          "submit": "Confirmar strike",
+          "working": "Aplicando…",
+          "cancel": "Cancelar"
+        },
+        "effect": {
+          "1": "Bloquea nuevas publicaciones y ediciones de Community durante 14 días.",
+          "2": "Bloquea nuevas publicaciones y ediciones de Community durante 1 mes.",
+          "3": "Bloquea permanentemente nuevas publicaciones y ediciones de Community."
+        },
+        "applied": {
+          "title": "Strike aplicado",
+          "level": "Nivel",
+          "starts": "Desde",
+          "ends": "Hasta",
+          "permanent": "Permanente",
+          "reason": "Motivo",
+          "revoked": "Revocado el {date}"
+        },
+        "notice": {
+          "title": "Aviso al autor",
+          "sent": "Enviado por correo.",
+          "pending": "Pendiente de envío.",
+          "failed": "El envío falló ({error}). Puedes reintentarlo.",
+          "resend": "Reenviar aviso",
+          "resending": "Reenviando…"
+        },
+        "blockers": {
+          "claim_not_purged": "El strike solo puede aplicarse cuando la publicación ha sido eliminada definitivamente.",
+          "author_unavailable": "No se puede aplicar un strike: la cuenta del autor ya no está disponible.",
+          "self_strike_forbidden": "No puedes aplicar un strike sobre tu propio contenido.",
+          "strike_already_issued": "Esta reclamación ya tiene un strike."
+        },
+        "done": "Strike aplicado.",
+        "doneNoticeFailed": "Strike aplicado, pero el aviso por correo falló: puedes reenviarlo.",
+        "errors": {
+          "level_changed": "El nivel cambió mientras confirmabas. Revisa el nuevo nivel y confirma de nuevo.",
+          "strike_already_issued": "Esta reclamación ya tiene un strike.",
+          "claim_not_purged": "El strike solo puede aplicarse tras la eliminación definitiva.",
+          "author_unavailable": "La cuenta del autor ya no está disponible.",
+          "self_strike_forbidden": "No puedes aplicar un strike sobre tu propio contenido.",
+          "reason_required": "Escribe un motivo.",
+          "generic": "No se pudo completar la acción. Inténtalo de nuevo."
+        }
+      }
+    },
+    "appeal": {
+      "title": "Apelación de una retirada por copyright",
+      "intro": "Si crees que retiramos una de tus publicaciones por error, puedes apelar aquí. Una persona del equipo de moderación decide cada apelación; presentarla no restaura nada por sí sola.",
+      "loading": "Comprobando el enlace…",
+      "incomplete": {
+        "title": "Enlace incompleto",
+        "body": "Abre de nuevo el enlace personal del correo que recibiste para apelar. Si cambiaste de dispositivo, vuelve a abrir ese enlace allí."
+      },
+      "signIn": {
+        "title": "Inicia sesión con la cuenta autora",
+        "body": "Para apelar debes iniciar sesión con la misma cuenta que publicó la publicación retirada. Después volverás a esta página.",
+        "button": "Iniciar sesión"
+      },
+      "notAvailable": {
+        "title": "Apelación no disponible",
+        "body": "Este enlace no es válido para tu cuenta, o la apelación ya no está disponible. Comprueba que has iniciado sesión con la cuenta autora y que abres el enlace más reciente del correo."
+      },
+      "reference": "Referencia",
+      "removalReason": "Motivo de la retirada",
+      "deadline": "Puedes apelar hasta",
+      "state": {
+        "submitted": {
+          "title": "Apelación presentada",
+          "body": "Ya presentaste una apelación para esta retirada. Te avisaremos por correo cuando se resuelva."
+        },
+        "expired": {
+          "title": "El plazo para apelar terminó",
+          "body": "Ya no se admiten apelaciones para esta retirada. La publicación sigue oculta; una persona de moderación decidirá los siguientes pasos."
+        },
+        "closed": {
+          "title": "Este caso ya está cerrado",
+          "body": "Ya no se puede apelar esta retirada."
+        }
+      },
+      "appealStatus": {
+        "pending": "Estado: pendiente de resolver.",
+        "accepted": "Estado: apelación aceptada.",
+        "rejected": "Estado: apelación rechazada."
+      },
+      "noUploads": "Solo se piden texto y enlaces. No subas documentos de identidad ni archivos: este formulario no los admite.",
+      "legend": {
+        "contact": "Datos de contacto",
+        "appeal": "Tu apelación",
+        "statement": "Declaración"
+      },
+      "fields": {
+        "contactName": "Nombre de contacto",
+        "contactEmail": "Correo de contacto",
+        "reason": "Razón de la apelación",
+        "explanation": "Explica por qué la retirada es un error",
+        "evidenceText": "Pruebas (texto)",
+        "evidenceUrls": "Pruebas (enlaces)"
+      },
+      "hints": {
+        "explanation": "Entre 10 y 2000 caracteres.",
+        "evidence": "Indica pruebas en texto, en enlaces o en ambos (al menos uno).",
+        "evidenceUrls": "Un enlace por línea (máximo 5, solo http o https)."
+      },
+      "reasons": {
+        "placeholder": "Selecciona una razón",
+        "own_work": "Es obra propia",
+        "authorized": "Tengo autorización o licencia",
+        "not_infringing": "No infringe derechos de autor",
+        "legal_exception": "Uso amparado por una excepción legal",
+        "mistake": "Se identificó el contenido por error",
+        "other": "Otra razón"
+      },
+      "statement": "Declaro que la información de esta apelación es verdadera y exacta según mi mejor conocimiento.",
+      "errors": {
+        "required": "Este campo es obligatorio.",
+        "tooShort": "Es demasiado corto.",
+        "tooLong": "Es demasiado largo.",
+        "invalid": "El valor no es válido.",
+        "evidenceRequired": "Aporta pruebas en texto o en enlaces.",
+        "evidenceUrlsInvalid": "Revisa los enlaces: uno por línea, empiezan por http:// o https:// y no llevan espacios.",
+        "evidenceUrlsTooMany": "Puedes incluir como máximo 5 enlaces.",
+        "statementRequired": "Debes confirmar la declaración para presentar la apelación."
+      },
+      "submit": "Presentar apelación",
+      "submitting": "Enviando…",
+      "submitted": {
+        "title": "Apelación presentada",
+        "body": "Gracias. El equipo de moderación la revisará y te avisaremos por correo de la decisión. La publicación no se elimina mientras la apelación esté pendiente."
+      },
+      "failures": {
+        "invalid": "No pudimos validar el formulario. Revisa los datos e inténtalo de nuevo.",
+        "error": "No pudimos completar la operación. Inténtalo de nuevo en unos minutos.",
+        "alreadySubmitted": "Ya se presentó una apelación para esta retirada.",
+        "windowClosed": "El plazo para apelar ya terminó.",
+        "notAvailable": "Esta apelación ya no está disponible.",
+        "unauthenticated": "Tu sesión terminó. Inicia sesión de nuevo y abre otra vez el enlace del correo."
+      }
+    }
+  },
+  "caseDetail": {
+    "title": "Detalles del reporte",
+    "close": "Cerrar detalles"
   }
 }

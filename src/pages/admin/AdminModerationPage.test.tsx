@@ -247,9 +247,9 @@ describe("R3 grouped case UX", () => {
       finish?.(ok({ item: makeCase(1) }));
     });
     await waitFor(() =>
-      expect(screen.getByRole("region", { name: "Detalle del caso" })).toHaveTextContent(
-        "Caso " + testId(1, 2),
-      ),
+      expect(
+        screen.getByRole("region", { name: "Detalles del reporte" }),
+      ).toHaveTextContent("Caso " + testId(1, 2)),
     );
     expect(screen.queryByText(new RegExp("Caso " + testId(1, 1)))).toBeNull();
   });
@@ -284,7 +284,7 @@ describe("R3 grouped case UX", () => {
     renderPage();
     await screen.findByText("Contenido 2");
     fireEvent.click(card(2));
-    const panel = await screen.findByRole("region", { name: "Detalle del caso" });
+    const panel = await screen.findByRole("region", { name: "Detalles del reporte" });
     expect(card(2).nextElementSibling).toBe(panel);
     expect(card(2).parentElement?.nextElementSibling).toContainElement(card(3));
     expect(card(2)).toHaveAttribute("aria-expanded", "true");
@@ -292,9 +292,11 @@ describe("R3 grouped case UX", () => {
     fireEvent.click(card(3));
     await screen.findByText(new RegExp("Caso " + testId(1, 3)));
     expect(card(2)).toHaveAttribute("aria-expanded", "false");
-    expect(screen.getAllByRole("region", { name: "Detalle del caso" })).toHaveLength(1);
+    expect(screen.getAllByRole("region", { name: "Detalles del reporte" })).toHaveLength(
+      1,
+    );
     expect(card(3).nextElementSibling).toBe(
-      screen.getByRole("region", { name: "Detalle del caso" }),
+      screen.getByRole("region", { name: "Detalles del reporte" }),
     );
     expect(writes).toEqual([]);
   });
@@ -343,8 +345,8 @@ describe("R3 grouped case UX", () => {
       await screen.findByText("Contenido 1");
       fireEvent.click(card(1));
       await screen.findByText(new RegExp("Caso " + testId(1, 1)));
-      fireEvent.click(screen.getByRole("button", { name: "Cerrar detalle del caso" }));
-      expect(screen.queryByRole("region", { name: "Detalle del caso" })).toBeNull();
+      fireEvent.click(screen.getByRole("button", { name: "Cerrar detalles" }));
+      expect(screen.queryByRole("region", { name: "Detalles del reporte" })).toBeNull();
       expect(card(1)).toHaveFocus();
       expect(screen.getByRole("button", { name: "Historial" })).toHaveAttribute(
         "aria-pressed",
@@ -410,6 +412,38 @@ describe("R3 grouped case UX", () => {
       screen.getByRole("button", { name: "Reintentar detalle" }),
     ).toBeInTheDocument();
   });
+  it("detail is a bordered card with a heading, a visible close button and the same data", async () => {
+    setupCases();
+    renderPage();
+    await screen.findByText("Contenido 1");
+    fireEvent.click(card(1));
+    await screen.findByText(new RegExp("Caso " + testId(1, 1)));
+    const region = screen.getByRole("region", { name: "Detalles del reporte" });
+    expect(region.className).toMatch(/rounded-md/);
+    expect(region.className).toMatch(/\bborder\b/);
+    expect(
+      within(region).getByRole("heading", { level: 2, name: "Detalles del reporte" }),
+    ).toBeInTheDocument();
+    expect(
+      within(region).getByRole("heading", { name: "Contexto de la publicación" }),
+    ).toBeInTheDocument();
+    fireEvent.click(within(region).getByRole("button", { name: "Cerrar detalles" }));
+    expect(screen.queryByRole("region", { name: "Detalles del reporte" })).toBeNull();
+  });
+  it.each([
+    ["en", "Report details", "Close details"],
+    ["de", "Details der Meldung", "Details schließen"],
+  ])(
+    "detail card texts follow the active language (%s)",
+    async (locale, title, close) => {
+      window.localStorage.setItem("upmina:locale", locale);
+      setupCases();
+      renderPage();
+      fireEvent.click(await screen.findByRole("button", { name: /Contenido 1/ }));
+      const region = await screen.findByRole("region", { name: title });
+      expect(within(region).getByRole("button", { name: close })).toBeInTheDocument();
+    },
+  );
   it("responsive detail uses available width and wraps unbroken text/media", async () => {
     setupCases();
     renderPage();
@@ -419,9 +453,9 @@ describe("R3 grouped case UX", () => {
     expect(screen.getByText("<script>secret</script>").className).toContain(
       "[overflow-wrap:anywhere]",
     );
-    expect(screen.getByRole("region", { name: "Detalle del caso" }).className).toContain(
-      "min-w-0",
-    );
+    expect(
+      screen.getByRole("region", { name: "Detalles del reporte" }).className,
+    ).toContain("min-w-0");
   });
 });
 
@@ -537,7 +571,7 @@ describe("R4-B grouped decisions", () => {
       expectedPostVersion: 5,
       resolutionMessage: null,
     });
-    expect(screen.queryByRole("region", { name: "Detalle del caso" })).toBeNull();
+    expect(screen.queryByRole("region", { name: "Detalles del reporte" })).toBeNull();
     expect(showActionSuccess).toHaveBeenCalledOnce();
     expect(notifyCommunityVisibility).toHaveBeenCalledOnce();
     fireEvent.click(screen.getByRole("button", { name: "Historial" }));
@@ -780,14 +814,14 @@ it.each(["close", "tab"])("pending detail cannot reopen after %s", async (mode) 
   await screen.findByText("Cargando caso…");
   fireEvent.click(
     screen.getByRole("button", {
-      name: mode === "close" ? "Cerrar detalle del caso" : "Historial",
+      name: mode === "close" ? "Cerrar detalles" : "Historial",
     }),
   );
   await act(async () => {
     finish?.(ok({ item: makeCase(1) }));
   });
   await waitFor(() =>
-    expect(screen.queryByRole("region", { name: "Detalle del caso" })).toBeNull(),
+    expect(screen.queryByRole("region", { name: "Detalles del reporte" })).toBeNull(),
   );
   expect(card(1)).toHaveAttribute("aria-expanded", "false");
   expect(showActionSuccess).not.toHaveBeenCalled();
@@ -858,7 +892,7 @@ describe("R4-E4 purged history", () => {
     const slow = { timeout: 5000 };
     fireEvent.click(await screen.findByRole("button", { name: "Historial" }, slow));
     fireEvent.click(await screen.findByRole("button", { name }, slow));
-    await screen.findByRole("region", { name: "Detalle del caso" }, slow);
+    await screen.findByRole("region", { name: "Detalles del reporte" }, slow);
   }
   it("a physically purged case stays in History, opens and renders a neutral deleted state", async () => {
     await openHistory(purgedCase(), /Publicación eliminada definitivamente/);
@@ -1034,7 +1068,11 @@ describe("R5-E strike UX in moderation History", () => {
     const slow = { timeout: 5000 };
     fireEvent.click(await screen.findByRole("button", { name: "Historial" }, slow));
     fireEvent.click(await screen.findByRole("button", { name: /Contenido 1/ }, slow));
-    await screen.findByRole("region", { name: "Detalle del caso" }, slow);
+    await screen.findByRole(
+      "region",
+      { name: /Detalles del reporte|Report details/ },
+      slow,
+    );
   }
   const section = () => screen.getByRole("region", { name: "Sanción al autor" });
   const reasonBox = () => screen.getByRole("textbox", { name: /Motivo/ });
@@ -1089,7 +1127,7 @@ describe("R5-E strike UX in moderation History", () => {
       strikeSetup(closedCase(eligible(1)), undefined, { activeToo: true });
       renderPage();
       fireEvent.click(await screen.findByRole("button", { name: /Contenido 1/ }));
-      await screen.findByRole("region", { name: "Detalle del caso" });
+      await screen.findByRole("region", { name: "Detalles del reporte" });
       expect(screen.queryByRole("region", { name: "Sanción al autor" })).toBeNull();
     });
     it("No procede / not-actionable decisions show no strike section", async () => {
@@ -1537,7 +1575,7 @@ describe("R5-E strike UX in moderation History", () => {
       strikeSetup(unavailableCase(), undefined, { activeToo: true });
       renderPage();
       fireEvent.click(await screen.findByRole("button", { name: /Contenido 1/ }));
-      await screen.findByRole("region", { name: "Detalle del caso" });
+      await screen.findByRole("region", { name: "Detalles del reporte" });
       expect(
         screen.queryByText(/No se pudo consultar el estado de la sanción/),
       ).toBeNull();
@@ -1820,7 +1858,7 @@ describe("R5-E strike UX in moderation History", () => {
         strikeSetup(closedCase(eligible(1)), undefined, { activeToo: true });
         renderPage();
         fireEvent.click(await screen.findByRole("button", { name: /Contenido 1/ }));
-        await screen.findByRole("region", { name: "Detalle del caso" });
+        await screen.findByRole("region", { name: "Detalles del reporte" });
         expect(screen.queryByRole("button", { name: /Aplicar Strike/ })).toBeNull();
       });
     });
@@ -1966,7 +2004,7 @@ describe("R5-E strike UX in moderation History", () => {
       fireEvent.click(
         await screen.findByRole("button", { name: /Publicación no disponible/ }),
       );
-      await screen.findByRole("region", { name: "Detalle del caso" });
+      await screen.findByRole("region", { name: "Detalles del reporte" });
       expect(section()).toHaveTextContent("Próximo strike: Strike 1");
     });
     it("Procede decision still never applies a strike and says so", async () => {
@@ -2379,12 +2417,12 @@ describe("R5-G filtros, paginación y continuidad de la cola", () => {
       );
       await loaded();
       fireEvent.click(card(2));
-      const panel = await screen.findByRole("region", { name: "Detalle del caso" });
+      const panel = await screen.findByRole("region", { name: "Detalles del reporte" });
       expect(panel).toHaveTextContent("Caso " + testId(1, 2));
       click("Actualizar contexto");
       await waitFor(() =>
         expect(
-          screen.getByRole("region", { name: "Detalle del caso" }),
+          screen.getByRole("region", { name: "Detalles del reporte" }),
         ).toHaveTextContent("Caso " + testId(1, 2)),
       );
       expect(card(2)).toHaveAttribute("aria-expanded", "true");
@@ -2394,12 +2432,12 @@ describe("R5-G filtros, paginación y continuidad de la cola", () => {
       queueServer(() => ok({ cases: [makeCase(1), makeCase(2)], nextCursor: null }));
       await loaded();
       fireEvent.click(card(2));
-      await screen.findByRole("region", { name: "Detalle del caso" });
+      await screen.findByRole("region", { name: "Detalles del reporte" });
       fireEvent.change(reasonSelect(), { target: { value: "spam" } });
       await waitFor(() => expect(screen.queryByText("Actualizando…")).toBeNull());
       expect(card(2)).toHaveAttribute("aria-expanded", "true");
       expect(
-        screen.getByRole("region", { name: "Detalle del caso" }),
+        screen.getByRole("region", { name: "Detalles del reporte" }),
       ).toBeInTheDocument();
     });
 
@@ -2412,10 +2450,10 @@ describe("R5-G filtros, paginación y continuidad de la cola", () => {
       );
       await loaded();
       fireEvent.click(card(2));
-      await screen.findByRole("region", { name: "Detalle del caso" });
+      await screen.findByRole("region", { name: "Detalles del reporte" });
       fireEvent.change(reasonSelect(), { target: { value: "spam" } });
       await waitFor(() => expect(screen.queryByText("Contenido 2")).toBeNull());
-      expect(screen.queryByRole("region", { name: "Detalle del caso" })).toBeNull();
+      expect(screen.queryByRole("region", { name: "Detalles del reporte" })).toBeNull();
     });
 
     it("error al ACTUALIZAR la misma vista: se conservan los resultados y se avisa con reintento", async () => {
@@ -2764,7 +2802,9 @@ describe("R5-H multimedia en el detalle de moderación", () => {
     setupCases({ items: [withMedia(1, items)] });
     renderPage();
     fireEvent.click(await screen.findByRole("button", { name: /Contenido 1/ }));
-    await screen.findByRole("region", { name: "Detalle del caso" });
+    await screen.findByRole("region", {
+      name: /Detalles del reporte|Report details|Details der Meldung/,
+    });
   }
   const img = (label: RegExp | string) => screen.getByAltText(label);
 
@@ -2880,14 +2920,14 @@ describe("R5-H multimedia en el detalle de moderación", () => {
     });
     renderPage();
     fireEvent.click(await screen.findByRole("button", { name: /Contenido 1/ }));
-    await screen.findByRole("region", { name: "Detalle del caso" });
+    await screen.findByRole("region", { name: "Detalles del reporte" });
     fireEvent.error(img(/Imagen/));
     expect(screen.getByRole("button", { name: "Reintentar carga" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /Contenido 2/ }));
     await waitFor(() =>
-      expect(screen.getByRole("region", { name: "Detalle del caso" })).toHaveTextContent(
-        "Caso " + testId(1, 2),
-      ),
+      expect(
+        screen.getByRole("region", { name: "Detalles del reporte" }),
+      ).toHaveTextContent("Caso " + testId(1, 2)),
     );
     expect(screen.queryByRole("button", { name: "Reintentar carga" })).toBeNull();
     expect(img("Imagen de la publicación (1 de 1)")).toBeInTheDocument();
@@ -2988,7 +3028,7 @@ describe("R5-I integración del panel", () => {
     expect(calls.filter((u) => u.includes("summary=pending"))).toHaveLength(1);
     // Detalle: auditoría traducida + fallo de strike + medio roto, sin bloquear la revisión.
     fireEvent.click(card(1));
-    const detail = await screen.findByRole("region", { name: "Detalle del caso" });
+    const detail = await screen.findByRole("region", { name: "Detalles del reporte" });
     expect(
       await within(detail).findByRole("region", { name: "Auditoría reciente" }),
     ).toHaveTextContent("Retirada por moderación");

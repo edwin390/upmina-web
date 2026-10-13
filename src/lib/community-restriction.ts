@@ -13,6 +13,14 @@ import type { VercelResponse } from "@vercel/node";
 export const AUTHOR_RESTRICTED_CODE = "author_restricted";
 export const AUTHOR_RESTRICTION_CHANGED_CODE = "author_restriction_changed";
 const RESTRICTED_MESSAGE = "Tu cuenta tiene una restricción de publicación";
+/** R5-F: la comprobación de la restricción no pudo completarse (fallo técnico o forma inesperada).
+ *  NUNCA se interpreta como «sin sanción»: el cliente puede reintentar. */
+export const RESTRICTION_UNAVAILABLE_CODE = "restriction_unavailable";
+export const RESTRICTION_UNAVAILABLE_BODY = {
+  error:
+    "No pudimos comprobar el estado de tu cuenta. Inténtalo de nuevo en unos segundos.",
+  code: RESTRICTION_UNAVAILABLE_CODE,
+} as const;
 const CHANGED_MESSAGE =
   "La restricción de publicación cambió mientras se procesaba la solicitud. Vuelve a intentarlo.";
 

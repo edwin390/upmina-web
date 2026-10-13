@@ -61,11 +61,28 @@ const fake = vi.hoisted(() => ({
   tablesTouched: [] as string[],
   rpcResult: undefined as { data: unknown; error: unknown } | undefined,
   rpcThrow: undefined as unknown,
+  /** MFA fase 1: respuestas por nombre de las funciones admin_mfa_* (el resto usa rpcResult). */
+  mfaRpc: {} as Record<string, { data: unknown; error: unknown }>,
+  authDelete: [] as { error: unknown }[],
+  deleteCalls: [] as unknown[],
+  authList: { data: { factors: [] as { id: string }[] }, error: null } as {
+    data: unknown;
+    error: unknown;
+  },
 }));
 
 vi.mock("@supabase/supabase-js", () => ({
   createClient: () => ({
     auth: {
+      admin: {
+        mfa: {
+          deleteFactor: async (p: unknown) => {
+            fake.deleteCalls.push(p);
+            return fake.authDelete.shift() ?? { error: null };
+          },
+          listFactors: async () => fake.authList,
+        },
+      },
       async getClaims(jwt: string) {
         const claims = TOKENS[jwt];
         return claims
@@ -95,7 +112,12 @@ vi.mock("@supabase/supabase-js", () => ({
     },
     async rpc(name: string, args: Record<string, unknown>) {
       fake.rpcCalls.push({ name, args });
-      if (fake.rpcThrow) throw fake.rpcThrow;
+      if (fake.rpcThrow && !name.startsWith("admin_mfa_")) throw fake.rpcThrow;
+      if (name.startsWith("admin_mfa_") && fake.mfaRpc[name]) {
+        const r = fake.mfaRpc[name];
+        if (r.error === "THROW") throw new Error("red caída");
+        return r;
+      }
       return (
         fake.rpcResult ?? {
           data: null,
@@ -156,6 +178,10 @@ const changeRole = (body: unknown, token?: string | null) =>
   call(req({ action: "team-members-role", body, token }));
 const remove = (body: unknown, token?: string | null) =>
   call(req({ action: "team-members-remove", body, token }));
+const mfaCleanups = (token?: string | null, method = "GET") =>
+  call(req({ method, action: "team-members-mfa-cleanups", token }));
+const mfaRetry = (body: unknown, token?: string | null) =>
+  call(req({ action: "team-members-mfa-cleanup", body, token }));
 
 const memberRow = (over: Record<string, unknown> = {}) => ({
   out_user_id: TARGET_ID,
@@ -183,6 +209,10 @@ beforeEach(() => {
   fake.tablesTouched = [];
   fake.rpcResult = undefined;
   fake.rpcThrow = undefined;
+  fake.mfaRpc = {};
+  fake.authDelete = [];
+  fake.deleteCalls = [];
+  fake.authList = { data: { factors: [] }, error: null };
 });
 
 const ENDPOINTS: {
@@ -192,9 +222,11 @@ const ENDPOINTS: {
   { name: "listado", run: (t) => list(t) },
   {
     name: "cambio de rol",
-    run: (t) => changeRole({ user_id: TARGET_ID, role: "developer" }, t),
+    run: (t) => changeRole({ user_id: TARGET_ID, role: "admin" }, t),
   },
   { name: "quitar acceso", run: (t) => remove({ user_id: TARGET_ID }, t) },
+  { name: "listado de limpiezas MFA", run: (t) => mfaCleanups(t) },
+  { name: "reintento de limpieza MFA", run: (t) => mfaRetry({ user_id: TARGET_ID }, t) },
 ];
 
 describe("autorización (team_admin + AAL2) — antes de cualquier RPC", () => {
@@ -339,7 +371,7 @@ describe("POST /api/admin/team-members-role", () => {
     ok([
       {
         out_old_role: "moderator",
-        out_new_role: "developer",
+        out_new_role: "admin",
         out_changed_at: "2026-09-28T10:00:00.000Z",
         out_revoked_invitations: 0,
         ...over,
@@ -350,7 +382,7 @@ describe("POST /api/admin/team-members-role", () => {
     fake.rpcResult = success();
     const state = await changeRole({
       user_id: TARGET_ID,
-      role: "developer",
+      role: "admin",
       // Ignorados por completo:
       actor: MOD_ID,
       p_actor_user_id: MOD_ID,
@@ -365,20 +397,20 @@ describe("POST /api/admin/team-members-role", () => {
         args: {
           p_actor_user_id: ADMIN_ID,
           p_target_user_id: TARGET_ID,
-          p_new_role: "developer",
+          p_new_role: "admin",
         },
       },
     ]);
     expect(state.body).toEqual({
       user_id: TARGET_ID,
-      role: "developer",
+      role: "admin",
       previous_role: "moderator",
       changed_at: "2026-09-28T10:00:00.000Z",
       revoked_invitations: 0,
     });
   });
 
-  it.each(["admin", "moderator", "developer"])("acepta el rol %s", async (role) => {
+  it.each(["admin", "moderator"])("acepta el rol %s", async (role) => {
     fake.rpcResult = success({
       out_old_role: role === "admin" ? "moderator" : "admin",
       out_new_role: role,
@@ -418,51 +450,76 @@ describe("POST /api/admin/team-members-role", () => {
 
   it("acepta el body como string JSON", async () => {
     fake.rpcResult = success();
-    const state = await changeRole(
-      JSON.stringify({ user_id: TARGET_ID, role: "developer" }),
-    );
+    const state = await changeRole(JSON.stringify({ user_id: TARGET_ID, role: "admin" }));
     expect(state.status).toBe(200);
   });
 
   it("una respuesta de la RPC con rol distinto al pedido → 500", async () => {
-    fake.rpcResult = success({ out_new_role: "admin" });
-    expect((await changeRole({ user_id: TARGET_ID, role: "developer" })).status).toBe(
-      500,
-    );
+    fake.rpcResult = success({ out_new_role: "moderator" });
+    expect((await changeRole({ user_id: TARGET_ID, role: "admin" })).status).toBe(500);
   });
 
   it("una respuesta sin fila o con forma inesperada → 500", async () => {
     fake.rpcResult = ok([]);
-    expect((await changeRole({ user_id: TARGET_ID, role: "developer" })).status).toBe(
-      500,
-    );
+    expect((await changeRole({ user_id: TARGET_ID, role: "admin" })).status).toBe(500);
     fake.rpcResult = success({ out_changed_at: "nunca" });
-    expect((await changeRole({ user_id: TARGET_ID, role: "developer" })).status).toBe(
-      500,
-    );
+    expect((await changeRole({ user_id: TARGET_ID, role: "admin" })).status).toBe(500);
     fake.rpcResult = success({ out_revoked_invitations: "0" });
-    expect((await changeRole({ user_id: TARGET_ID, role: "developer" })).status).toBe(
-      500,
-    );
+    expect((await changeRole({ user_id: TARGET_ID, role: "admin" })).status).toBe(500);
+  });
+
+  it("Admin NO puede asignar Developer: el rol se rechaza en la API (400) y no se llama a la RPC", async () => {
+    for (const body of [
+      { user_id: TARGET_ID, role: "developer" },
+      JSON.stringify({ user_id: TARGET_ID, role: "developer" }),
+      { user_id: TARGET_ID, role: "DEVELOPER" },
+    ]) {
+      const state = await changeRole(body);
+      expect(state.status).toBe(400);
+      expect(state.body).toEqual({ error: "Solicitud inválida" });
+    }
+    expect(fake.rpcCalls).toHaveLength(0);
+  });
+
+  it("si la base rechaza el cambio por developer_protected (objetivo Developer) → 409 genérico", async () => {
+    fake.rpcResult = rpcError("developer_protected", "P0001");
+    const state = await changeRole({ user_id: TARGET_ID, role: "moderator" });
+    expect(state.status).toBe(409);
+    expect(state.body).toEqual({ error: "Operación no permitida" });
   });
 });
 
 describe("POST /api/admin/team-members-remove", () => {
-  it("llama a la RPC con actor del JWT y target del body; respuesta por lista blanca", async () => {
-    fake.rpcResult = ok([
-      {
-        out_old_role: "developer",
-        out_removed_at: "2026-09-28T10:00:00.000Z",
-        out_revoked_invitations: 0,
-      },
+  const RESET_ID = "99999999-9999-4999-8999-999999999999";
+  const OLD_F1 = "aaaaaaaa-0000-4000-8000-000000000001";
+  const OLD_F2 = "aaaaaaaa-0000-4000-8000-000000000002";
+  const NEW_F = "bbbbbbbb-0000-4000-8000-000000000009";
+  const removalRow = (over: Record<string, unknown> = {}) => ({
+    out_old_role: "developer",
+    out_removed_at: "2026-09-28T10:00:00.000Z",
+    out_revoked_invitations: 0,
+    out_mfa_reset_id: RESET_ID,
+    out_mfa_factor_count: 0,
+    ...over,
+  });
+  const withFactors = (ids = [OLD_F1]) => {
+    fake.rpcResult = ok([removalRow({ out_mfa_factor_count: ids.length })]);
+    fake.mfaRpc.admin_mfa_pending_reset = ok([
+      { out_reset_id: RESET_ID, out_factor_ids: ids },
     ]);
+    fake.mfaRpc.admin_mfa_reset_record = ok("completed");
+  };
+  const names = () => fake.rpcCalls.map((c) => c.name);
+
+  it("llama a la RPC atómica con actor del JWT y target del body; sin factores no hay nada que limpiar", async () => {
+    fake.rpcResult = ok([removalRow()]);
     const state = await remove({ user_id: TARGET_ID, actor: MOD_ID, role: "admin" });
 
     expect(state.status).toBe(200);
     expect(state.headers["Cache-Control"]).toBe("no-store");
     expect(fake.rpcCalls).toEqual([
       {
-        name: "remove_admin_member",
+        name: "admin_remove_member_with_mfa_reset",
         args: { p_actor_user_id: ADMIN_ID, p_target_user_id: TARGET_ID },
       },
     ]);
@@ -471,7 +528,153 @@ describe("POST /api/admin/team-members-remove", () => {
       previous_role: "developer",
       removed_at: "2026-09-28T10:00:00.000Z",
       revoked_invitations: 0,
+      mfa_reset: { status: "not_needed" },
     });
+    expect(fake.deleteCalls).toHaveLength(0);
+  });
+
+  it("nunca invoca remove_admin_member directamente (la marca de MFA no se puede omitir)", async () => {
+    fake.rpcResult = ok([removalRow()]);
+    await remove({ user_id: TARGET_ID });
+    expect(names()).not.toContain("remove_admin_member");
+  });
+
+  it("con factores: borra EXACTAMENTE los ids de la instantánea y registra la finalización", async () => {
+    withFactors([OLD_F1, OLD_F2]);
+    const state = await remove({ user_id: TARGET_ID });
+    expect(state.status).toBe(200);
+    expect(state.body).toMatchObject({
+      previous_role: "developer",
+      mfa_reset: { status: "completed", factors_deleted: 2 },
+    });
+    expect(fake.deleteCalls).toEqual([
+      { id: OLD_F1, userId: TARGET_ID },
+      { id: OLD_F2, userId: TARGET_ID },
+    ]);
+    expect(names()).toEqual([
+      "admin_remove_member_with_mfa_reset",
+      "admin_mfa_pending_reset",
+      "admin_mfa_reset_record",
+    ]);
+    expect(fake.rpcCalls[2].args).toEqual({
+      p_reset_id: RESET_ID,
+      p_ok: true,
+      p_factors_deleted: 2,
+      p_error_class: null,
+    });
+  });
+
+  it("ORDEN: el borrado de factores solo ocurre después de confirmar la retirada del rol", async () => {
+    withFactors();
+    await remove({ user_id: TARGET_ID });
+    expect(names()[0]).toBe("admin_remove_member_with_mfa_reset");
+    expect(fake.deleteCalls).toHaveLength(1);
+    // Si la retirada es rechazada, NO se toca ningún factor.
+    fake.rpcCalls = [];
+    fake.deleteCalls = [];
+    fake.rpcResult = rpcError("member_not_found");
+    const rejected = await remove({ user_id: TARGET_ID });
+    expect(rejected.status).toBe(404);
+    expect(fake.deleteCalls).toHaveLength(0);
+    expect(names()).toEqual(["admin_remove_member_with_mfa_reset"]);
+  });
+
+  it("fallo de Auth tras retirar el rol: 200 (el acceso SÍ se retiró) con la limpieza pendiente y la clase del error", async () => {
+    withFactors();
+    fake.authDelete = [{ error: { status: 500, message: "detalle interno de GoTrue" } }];
+    const state = await remove({ user_id: TARGET_ID });
+    expect(state.status).toBe(200);
+    expect(state.body).toMatchObject({
+      previous_role: "developer",
+      mfa_reset: { status: "pending", error_class: "auth_delete_failed" },
+    });
+    expect(JSON.stringify(state.body)).not.toMatch(/detalle interno/);
+    expect(fake.rpcCalls.at(-1)).toEqual({
+      name: "admin_mfa_reset_record",
+      args: {
+        p_reset_id: RESET_ID,
+        p_ok: false,
+        p_factors_deleted: null,
+        p_error_class: "auth_delete_failed",
+      },
+    });
+  });
+
+  it("el factor ya no existe (404): se considera resuelto y se completa con 0 borrados", async () => {
+    withFactors();
+    fake.authDelete = [{ error: { status: 404, code: "mfa_factor_not_found" } }];
+    const state = await remove({ user_id: TARGET_ID });
+    expect(state.body).toMatchObject({
+      mfa_reset: { status: "completed", factors_deleted: 0 },
+    });
+  });
+
+  it("si tras borrar siguen presentes ids de la instantánea → pendiente; un factor NUEVO se ignora", async () => {
+    withFactors();
+    fake.authList = { data: { factors: [{ id: OLD_F1 }] }, error: null };
+    expect((await remove({ user_id: TARGET_ID })).body).toMatchObject({
+      mfa_reset: { status: "pending", error_class: "factor_still_present" },
+    });
+    // factor nuevo (no está en la instantánea): no bloquea ni se borra
+    fake.deleteCalls = [];
+    fake.rpcCalls = [];
+    fake.rpcResult = ok([removalRow({ out_mfa_factor_count: 1 })]);
+    fake.authList = { data: { factors: [{ id: NEW_F }] }, error: null };
+    const state = await remove({ user_id: TARGET_ID });
+    expect(state.body).toMatchObject({ mfa_reset: { status: "completed" } });
+    expect(fake.deleteCalls).toEqual([{ id: OLD_F1, userId: TARGET_ID }]);
+    expect(JSON.stringify(fake.deleteCalls)).not.toContain(NEW_F);
+  });
+
+  it.each([
+    [
+      "no se puede listar",
+      () => (fake.authList = { data: null, error: { status: 500 } }),
+    ],
+    ["Auth lanza una excepción", () => (fake.authList = undefined as never)],
+  ])("%s → pendiente, nunca un error de la retirada", async (_n, arrange) => {
+    withFactors();
+    arrange();
+    const state = await remove({ user_id: TARGET_ID });
+    expect(state.status).toBe(200);
+    expect(state.body).toMatchObject({ mfa_reset: { status: "pending" } });
+  });
+
+  it("no poder leer o registrar la limpieza deja el estado pendiente (200, rol retirado)", async () => {
+    withFactors();
+    fake.mfaRpc.admin_mfa_pending_reset = { data: null, error: { message: "boom" } };
+    expect((await remove({ user_id: TARGET_ID })).body).toMatchObject({
+      mfa_reset: { status: "pending", error_class: "cleanup_unavailable" },
+    });
+    withFactors();
+    fake.mfaRpc.admin_mfa_reset_record = { data: null, error: { message: "boom" } };
+    expect((await remove({ user_id: TARGET_ID })).body).toMatchObject({
+      mfa_reset: { status: "pending", error_class: "record_failed" },
+    });
+  });
+
+  it("campos MFA ausentes o malformados en la fila: la retirada sigue siendo un 200", async () => {
+    fake.rpcResult = ok([
+      {
+        out_old_role: "developer",
+        out_removed_at: "2026-09-28T10:00:00.000Z",
+        out_revoked_invitations: 0,
+      },
+    ]);
+    const state = await remove({ user_id: TARGET_ID });
+    expect(state.status).toBe(200);
+    expect(state.body).toMatchObject({ mfa_reset: { status: "pending" } });
+  });
+
+  it("repetir la solicitud: el miembro ya no existe → 404 y no se borra ningún factor", async () => {
+    withFactors();
+    expect((await remove({ user_id: TARGET_ID })).status).toBe(200);
+    fake.deleteCalls = [];
+    fake.rpcCalls = [];
+    fake.rpcResult = rpcError("member_not_found");
+    expect((await remove({ user_id: TARGET_ID })).status).toBe(404);
+    expect(fake.deleteCalls).toHaveLength(0);
+    expect(names()).toEqual(["admin_remove_member_with_mfa_reset"]);
   });
 
   it.each([
@@ -493,6 +696,116 @@ describe("POST /api/admin/team-members-remove", () => {
   });
 });
 
+describe("GET /api/admin/team-members-mfa-cleanups", () => {
+  const row = (over: Record<string, unknown> = {}) => ({
+    out_user_id: TARGET_ID,
+    out_old_role: "moderator",
+    out_requested_at: "2026-10-11T10:00:00.000Z",
+    out_attempts: 1,
+    out_last_error_class: "auth_delete_failed",
+    out_factor_count: 1,
+    out_username: "mina",
+    out_email: "mina@example.invalid",
+    ...over,
+  });
+
+  it("solo ADMIN: llama con el actor del JWT y devuelve una lista blanca, sin caché", async () => {
+    fake.mfaRpc.admin_mfa_cleanups_pending = ok([
+      row({ out_factor_ids: ["x"], out_secret: "no-debe-salir" }),
+    ]);
+    const state = await mfaCleanups();
+    expect(state.status).toBe(200);
+    expect(state.headers["Cache-Control"]).toBe("no-store");
+    expect(fake.rpcCalls).toEqual([
+      { name: "admin_mfa_cleanups_pending", args: { p_actor_user_id: ADMIN_ID } },
+    ]);
+    expect(state.body).toEqual({
+      cleanups: [
+        {
+          user_id: TARGET_ID,
+          previous_role: "moderator",
+          requested_at: "2026-10-11T10:00:00.000Z",
+          attempts: 1,
+          last_error_class: "auth_delete_failed",
+          factor_count: 1,
+          username: "mina",
+          email: "mina@example.invalid",
+        },
+      ],
+    });
+    expect(JSON.stringify(state.body)).not.toMatch(/no-debe-salir/);
+  });
+
+  it.each([
+    ["forma inesperada", ok([row({ out_attempts: "1" })])],
+    ["no es un array", ok({})],
+  ])("%s → 500 genérico", async (_n, result) => {
+    fake.mfaRpc.admin_mfa_cleanups_pending = result;
+    expect((await mfaCleanups()).status).toBe(500);
+  });
+
+  it("solo admite GET", async () => {
+    const state = await mfaCleanups("jwt-admin-aal2", "POST");
+    expect(state.status).toBe(405);
+    expect(state.headers.Allow).toBe("GET");
+    expect(fake.rpcCalls).toHaveLength(0);
+  });
+});
+
+describe("POST /api/admin/team-members-mfa-cleanup (reintento autorizado)", () => {
+  const RESET_ID = "99999999-9999-4999-8999-999999999999";
+  const OLD_F1 = "aaaaaaaa-0000-4000-8000-000000000001";
+
+  it("reintenta SOLO los ids de la instantánea guardada en BD, aunque el body traiga otros", async () => {
+    fake.mfaRpc.admin_mfa_pending_reset = ok([
+      { out_reset_id: RESET_ID, out_factor_ids: [OLD_F1] },
+    ]);
+    fake.mfaRpc.admin_mfa_reset_record = ok("completed");
+    const state = await mfaRetry({
+      user_id: TARGET_ID,
+      factor_ids: ["cccccccc-0000-4000-8000-000000000001"],
+      reset_id: "dddddddd-0000-4000-8000-000000000001",
+    });
+    expect(state.status).toBe(200);
+    expect(state.body).toEqual({
+      user_id: TARGET_ID,
+      mfa_reset: { status: "completed", factors_deleted: 1 },
+    });
+    expect(fake.deleteCalls).toEqual([{ id: OLD_F1, userId: TARGET_ID }]);
+  });
+
+  it("sin limpieza pendiente → 404 y no se borra nada (repetir es inocuo)", async () => {
+    fake.mfaRpc.admin_mfa_pending_reset = ok([]);
+    const state = await mfaRetry({ user_id: TARGET_ID });
+    expect(state.status).toBe(404);
+    expect(fake.deleteCalls).toHaveLength(0);
+  });
+
+  it("si Auth sigue fallando → 200 con la limpieza todavía pendiente", async () => {
+    fake.mfaRpc.admin_mfa_pending_reset = ok([
+      { out_reset_id: RESET_ID, out_factor_ids: [OLD_F1] },
+    ]);
+    fake.authDelete = [{ error: { status: 503 } }];
+    const state = await mfaRetry({ user_id: TARGET_ID });
+    expect(state.status).toBe(200);
+    expect(state.body).toMatchObject({ mfa_reset: { status: "pending" } });
+  });
+
+  it.each([
+    ["sin body", undefined],
+    ["user_id no UUID", { user_id: "x" }],
+  ])("body inválido (%s) → 400", async (_n, body) => {
+    expect((await mfaRetry(body)).status).toBe(400);
+    expect(fake.rpcCalls).toHaveLength(0);
+  });
+
+  it("solo admite POST", async () => {
+    const state = await call(req({ method: "GET", action: "team-members-mfa-cleanup" }));
+    expect(state.status).toBe(405);
+    expect(state.headers.Allow).toBe("POST");
+  });
+});
+
 describe("matriz de errores de las mutaciones", () => {
   const mutations: {
     name: string;
@@ -500,7 +813,7 @@ describe("matriz de errores de las mutaciones", () => {
   }[] = [
     {
       name: "cambio de rol",
-      run: () => changeRole({ user_id: TARGET_ID, role: "developer" }),
+      run: () => changeRole({ user_id: TARGET_ID, role: "admin" }),
     },
     { name: "quitar acceso", run: () => remove({ user_id: TARGET_ID }) },
   ];
@@ -512,6 +825,7 @@ describe("matriz de errores de las mutaciones", () => {
         ["member_not_found", "P0001", 404, "No encontrado"],
         ["self_change_not_allowed", "P0001", 409, "Operación no permitida"],
         ["role_unchanged", "P0001", 409, "Operación no permitida"],
+        ["developer_protected", "P0001", 409, "Operación no permitida"],
         ["last_admin_protected", "23001", 409, "Operación no permitida"],
       ])("%s → %i", async (message, code, status, publicMessage) => {
         fake.rpcResult = rpcError(message, code);

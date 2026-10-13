@@ -20,6 +20,11 @@
 /** Ventana de MFA reciente para operaciones privilegiadas. ÚNICA definición de la constante. */
 export const PRIVILEGED_MFA_WINDOW_SECONDS = 1800;
 
+/** Developer Panel V1: para APROBAR o RECHAZAR una recuperación excepcional el TOTP debe haberse
+ *  verificado hace como máximo 5 minutos (claim `amr` del JWT verificado). aal2 solo prueba que la
+ *  sesión pasó MFA alguna vez; esta ventana se mide con el timestamp del TOTP. */
+export const DEVELOPER_APPROVAL_TOTP_WINDOW_SECONDS = 300;
+
 /** Tolerancia explícita a un reloj del emisor ligeramente adelantado respecto al servidor. */
 export const PRIVILEGED_MFA_CLOCK_SKEW_SECONDS = 60;
 
@@ -50,6 +55,47 @@ export function getLatestTotpTimestamp(amr: unknown): number | null {
     if (latest === null || timestamp > latest) latest = timestamp;
   }
   return latest;
+}
+
+/** Ventana para considerar «reciente» la comprobación de credenciales (contraseña) en la
+ *  recuperación de MFA fase 2. Más corta que la de MFA: la persona debe haber iniciado sesión hace poco. */
+export const PASSWORD_RECENT_WINDOW_SECONDS = 600;
+
+/**
+ * Mayor timestamp de las entradas AMR del método `password` (inicio de sesión con credenciales) con
+ * forma válida, o null. Solo de claims ya verificadas; un `amr` otp/magiclink/oauth NO cuenta.
+ */
+export function getLatestPasswordTimestamp(amr: unknown): number | null {
+  if (!Array.isArray(amr)) return null;
+  let latest: number | null = null;
+  for (const entry of amr) {
+    if (!entry || typeof entry !== "object") continue;
+    const { method, timestamp } = entry as { method?: unknown; timestamp?: unknown };
+    if (method !== "password") continue;
+    if (typeof timestamp !== "number" || !Number.isFinite(timestamp) || timestamp <= 0)
+      continue;
+    if (latest === null || timestamp > latest) latest = timestamp;
+  }
+  return latest;
+}
+
+/** ¿El inicio de sesión con contraseña es reciente? Un timestamp futuro (más allá de la tolerancia)
+ *  o ausente falla cerrado. */
+export function isPasswordRecent(
+  passwordVerifiedAt: number | null | undefined,
+  nowSeconds: number = currentEpochSeconds(),
+  windowSeconds: number = PASSWORD_RECENT_WINDOW_SECONDS,
+): boolean {
+  if (typeof passwordVerifiedAt !== "number" || !Number.isFinite(passwordVerifiedAt))
+    return false;
+  if (
+    !Number.isFinite(nowSeconds) ||
+    !Number.isFinite(windowSeconds) ||
+    windowSeconds <= 0
+  )
+    return false;
+  if (passwordVerifiedAt > nowSeconds + PRIVILEGED_MFA_CLOCK_SKEW_SECONDS) return false;
+  return nowSeconds - passwordVerifiedAt <= windowSeconds;
 }
 
 /**

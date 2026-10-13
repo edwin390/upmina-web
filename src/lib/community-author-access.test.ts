@@ -10,6 +10,8 @@ import {
 const migration = (n: string) => readFileSync(`supabase/migrations/${n}`, "utf8");
 const current = "20261017120000_community_author_moderation_access.sql";
 const flagMigration = "20261018120000_community_author_resolved_notice_flag.sql";
+// R5-F: el aviso «No procede» solo existe si la publicación estuvo ocultada y se restaura.
+const noticeFix = "20261031130000_no_procede_notice_after_hidden_only.sql";
 const reporters = [1, 2, 3].map(
   (n) => `aaaaaaaa-aaaa-4aaa-8aaa-${String(n).padStart(12, "0")}`,
 );
@@ -31,6 +33,7 @@ beforeAll(async () => {
     "20261016120000_community_controlled_write_boundary.sql",
     current,
     flagMigration,
+    noticeFix,
   ])
     await db.exec(migration(n));
   await db.exec(
@@ -373,4 +376,119 @@ it("installed read function keeps definer/owner/search_path/ACL after the flag m
   });
   expect(row.cfg).toContain("search_path=pg_catalog, public");
   expect(row.owner).toBe("postgres");
+});
+
+// ───────────────────────── R5-F: «No procede» con y sin ocultación previa ─────────────────────────
+async function decideNoProcede(c: Record<string, unknown>, result = "reports_not_valid") {
+  return (
+    await db.query<{ r: Record<string, unknown> }>(
+      "select community_moderation_case_decide($1,$2,$3,$4,$5,$6,$7) r",
+      [
+        ACTOR,
+        c.caseId,
+        c.cycleId,
+        c.caseVersion,
+        c.postVersion,
+        result,
+        result === "content_actioned" ? "Mensaje de moderación" : null,
+      ],
+    )
+  ).rows[0].r;
+}
+const postRow = async () =>
+  (
+    await db.query<{ status: string; version: number }>(
+      "select status, version from community_posts",
+    )
+  ).rows[0];
+
+it.each([1, 2])(
+  "No procede SIN ocultación previa (%i denuncias): publicación intacta, caso cerrado, sin aviso ni etiqueta",
+  async (n) => {
+    const c = await report(n);
+    const before = await postRow();
+    expect(before.status).toBe("published"); // nunca se ocultó (umbral = 3 denunciantes distintos)
+    const r = await decideNoProcede(c);
+    expect(r).toMatchObject({ decision: "reports_not_valid", postStatus: "published" });
+    expect(await postRow()).toEqual(before); // ni estado ni versión cambian
+    expect(await noticeRows()).toHaveLength(0);
+    const detail = await read();
+    expect(detail.noticeId).toBeNull();
+    expect(detail.items[0]).toMatchObject({
+      status: "published",
+      resolvedNoticeUnseen: false,
+    });
+    expect((await read(null)).items[0].resolvedNoticeUnseen).toBe(false);
+    expect(
+      (await db.query("select status from community_moderation_cases")).rows,
+    ).toEqual([{ status: "closed" }]);
+  },
+);
+
+it("3 denunciantes distintos: oculta; «No procede» restaura y crea UN aviso que se consume una sola vez", async () => {
+  const c = await report(3);
+  expect((await postRow()).status).toBe("hidden_pending_review");
+  expect((await read()).items[0].moderation).toMatchObject({ kind: "paused" });
+  const r = await decideNoProcede(c);
+  expect(r).toMatchObject({ decision: "reports_not_valid", postStatus: "published" });
+  expect((await postRow()).status).toBe("published");
+  expect(await noticeRows()).toHaveLength(1);
+  expect((await read(null)).items[0].resolvedNoticeUnseen).toBe(true); // etiqueta «Caso resuelto»
+  const detail = await read();
+  expect(detail.noticeId).not.toBeNull();
+  await db.query("select community_author_notice_ack($1,$2,$3)", [
+    ACTOR,
+    POST,
+    detail.noticeId,
+  ]);
+  const after = await read();
+  expect(after.noticeId).toBeNull(); // el mensaje no vuelve a aparecer
+  expect(after.items[0].resolvedNoticeUnseen).toBe(false); // y la etiqueta desaparece
+  expect(await noticeRows()).toHaveLength(1); // el aviso se conserva como historial
+});
+
+it.each([1, 3])(
+  "«Sí procede» (%i denuncias) conserva su comportamiento: retirada a 72 h y sin aviso de restauración",
+  async (n) => {
+    const c = await report(n);
+    const r = await decideNoProcede(c, "content_actioned");
+    expect(r).toMatchObject({
+      decision: "content_actioned",
+      postStatus: "removed_pending_purge",
+    });
+    expect(await noticeRows()).toHaveLength(0);
+    const t = (
+      await db.query<{ ok: boolean }>(
+        "select purge_after = removed_at + interval '72 hours' as ok from community_posts",
+      )
+    ).rows[0];
+    expect(t.ok).toBe(true);
+    expect((await read()).items[0].moderation).toMatchObject({ kind: "withdrawn" });
+  },
+);
+
+it("la corrección cambia SOLO la condición del aviso: el resto de la función es idéntico a 20261015", () => {
+  const orig = migration("20261015120000_moderation_grouped_decision_core.sql")
+    .replace(/\r\n/g, "\n")
+    .match(
+      /create function public\.community_moderation_case_decide\([\s\S]*?\n\$\$;/,
+    )![0];
+  const fixed = migration(noticeFix)
+    .replace(/\r\n/g, "\n")
+    .match(
+      /create or replace function public\.community_moderation_case_decide\([\s\S]*?\n\$\$;/,
+    )![0];
+  expect(
+    fixed
+      .replace("create or replace function", "create function")
+      .replace(
+        "  if v_exists and p_decision = 'reports_not_valid'\n    and v_before_status = 'hidden_pending_review' and v_post.status = 'published' then",
+        "  if v_exists and p_decision = 'reports_not_valid' and v_post.status = 'published' then",
+      ),
+  ).toBe(orig);
+  const sql = migration(noticeFix);
+  expect(sql).toMatch(/owner to postgres/);
+  expect(sql).toMatch(
+    /grant execute on function public\.community_moderation_case_decide[^;]* to service_role;/,
+  );
 });

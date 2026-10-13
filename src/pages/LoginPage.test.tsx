@@ -62,6 +62,7 @@ function loginTree(entry = "/login") {
         <Route path="/account" element={<p>Account stub</p>} />
         <Route path="/community" element={<p>Comunidad stub</p>} />
         <Route path="/cosplay" element={<p>Cosplay stub</p>} />
+        <Route path="/admin/mfa/recovery" element={<p>Recovery stub</p>} />
       </Routes>
     </MemoryRouter>
   );
@@ -337,6 +338,37 @@ describe("/login — envío", () => {
 
 // returnTo (Fase 9G-3): solo se honra un destino interno de la allowlist (parseSafeReturnTo) y se
 // navega con React Router, jamás con window.location ni con el valor crudo.
+describe("/login — «Olvidé mi contraseña»", () => {
+  it("ofrece el enlace a /forgot-password (traducido) sin tocar el formulario de acceso", async () => {
+    localStorage.setItem("upmina:locale", "es");
+    renderLogin();
+    const link = await screen.findByRole("link", { name: "¿Olvidaste tu contraseña?" });
+    expect(link).toHaveAttribute("href", "/forgot-password");
+    expect(screen.getByLabelText("Email")).toBeInTheDocument();
+    expect(supabaseFakes.signInCalls).toEqual([]);
+  });
+
+  it("tras restablecer la contraseña muestra el aviso (estado de navegación) y nunca sin él", async () => {
+    localStorage.setItem("upmina:locale", "es");
+    const { unmount } = renderLogin();
+    await screen.findByLabelText("Email");
+    expect(screen.queryByText(/Contraseña actualizada/)).toBeNull();
+    unmount();
+    render(
+      <MemoryRouter
+        initialEntries={[{ pathname: "/login", state: { passwordUpdated: true } }]}
+      >
+        <Routes>
+          <Route path="/login" element={<LoginPage />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+    expect(await screen.findByRole("status")).toHaveTextContent(
+      "Contraseña actualizada. Inicia sesión con tu nueva contraseña.",
+    );
+  });
+});
+
 describe("/login — returnTo seguro", () => {
   const enc = encodeURIComponent;
 
@@ -346,6 +378,7 @@ describe("/login — returnTo seguro", () => {
     ["/account", "Account stub"],
     ["/community", "Comunidad stub"],
     ["/cosplay", "Cosplay stub"],
+    ["/admin/mfa/recovery", "Recovery stub"],
   ])("login correcto con returnTo=%s → navega ahí", async (path, stub) => {
     renderLogin(`/login?returnTo=${path}`);
 

@@ -27,6 +27,7 @@ import {
 import {
   readAuthorRestriction,
   respondAuthorRestricted,
+  RESTRICTION_UNAVAILABLE_BODY,
 } from "./community-restriction.js";
 import {
   abortPrivateMultipartUpload,
@@ -319,14 +320,19 @@ export async function handleMediaReserve(
   const auth = await authorizeForDomain(req, domain, client);
   if ("status" in auth) return res.status(auth.status).json(auth.body);
 
-  // R5-C: precheck NO AUTORITATIVO. Un autor sancionado no puede publicar, así que no se le crea una
-  // reserva de subida que nunca podrá adjuntar. NO es la frontera de seguridad: los escritores de la
-  // BD rechazan la publicación aunque este chequeo se omita, falle o compita con un strike nuevo
-  // (por eso, si la lectura falla, se sigue adelante). Solo Community; Cosplay (admin) no se toca.
+  // R5-C/R5-F: precheck de la restricción de publicación (strike) ANTES de crear la fila de
+  // media_assets o la sesión R2. Los escritores de la BD siguen siendo la autoridad de la
+  // publicación; este chequeo evita reservar almacenamiento que un autor sancionado nunca podrá
+  // adjuntar. Es FAIL-CLOSED: una lectura que falla o devuelve una forma inesperada NO equivale a
+  // «sin sanción» → 503 temporal, sin crear nada. Solo Community; Cosplay (admin) no se toca.
   if (domain === "community") {
     const restriction = await readAuthorRestriction(client, auth.userId);
-    if (restriction.ok && restriction.restriction)
-      return respondAuthorRestricted(res, client, auth.userId);
+    if (!restriction.ok) {
+      res.setHeader("Cache-Control", "no-store");
+      res.setHeader("Retry-After", "5");
+      return res.status(503).json(RESTRICTION_UNAVAILABLE_BODY);
+    }
+    if (restriction.restriction) return respondAuthorRestricted(res, client, auth.userId);
   }
 
   // kind ausente => "image" (validateReservationInput lo trata así) — Cosplay y el flujo de

@@ -1,5 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vitest";
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { testQueryClient } from "@/test/query-client";
@@ -271,6 +279,85 @@ describe("/admin — autorización ANTES que MFA", () => {
     expect(await screen.findByText(PANEL_TEXT)).toBeInTheDocument();
     expect(urls().slice(0, 2)).toEqual(["/api/admin/access", "/api/admin/me"]);
     expect(screen.queryByTestId("mfa")).toBeNull();
+  });
+
+  it("el panel Admin muestra SIEMPRE «Convertirme en Developer» y consulta si se puede (el servidor decide)", async () => {
+    signIn();
+    routeFetch({
+      "/api/admin/access": () => access("admin", true),
+      "/api/admin/me": () => okMe(),
+      "/api/admin/team-developer-transfer": () => ({
+        ok: true,
+        status: 200,
+        json: async () => ({ eligible: false, reason: "no_eligible_peer" }),
+      }),
+      ...withSections,
+    });
+    renderPage();
+
+    expect(await screen.findByText(PANEL_TEXT)).toBeInTheDocument();
+    expect(
+      await screen.findByRole("heading", { name: "Convertirme en Developer" }),
+    ).toBeInTheDocument();
+    // sin otro Admin elegible el botón está deshabilitado y se explica el motivo
+    await waitFor(() =>
+      expect(screen.getByTestId("become-developer-reason")).toHaveTextContent(
+        "no hay otro Admin que pueda quedarse a cargo",
+      ),
+    );
+    expect(
+      screen.getByRole("button", { name: "Convertirme en Developer" }),
+    ).toBeDisabled();
+    expect(urls()).toContain("/api/admin/team-developer-transfer");
+  });
+
+  it("un Developer NO ve el panel Admin ni «Convertirme en Developer» (acceso denegado sin MFA)", async () => {
+    signIn();
+    routeFetch({ "/api/admin/access": () => access("developer", true) });
+    renderPage();
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "No tienes acceso al panel de administración.",
+    );
+    expect(
+      screen.queryByRole("heading", { name: "Convertirme en Developer" }),
+    ).toBeNull();
+    expect(urls()).toEqual(["/api/admin/access"]);
+  });
+
+  it("el panel ya no muestra el marcador «Próximamente: usuarios» y conserva la herramienta real de moderación", async () => {
+    signIn();
+    routeFetch({
+      "/api/admin/access": () => access("admin", true),
+      "/api/admin/me": () => okMe(),
+      ...withSections,
+    });
+    renderPage();
+
+    expect(await screen.findByText(PANEL_TEXT)).toBeInTheDocument();
+    expect(screen.queryByText(/Próximamente/)).toBeNull();
+    const tools = screen.getByRole("navigation", {
+      name: "Herramientas administrativas",
+    });
+    expect(within(tools).getByRole("link", { name: "Moderación" })).toHaveAttribute(
+      "href",
+      "/admin/moderation",
+    );
+  });
+
+  it("sin la capacidad de moderación no se renderiza una barra de herramientas vacía", async () => {
+    signIn();
+    routeFetch({
+      "/api/admin/access": () => access("admin", true),
+      "/api/admin/me": () => okMe({ role: "admin", capabilities: ["team_admin"] }),
+      ...withSections,
+    });
+    renderPage();
+
+    expect(await screen.findByText(PANEL_TEXT)).toBeInTheDocument();
+    expect(
+      screen.queryByRole("navigation", { name: "Herramientas administrativas" }),
+    ).toBeNull();
+    expect(screen.queryByText(/Próximamente/)).toBeNull();
   });
 
   it("aal2 no sustituye a mfa.recent: el frontend solo mira lo que responde /access", async () => {
@@ -772,7 +859,7 @@ describe("/admin — contenido del panel (presentación por capacidades de /me)"
     expect(screen.queryByText("No conectado")).toBeNull();
   });
 
-  it("cerrar sesión desde el panel llama a signOut", async () => {
+  it("el panel Admin ya no tiene «Cerrar sesión» (solo está en Cuenta)", async () => {
     signIn();
     routeFetch({
       "/api/admin/access": () => access("admin", true),
@@ -782,8 +869,8 @@ describe("/admin — contenido del panel (presentación por capacidades de /me)"
     renderPage();
 
     await screen.findByText(PANEL_TEXT);
-    fireEvent.click(screen.getByRole("button", { name: /cerrar sesión/i }));
-    expect(authFakes.signOut).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole("button", { name: /cerrar sesión/i })).toBeNull();
+    expect(authFakes.signOut).not.toHaveBeenCalled();
   });
 });
 

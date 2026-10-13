@@ -1294,6 +1294,37 @@ describe("handleModerationReportCreate — cualquier usuario AUTENTICADO (no req
     expect(state.status).toBe(500);
     expect(state.body).toEqual({ error: "Error interno", code: "internal_failure" });
   });
+  it("REP-1: NUL y controles en la explicación se rechazan con 400 antes de llegar a la BD", async () => {
+    for (const detail of [
+      "a" + String.fromCharCode(0) + "b",
+      "a" + String.fromCharCode(27),
+    ]) {
+      fake.rpcResult = { data: null, error: null };
+      const state = await call(
+        handleModerationReportCreate,
+        req({ method: "POST", body: { postId: POST_ID, reason: "other", detail } }),
+      );
+      expect(state.status).toBe(400);
+      expect(state.body).toMatchObject({ code: "invalid_context" });
+    }
+  });
+  it("REP-1: un motivo fuera de la lista cerrada se rechaza (copyright no es un motivo ordinario)", async () => {
+    for (const reason of [
+      "copyright",
+      "Violence",
+      "ai-generated",
+      "off topic",
+      "SPAM",
+      1,
+    ]) {
+      const state = await call(
+        handleModerationReportCreate,
+        req({ method: "POST", body: { postId: POST_ID, reason } }),
+      );
+      expect(state.status).toBe(400);
+      expect(state.body).toMatchObject({ code: "invalid_reason" });
+    }
+  });
   it.each([
     ["self_report", 403],
     ["post_not_reportable", 409],

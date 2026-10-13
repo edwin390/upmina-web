@@ -266,10 +266,16 @@ export default function AdminMfaPage() {
           <input
             id="mfa-secret"
             readOnly
+            aria-describedby="mfa-secret-help"
             type={isSecretVisible ? "text" : "password"}
             value={secret}
             className="w-full rounded-md border border-border-subtle bg-bg-base px-3 py-2 font-mono text-sm text-text-primary outline-none"
           />
+          <p id="mfa-secret-help" className="mt-1 text-xs text-text-secondary">
+            Es la clave de tu autenticador, no un código de recuperación. Úsala solo para
+            configurar tu app si no puedes escanear el QR; no sirve para recuperar el
+            acceso si pierdes la app. Mantenla en privado.
+          </p>
         </div>
 
         <form
@@ -362,6 +368,17 @@ export default function AdminMfaPage() {
           {isSubmitting ? "Verificando…" : "Verificar"}
         </button>
       </form>
+      {!isSubmitting && (
+        <p className="mt-4 text-sm text-text-secondary">
+          ¿Perdiste tu autenticador?{" "}
+          <Link
+            to="/admin/mfa/recovery"
+            className="font-medium text-accent-primary hover:underline"
+          >
+            Perdí mi autenticador
+          </Link>
+        </p>
+      )}
       {!isSubmitting && cancelLink}
     </AdminAuthCard>
   );

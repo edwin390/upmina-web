@@ -379,6 +379,17 @@ export default function ProfilePage() {
                   Panel de moderación
                 </Link>
               ) : null}
+              {isOwnProfile &&
+              adminStatus === "ready" &&
+              adminAccess?.capabilities.includes("developer_panel") ? (
+                <Link
+                  to="/admin/developer"
+                  state={{ cancelTo: `/@${username}` }}
+                  className="inline-flex min-h-11 items-center text-sm font-semibold text-accent-primary underline decoration-accent-primary/40 underline-offset-4 hover:decoration-accent-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-secondary"
+                >
+                  Panel Developer
+                </Link>
+              ) : null}
             </div>
           </header>
 

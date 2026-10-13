@@ -141,6 +141,7 @@ const {
   handleCommunityPostDetachMedia,
   handleCommunityPostDelete,
   handleCommunityPostListOwn,
+  handleCommunityAuthorRestriction,
 } = await import("./community-post-handlers");
 
 function mockRes() {
@@ -1128,5 +1129,97 @@ describe("R5-C author_restricted contract", () => {
     expect(JSON.stringify(state.body)).not.toMatch(
       /moderator|caseId|cycleId|decisionId|reporter|appliedBy|audit/i,
     );
+  });
+});
+
+describe("R5-F: GET de la restricción de publicación propia", () => {
+  const RESTRICTED = {
+    restricted: true,
+    level: 2,
+    permanent: false,
+    endsAt: "2026-11-01T00:00:00+00:00",
+    reason: "Motivo humano",
+    serverNow: "2026-10-06T00:00:00+00:00",
+    appliedBy: "no-debe-salir",
+  };
+  beforeEach(() => {
+    fake.rpcCalls.length = 0;
+    fake.restrictionResult = undefined;
+  });
+
+  it("sin restricción: 200 {restricted:false}, sin caché, y consulta SOLO la identidad del JWT", async () => {
+    fake.restrictionResult = ok({ restricted: false, serverNow: "x" });
+    const state = await call(
+      handleCommunityAuthorRestriction,
+      // parámetros manipulados: deben ignorarse por completo
+      req({ method: "GET", query: { userId: OTHER_USER_ID, user_id: OTHER_USER_ID } }),
+    );
+    expect(state.status).toBe(200);
+    expect(state.body).toEqual({ restricted: false, restriction: null });
+    expect(state.headers["Cache-Control"]).toBe("private, no-store");
+    expect(fake.rpcCalls).toEqual([
+      { name: "community_author_restriction", args: { p_user_id: USER_ID } },
+    ]);
+  });
+
+  it("restringida: 200 con SOLO los campos de producto (nivel, plazo, motivo)", async () => {
+    fake.restrictionResult = ok(RESTRICTED);
+    const state = await call(handleCommunityAuthorRestriction, req({ method: "GET" }));
+    expect(state.status).toBe(200);
+    expect(state.body).toEqual({
+      restricted: true,
+      restriction: {
+        level: 2,
+        permanent: false,
+        endsAt: RESTRICTED.endsAt,
+        reason: "Motivo humano",
+      },
+    });
+    expect(JSON.stringify(state.body)).not.toContain("no-debe-salir");
+  });
+
+  it("el body tampoco puede cambiar la identidad consultada", async () => {
+    fake.restrictionResult = ok({ restricted: false });
+    await call(
+      handleCommunityAuthorRestriction,
+      req({ method: "GET", token: "jwt-other-user", body: { userId: USER_ID } }),
+    );
+    expect(fake.rpcCalls[0].args).toEqual({ p_user_id: OTHER_USER_ID });
+  });
+
+  it("fallo de la lectura o forma inesperada: 503, nunca sin restricción", async () => {
+    for (const result of [
+      { data: null, error: { message: "boom" } },
+      ok(null),
+      ok({ restricted: "no" }),
+      ok({ restricted: true, level: 9, permanent: false, endsAt: null, reason: "x" }),
+    ]) {
+      fake.restrictionResult = result;
+      const state = await call(handleCommunityAuthorRestriction, req({ method: "GET" }));
+      expect(state.status).toBe(503);
+      expect(state.body).toMatchObject({ code: "restriction_unavailable" });
+      expect(JSON.stringify(state.body)).not.toMatch(/boom/);
+    }
+  });
+
+  it("sin sesión: 401 sin tocar la base; solo GET", async () => {
+    const noAuth = await call(
+      handleCommunityAuthorRestriction,
+      req({ method: "GET", token: null }),
+    );
+    expect(noAuth.status).toBe(401);
+    expect(fake.rpcCalls).toEqual([]);
+    const post = await call(handleCommunityAuthorRestriction, req({ method: "POST" }));
+    expect(post.status).toBe(405);
+    expect(post.headers.Allow).toBe("GET");
+  });
+
+  it("una sanción revocada o expirada deja de aparecer en la siguiente consulta", async () => {
+    fake.restrictionResult = ok(RESTRICTED);
+    const before = await call(handleCommunityAuthorRestriction, req({ method: "GET" }));
+    expect((before.body as { restricted: boolean }).restricted).toBe(true);
+    fake.restrictionResult = ok({ restricted: false });
+    const after = await call(handleCommunityAuthorRestriction, req({ method: "GET" }));
+    expect(after.body).toEqual({ restricted: false, restriction: null });
   });
 });

@@ -136,7 +136,14 @@ export async function fetchModerationCase(
 // nada, solo tipa lo que llega por cable).
 
 export type ModerationReportReason =
-  "spam" | "harassment" | "hate_speech" | "sexual_content" | "other";
+  | "spam"
+  | "harassment"
+  | "hate_speech"
+  | "sexual_content"
+  | "violence"
+  | "off_topic"
+  | "ai_generated"
+  | "other";
 export type ModerationReportStatus =
   "open" | "reviewing" | "resolved" | "dismissed" | "actioned";
 
@@ -172,6 +179,7 @@ export async function submitCommunityReport(
       error.error ?? "No se pudo crear el reporte",
       response.status,
       error.code,
+      error.reason,
     );
   }
   const result: CommunityReportSubmission = await response.json();
@@ -221,6 +229,8 @@ export class ModerationClientError extends Error {
     message: string,
     readonly status: number,
     readonly code?: string,
+    /** AUTH-2: razón de un 403 `account_incomplete` (email_unverified | username_missing). */
+    readonly accountReason?: string,
   ) {
     super(message);
     this.name = "ModerationClientError";
@@ -237,8 +247,10 @@ async function authHeader(): Promise<Record<string, string>> {
 
 async function parseErrorBody(
   response: Response,
-): Promise<{ error?: string; code?: string }> {
-  return response.json().catch(() => ({}) as { error?: string; code?: string });
+): Promise<{ error?: string; code?: string; reason?: string }> {
+  return response
+    .json()
+    .catch(() => ({}) as { error?: string; code?: string; reason?: string });
 }
 
 export async function fetchModerationReports(

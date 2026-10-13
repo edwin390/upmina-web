@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import { Link, Navigate } from "react-router-dom";
+import { Link, Navigate, useLocation } from "react-router-dom";
 import { supabase } from "@/lib/supabase";
+import { prefilledEmailFromState } from "@/lib/password-recovery-client";
 import { useAuth } from "@/lib/auth-context";
 import AdminAuthCard from "@/components/admin/AdminAuthCard";
 import AdminAuthField from "@/components/admin/AdminAuthField";
@@ -40,7 +41,10 @@ const SECONDARY_LINK_CLASS = "font-medium text-accent-primary hover:underline";
 
 export default function SignupPage() {
   const { session, loading: sessionLoading } = useAuth();
-  const [email, setEmail] = useState("");
+  const location = useLocation();
+  // «Crear cuenta con [correo]» desde /forgot-password: el correo llega por el ESTADO del router (nunca por la URL), solo
+  // rellena el campo —no envía nada— y se descarta si no tiene forma de correo.
+  const [email, setEmail] = useState(() => prefilledEmailFromState(location.state));
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [error, setError] = useState<string | null>(null);

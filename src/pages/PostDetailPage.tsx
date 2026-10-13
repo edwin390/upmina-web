@@ -4,11 +4,12 @@ import { useCommunityPostDetail } from "@/hooks/useCommunityPostDetail";
 import { useCommunityLikedByMe } from "@/hooks/useCommunityLikedByMe";
 import CommunityLikeButton from "@/components/community/CommunityLikeButton";
 import CommunityPostMediaViewer from "@/components/community/CommunityPostMediaViewer";
+import CommunityReportButton from "@/components/community/CommunityReportButton";
 
 // /community/post/:postId (Fase 9J-2B.1, con like real en 9J-2C, con vídeo real en 9J-3): detalle
 // público de UNA publicación de Comunidad — destino "compartible" de las tarjetas del feed y de la
 // galería de perfil, que antes eran inertes. Solo lectura salvo el like: sin comentarios, sin
-// reacciones múltiples, sin botón de reporte. La identidad del autor enlaza a /@username (nunca al
+// reacciones múltiples; el reporte (REP-1) vive en CommunityReportButton. La identidad del autor enlaza a /@username (nunca al
 // revés: el enlace de autor NUNCA abre esta página, ver CommunityFeedCard.tsx/ProfilePage.tsx).
 
 function formatDate(iso: string): string {
@@ -129,13 +130,14 @@ function PublicPostDetail() {
 
           <CommunityPostMediaViewer media={post.media} />
 
-          <div className="mt-4 border-t border-border-subtle pt-4">
+          <div className="mt-4 flex items-center justify-between gap-2 border-t border-border-subtle pt-4">
             <CommunityLikeButton
               postId={post.id}
               likeCount={post.likeCount}
               likedByMe={likedByMe?.has(post.id) ?? false}
               stopPropagation={false}
             />
+            <CommunityReportButton postId={post.id} />
           </div>
         </article>
       ) : null}

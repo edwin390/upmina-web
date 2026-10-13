@@ -41,7 +41,7 @@ vi.mock("@/lib/community-client", async () => ({
 const RESTRICTION = {
   level: 2 as const,
   permanent: false,
-  endsAt: "2026-11-20T10:00:00+00:00",
+  endsAt: "2099-11-20T10:00:00+00:00",
   reason: "Motivo completo del strike",
 };
 const restricted = (restriction: typeof RESTRICTION | null = RESTRICTION) =>
@@ -91,7 +91,10 @@ describe("authoritative save rejection (create and edit)", () => {
     type("Mi borrador");
     publish();
     const notice = await screen.findByTestId("restriction-notice");
-    expect(notice).toHaveTextContent("Tu cuenta tiene un Strike 2 activo en Community.");
+    expect(notice).toHaveTextContent("Has recibido tu segundo strike.");
+    expect(screen.getByTestId("restriction-warning")).toHaveTextContent(
+      "Última advertencia",
+    );
     expect(notice).toHaveTextContent("Motivo: Motivo completo del strike");
     expect(notice).toHaveTextContent(
       "Puedes seguir eliminando tus propias publicaciones.",
@@ -217,7 +220,7 @@ describe("media reserve precheck rejection", () => {
       target: { files: [new File(["bytes"], "a.jpg", { type: "image/jpeg" })] },
     });
     const notice = await screen.findByTestId("restriction-notice");
-    expect(notice).toHaveTextContent("Strike 2");
+    expect(notice).toHaveTextContent("segundo strike");
     expect(notice).toHaveTextContent("Motivo: Motivo completo del strike");
     expect(mocks.complete).not.toHaveBeenCalled();
     expect(mocks.put).not.toHaveBeenCalled();

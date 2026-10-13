@@ -14,6 +14,8 @@ import {
   type PrivilegedIdentity,
 } from "./admin-auth.js";
 import { hashInvitationToken } from "./admin-invitation-token.js";
+import { evaluateMfaActivationGate } from "./admin-mfa-reset.js";
+import { reconcileRecoveryOnAccess } from "./admin-mfa-recovery-handlers.js";
 
 // Handler HTTP de POST /api/admin/activate (Bloque 2C). Vive aquí (no en api/) por el
 // mismo motivo que instagram-handlers.ts/tiktok-handlers.ts: api/admin/[action].ts es un
@@ -61,6 +63,11 @@ function getInvitationServiceClient() {
     auth: { persistSession: false, autoRefreshToken: false },
   });
 }
+
+const MFA_REENROLL_MESSAGE =
+  "Debes configurar y verificar un autenticador nuevo antes de activar tu acceso.";
+const MFA_CLEANUP_PENDING_MESSAGE =
+  "Estamos terminando de restablecer tu autenticador anterior. Inténtalo de nuevo en unos minutos.";
 
 /** Único cuerpo de error genérico para "la invitación no pudo consumirse": no
  *  distingue token inexistente, ya consumido, expirado o bootstrap ya usado (serían
@@ -200,6 +207,27 @@ export async function handleAdminActivate(
     return res.status(500).json(INFRASTRUCTURE_ERROR_BODY);
   }
 
+  // MFA fase 1: tras retirar el último rol de una persona, una reinvitación exige un autenticador
+  // NUEVO verificado (la sesión debe acreditarlo en la BD) y que su limpieza anterior esté resuelta.
+  // Sin antecedentes de retirada (primera invitación) la puerta no cambia nada. Falla cerrado.
+  const gate = await evaluateMfaActivationGate(
+    client,
+    identity.userId,
+    identity.sessionId,
+  );
+  if (!gate.ok) {
+    if (gate.status === 403) {
+      return res.status(403).json({ error: MFA_REENROLL_MESSAGE, code: gate.code });
+    }
+    if (gate.status === 503) {
+      res.setHeader("Retry-After", "5");
+      return res
+        .status(503)
+        .json({ error: MFA_CLEANUP_PENDING_MESSAGE, code: gate.code });
+    }
+    return res.status(500).json(INFRASTRUCTURE_ERROR_BODY);
+  }
+
   try {
     const { data, error } = await client.rpc("consume_admin_invitation", {
       p_token_hash: tokenHash,
@@ -298,6 +326,17 @@ export async function handleAdminAccess(
       return res.status(err.status).json(authErrorBody(err));
     }
     return res.status(500).json(INFRASTRUCTURE_ERROR_BODY);
+  }
+
+  // MFA fase 2: si quien accede es un miembro con MFA RECIENTE (aal2), se intenta cerrar una
+  // recuperación de autenticador pendiente de cierre (mismo mecanismo del servidor, idempotente). Es un
+  // efecto accesorio: no cambia la respuesta ni la autorización, y sin recuperación pendiente la
+  // base responde sin hacer nada. No se ejecuta para USER, sin MFA reciente ni sin identidad.
+  if (access.role !== null && access.mfaRecent && access.userId) {
+    await reconcileRecoveryOnAccess({
+      userId: access.userId,
+      sessionId: access.sessionId,
+    });
   }
 
   return res.status(200).json({

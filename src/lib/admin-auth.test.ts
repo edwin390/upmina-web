@@ -217,13 +217,23 @@ describe("requireAuthenticated", () => {
   it("7) sub válido + aal1 → identidad autenticada (NO rechazada; requireAuthenticated no exige aal2)", async () => {
     okClaims({ aal: "aal1", amr: [{ method: "password", timestamp: NOW_S }] });
     const identity = await requireAuthenticated(bearer());
-    expect(identity).toEqual({ userId: USER_ID, aal: "aal1", mfaVerifiedAt: null });
+    expect(identity).toEqual({
+      userId: USER_ID,
+      aal: "aal1",
+      mfaVerifiedAt: null,
+      passwordVerifiedAt: NOW_S,
+    });
   });
 
   it("8) sub válido + aal2 → identidad autenticada", async () => {
     okClaims();
     const identity = await requireAuthenticated(bearer("el-jwt"));
-    expect(identity).toEqual({ userId: USER_ID, aal: "aal2", mfaVerifiedAt: NOW_S });
+    expect(identity).toEqual({
+      userId: USER_ID,
+      aal: "aal2",
+      mfaVerifiedAt: NOW_S,
+      passwordVerifiedAt: NOW_S - 7200,
+    });
     expect(auth.getClaimsCalls).toEqual(["el-jwt"]);
   });
 
@@ -610,6 +620,7 @@ describe("9C — capacidades explícitas (matriz rol → capacidad)", () => {
     "social_admin",
     "team_admin",
     "cosplay_admin",
+    "developer_panel",
   ];
   // undefined = USER (sin fila en admin_roles)
   const MATRIX: Record<
@@ -622,6 +633,8 @@ describe("9C — capacidades explícitas (matriz rol → capacidad)", () => {
     team_admin: { admin: true, developer: false, moderator: false, user: false },
     // Fase 9I: SOLO admin. Ni moderator ni developer administran Cosplay.
     cosplay_admin: { admin: true, developer: false, moderator: false, user: false },
+    // Developer Panel V1: SOLO developer. Admin NO la tiene (roles independientes, sin jerarquía).
+    developer_panel: { admin: false, developer: true, moderator: false, user: false },
   };
 
   for (const capability of ALL) {
@@ -673,8 +686,80 @@ describe("9C — capacidades explícitas (matriz rol → capacidad)", () => {
         expect(roleHasCapability(role, cap)).toBe(MATRIX[cap][role]);
       }
     }
-    expect(capabilitiesForRole("developer")).toEqual(["moderation", "technical"]);
+    expect(capabilitiesForRole("developer")).toEqual([
+      "moderation",
+      "technical",
+      "developer_panel",
+    ]);
     expect(capabilitiesForRole("moderator")).toEqual(["moderation"]);
+    // Independencia: Developer no hereda NADA de Admin y Admin no recibe developer_panel.
+    for (const adminOnly of ["team_admin", "social_admin", "cosplay_admin"] as const) {
+      expect(roleHasCapability("developer", adminOnly)).toBe(false);
+    }
+    expect(roleHasCapability("admin", "developer_panel")).toBe(false);
+  });
+
+  describe("TOTP reciente reforzado (Developer Panel V1)", () => {
+    const WINDOW = 300;
+    it("un TOTP dentro de la ventana permite; fuera de ella → step_up_required aunque el MFA general sea reciente", async () => {
+      roles.row = { role: "developer" };
+      okClaims({ amr: totpAmr(240) });
+      await expect(
+        requireCapability(bearer(), "developer_panel", { totpWindowSeconds: WINDOW }),
+      ).resolves.toMatchObject({ role: "developer" });
+
+      okClaims({ amr: totpAmr(600) }); // reciente para el MFA general (30 min) pero no para 5 min
+      await expect(requireCapability(bearer(), "developer_panel")).resolves.toBeDefined();
+      const error = await catchError(() =>
+        requireCapability(bearer(), "developer_panel", { totpWindowSeconds: WINDOW }),
+      );
+      expect(error).toBeInstanceOf(AdminAuthError);
+      expect((error as AdminAuthError).status).toBe(403);
+      expect((error as AdminAuthError).code).toBe("step_up_required");
+    });
+
+    it("el límite exacto cuenta y un timestamp futuro o un aal1 fallan cerrado", async () => {
+      roles.row = { role: "developer" };
+      okClaims({ amr: totpAmr(WINDOW) });
+      await expect(
+        requireCapability(bearer(), "developer_panel", { totpWindowSeconds: WINDOW }),
+      ).resolves.toBeDefined();
+      okClaims({ amr: totpAmr(-3600) });
+      expect(
+        (
+          (await catchError(() =>
+            requireCapability(bearer(), "developer_panel", { totpWindowSeconds: WINDOW }),
+          )) as AdminAuthError
+        ).status,
+      ).toBe(403);
+      okClaims({ aal: "aal1", amr: totpAmr(10) });
+      expect(
+        (
+          (await catchError(() =>
+            requireCapability(bearer(), "developer_panel", { totpWindowSeconds: WINDOW }),
+          )) as AdminAuthError
+        ).status,
+      ).toBe(403);
+    });
+
+    it("la capacidad se comprueba ANTES: un Admin con TOTP fresco recibe 403 sin step_up_required", async () => {
+      roles.row = { role: "admin" };
+      okClaims({ amr: totpAmr(5) });
+      const error = (await catchError(() =>
+        requireCapability(bearer(), "developer_panel", { totpWindowSeconds: WINDOW }),
+      )) as AdminAuthError;
+      expect(error.status).toBe(403);
+      expect(error.code).toBeUndefined();
+    });
+
+    it("nunca amplía la ventana general: una ventana mayor que la de MFA se limita a esta", async () => {
+      roles.row = { role: "developer" };
+      okClaims({ amr: totpAmr(3600) });
+      const error = (await catchError(() =>
+        requireCapability(bearer(), "developer_panel", { totpWindowSeconds: 99999 }),
+      )) as AdminAuthError;
+      expect(error.code).toBe("step_up_required");
+    });
   });
 
   it("capabilitiesForRole devuelve una copia: mutarla no altera la matriz", () => {
@@ -766,7 +851,12 @@ describe("9G-1 — identidad: la marca de MFA sale solo de las claims verificada
       body: { aal: "aal2", amr: totpAmr(), mfaVerifiedAt: NOW_S },
       query: { aal: "aal2", mfa: "1" },
     } as unknown as VercelRequest);
-    expect(identity).toEqual({ userId: USER_ID, aal: "aal1", mfaVerifiedAt: null });
+    expect(identity).toEqual({
+      userId: USER_ID,
+      aal: "aal1",
+      mfaVerifiedAt: null,
+      passwordVerifiedAt: NOW_S,
+    });
   });
 });
 
@@ -937,6 +1027,7 @@ describe("9G-1 — getAccessSummary (/api/admin/access): informa, no autoriza ni
       role: null,
       capabilities: [],
       mfaRecent: false,
+      userId: USER_ID,
     });
   });
 
@@ -947,6 +1038,7 @@ describe("9G-1 — getAccessSummary (/api/admin/access): informa, no autoriza ni
       role: null,
       capabilities: [],
       mfaRecent: true,
+      userId: USER_ID,
     });
   });
 
@@ -963,6 +1055,7 @@ describe("9G-1 — getAccessSummary (/api/admin/access): informa, no autoriza ni
         "cosplay_admin",
       ],
       mfaRecent: false,
+      userId: USER_ID,
     });
   });
 
@@ -972,6 +1065,7 @@ describe("9G-1 — getAccessSummary (/api/admin/access): informa, no autoriza ni
     await expect(getAccessSummary(bearer())).resolves.toMatchObject({
       role: "admin",
       mfaRecent: true,
+      userId: USER_ID,
     });
   });
 
@@ -983,6 +1077,7 @@ describe("9G-1 — getAccessSummary (/api/admin/access): informa, no autoriza ni
     expect((await getAccessSummary(bearer())).capabilities).toEqual([
       "moderation",
       "technical",
+      "developer_panel",
     ]);
   });
 

@@ -54,6 +54,7 @@ const communityClientMocks = vi.hoisted(() => ({
   listOwnCommunityPosts: vi.fn(),
   saveCommunityPost: vi.fn(),
   deleteCommunityPost: vi.fn(),
+  fetchAuthorRestriction: vi.fn(),
 }));
 vi.mock("@/lib/community-client", async () => {
   const actual = await vi.importActual<typeof import("@/lib/community-client")>(
@@ -64,6 +65,7 @@ vi.mock("@/lib/community-client", async () => {
     listOwnCommunityPosts: communityClientMocks.listOwnCommunityPosts,
     saveCommunityPost: communityClientMocks.saveCommunityPost,
     deleteCommunityPost: communityClientMocks.deleteCommunityPost,
+    fetchAuthorRestriction: communityClientMocks.fetchAuthorRestriction,
   };
 });
 
@@ -191,6 +193,7 @@ function renderProfile(
             }
           />
           <Route path="/admin/moderation" element={<ModerationDestination />} />
+          <Route path="/admin/developer" element={<ModerationDestination />} />
           <Route
             path="/community/post/:postId"
             element={
@@ -221,6 +224,9 @@ beforeEach(() => {
   communityClientMocks.listOwnCommunityPosts.mockResolvedValue({ items: [] });
   communityClientMocks.saveCommunityPost.mockReset();
   communityClientMocks.deleteCommunityPost.mockReset();
+  // R5-F: la compuerta del editor consulta la restricción; por defecto, sin restricción.
+  communityClientMocks.fetchAuthorRestriction.mockReset();
+  communityClientMocks.fetchAuthorRestriction.mockResolvedValue(null);
   uploadMocks.addFiles.mockReset();
   uploadMocks.items = [];
 });
@@ -688,6 +694,59 @@ describe("/@username — dueño: controles propios", () => {
     },
   );
 
+  it.each([
+    ["developer", ["developer_panel", "moderation"], true, true],
+    ["developer", ["developer_panel"], false, true],
+    ["admin", ["moderation", "team_admin"], true, false],
+    ["moderator", ["moderation"], true, false],
+  ] as const)(
+    "perfil propio (%s, %j): Panel de moderación=%s y Panel Developer=%s según las capacidades del servidor",
+    async (role, capabilities, moderation, developer) => {
+      ownProfileFakes.profile = { username: "edwin1", displayName: null, bio: null };
+      adminAccessFakes.status = "ready";
+      adminAccessFakes.role = role;
+      adminAccessFakes.capabilities = [...capabilities];
+      stubProfile(profilePage());
+      renderProfile();
+      await screen.findByText("Todavía no hay publicaciones");
+      const mod = screen.queryByRole("link", { name: "Panel de moderación" });
+      const dev = screen.queryByRole("link", { name: "Panel Developer" });
+      expect(Boolean(mod)).toBe(moderation);
+      expect(Boolean(dev)).toBe(developer);
+      if (dev) {
+        expect(dev).toHaveAttribute("href", "/admin/developer");
+        // coexisten, en columna, sin reemplazar el de moderación
+        if (mod) expect(dev.parentElement).toBe(mod.parentElement);
+        fireEvent.click(dev);
+        expect(
+          await screen.findByText("/admin/developer cancel:/@edwin1"),
+        ).toBeInTheDocument();
+      }
+    },
+  );
+
+  it("Panel Developer no aparece en el perfil de otra persona, sin sesión de acceso ni para un usuario normal", async () => {
+    ownProfileFakes.profile = { username: "otra_persona", displayName: null, bio: null };
+    adminAccessFakes.status = "ready";
+    adminAccessFakes.role = "developer";
+    adminAccessFakes.capabilities = ["developer_panel"];
+    stubProfile(profilePage());
+    renderProfile();
+    await screen.findByText("Todavía no hay publicaciones");
+    expect(screen.queryByRole("link", { name: "Panel Developer" })).toBeNull();
+  });
+
+  it("un usuario normal sin capacidades no ve Panel Developer", async () => {
+    ownProfileFakes.profile = { username: "edwin1", displayName: null, bio: null };
+    adminAccessFakes.status = "ready";
+    adminAccessFakes.role = null;
+    adminAccessFakes.capabilities = [];
+    stubProfile(profilePage());
+    renderProfile();
+    await screen.findByText("Todavía no hay publicaciones");
+    expect(screen.queryByRole("link", { name: "Panel Developer" })).toBeNull();
+  });
+
   it("un usuario normal (no ADMIN) no ve el atajo", async () => {
     ownProfileFakes.profile = { username: "edwin1", displayName: null, bio: null };
     adminAccessFakes.status = "ready";
@@ -750,7 +809,7 @@ describe("/@username — Nueva publicación (dueño)", () => {
     await observer.refetch();
     renderProfile("/@edwin1", client);
     fireEvent.click(await screen.findByRole("button", { name: "Nueva publicación" }));
-    fireEvent.change(screen.getByPlaceholderText("¿Qué quieres compartir?"), {
+    fireEvent.change(await screen.findByPlaceholderText("¿Qué quieres compartir?"), {
       target: { value: "Nueva" },
     });
     fireEvent.click(screen.getByRole("button", { name: "Publicar" }));
@@ -777,7 +836,7 @@ describe("/@username — Nueva publicación (dueño)", () => {
     fireEvent.click(screen.getByRole("button", { name: "Nueva publicación" }));
     expect(screen.getByRole("dialog", { name: "Nueva publicación" })).toBeInTheDocument();
 
-    fireEvent.change(screen.getByPlaceholderText("¿Qué quieres compartir?"), {
+    fireEvent.change(await screen.findByPlaceholderText("¿Qué quieres compartir?"), {
       target: { value: "recién creada" },
     });
     fireEvent.click(screen.getByRole("button", { name: "Publicar" }));
@@ -804,6 +863,7 @@ describe("/@username — Nueva publicación (dueño)", () => {
     renderProfile();
     await screen.findByText("Todavía no hay publicaciones");
     fireEvent.click(screen.getByRole("button", { name: "Nueva publicación" }));
+    await screen.findByPlaceholderText("¿Qué quieres compartir?");
     const input = document.querySelector('input[type="file"]') as HTMLInputElement;
     expect(input.accept).toContain("image/*");
     expect(input.accept).toContain("video/mp4");
@@ -811,6 +871,39 @@ describe("/@username — Nueva publicación (dueño)", () => {
     expect(input.accept).toContain("video/webm");
     // Un único picker: nunca dos inputs/botones separados "Añadir imágenes"/"Añadir video".
     expect(document.querySelectorAll('input[type="file"]')).toHaveLength(1);
+  });
+
+  it("R5-F: con una restricción vigente, «Nueva publicación» muestra el aviso y NO el formulario ni el selector de archivos", async () => {
+    ownProfileFakes.profile = { username: "edwin1", displayName: null, bio: null };
+    communityClientMocks.fetchAuthorRestriction.mockResolvedValue({
+      level: 1,
+      permanent: false,
+      endsAt: "2099-10-24T10:00:00+00:00",
+      reason: "Spam",
+    });
+    stubProfile(profilePage());
+    renderProfile();
+    await screen.findByText("Todavía no hay publicaciones");
+    fireEvent.click(screen.getByRole("button", { name: "Nueva publicación" }));
+    expect(await screen.findByTestId("restriction-notice")).toHaveTextContent(
+      "Has recibido tu primer strike",
+    );
+    expect(screen.queryByPlaceholderText("¿Qué quieres compartir?")).toBeNull();
+    expect(document.querySelector('input[type="file"]')).toBeNull();
+    expect(communityClientMocks.saveCommunityPost).not.toHaveBeenCalled();
+  });
+
+  it("R5-F: si la comprobación falla, el editor no se abre y se ofrece reintentar", async () => {
+    ownProfileFakes.profile = { username: "edwin1", displayName: null, bio: null };
+    communityClientMocks.fetchAuthorRestriction.mockRejectedValueOnce(new Error("x"));
+    stubProfile(profilePage());
+    renderProfile();
+    await screen.findByText("Todavía no hay publicaciones");
+    fireEvent.click(screen.getByRole("button", { name: "Nueva publicación" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Reintentar" }));
+    expect(
+      await screen.findByPlaceholderText("¿Qué quieres compartir?"),
+    ).toBeInTheDocument();
   });
 
   it("nunca se muestra el formulario completo permanentemente bajo el encabezado", async () => {
@@ -848,7 +941,7 @@ describe("/@username — gestión de publicaciones propias (⋯)", () => {
     expect(
       screen.getByRole("dialog", { name: "Editar publicación" }),
     ).toBeInTheDocument();
-    expect(screen.getByDisplayValue("texto original")).toBeInTheDocument();
+    expect(await screen.findByDisplayValue("texto original")).toBeInTheDocument();
   });
 
   it("Eliminar exige confirmación explícita antes de borrar", async () => {

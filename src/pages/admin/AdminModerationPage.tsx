@@ -10,6 +10,7 @@ import ModerationDecisionActions, {
 } from "./ModerationDecisionActions";
 import CosplayLocaleProvider from "@/i18n/LocaleProvider";
 import ModerationAuditList from "./ModerationAuditList";
+import CopyrightClaimsPanel from "./CopyrightClaimsPanel";
 import ModerationStrikePanel, { type StrikeDraft } from "./ModerationStrikePanel";
 import ModerationStrikeUnavailable from "./ModerationStrikeUnavailable";
 import { groupedDecisionInputFromCase } from "@/lib/moderation-decision-contract";
@@ -74,6 +75,9 @@ const REASONS: Record<string, string> = {
   harassment: "Acoso",
   hate_speech: "Discurso de odio",
   sexual_content: "Contenido sexual",
+  violence: "Violencia",
+  off_topic: "Ajeno a Mina",
+  ai_generated: "Generado con IA",
   other: "Otro",
 };
 const STATES: Record<string, string> = {
@@ -186,6 +190,10 @@ function AdminModeration() {
     resume.current?.scope ?? "active",
   );
   const [cursor, setCursor] = useState<string | null>(resume.current?.cursor ?? null);
+  // COPY-1 fase 2A: pestaña de copyright, separada de los reportes ordinarios (su propia cola, detalle y acciones).
+  const [section, setSection] = useState<"reports" | "copyright">("reports");
+  const tc = useTranslations("moderation.copyright.panel");
+  const tcd = useTranslations("moderation.caseDetail");
   // R5-G: filtros aplicados y rastro de cursores de las páginas anteriores («Página anterior»
   // retrocede por este rastro; la paginación sigue siendo por cursor, sin OFFSET).
   const [filters, setFilters] = useState<QueueFilters>(resume.current?.filters ?? {});
@@ -464,19 +472,18 @@ function AdminModeration() {
   const panel = selectedId ? (
     <section
       id="moderation-case-detail"
-      aria-label="Detalle del caso"
-      className="min-w-0 border-t border-border-subtle p-4"
+      aria-label={tcd("title")}
+      className="mt-3 min-w-0 rounded-md border border-border-subtle p-4"
     >
-      <div className="flex justify-end">
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+        <h2 className="font-display text-xl">{tcd("title")}</h2>
         <button
           type="button"
           disabled={statusUpdating}
-          aria-label="Cerrar detalle del caso"
-          title="Cerrar detalle del caso"
           onClick={close}
-          className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent-primary"
+          className={buttonClass}
         >
-          <span aria-hidden="true">×</span>
+          {tcd("close")}
         </button>
       </div>
       {detail?.kind === "loading" && <p role="status">Cargando caso…</p>}
@@ -729,6 +736,34 @@ function AdminModeration() {
       )}
     </section>
   ) : null;
+  const sectionNav = (
+    <nav aria-label={tc("sections.label")} className="mt-4 flex flex-wrap gap-3">
+      {(["reports", "copyright"] as const).map((s) => (
+        <button
+          key={s}
+          type="button"
+          className={`${topButtonClass} ${section === s ? "bg-bg-elevated" : ""}`}
+          aria-pressed={section === s}
+          onClick={() => setSection(s)}
+        >
+          {tc(`sections.${s}`)}
+        </button>
+      ))}
+    </nav>
+  );
+  if (section === "copyright")
+    return (
+      <div className="mx-auto min-w-0 max-w-4xl px-4 py-16">
+        <div className="min-w-0 rounded-xl border border-accent-primary/40 bg-bg-surface p-4 sm:p-8">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <h1 className="font-display text-3xl">Moderación</h1>
+            <span className="text-xs uppercase">{role?.toUpperCase()}</span>
+          </div>
+          {sectionNav}
+          <CopyrightClaimsPanel onAccessError={handleAccessError} />
+        </div>
+      </div>
+    );
   return (
     <div className="mx-auto min-w-0 max-w-4xl px-4 py-16">
       <div className="min-w-0 rounded-xl border border-accent-primary/40 bg-bg-surface p-4 sm:p-8">
@@ -736,6 +771,7 @@ function AdminModeration() {
           <h1 className="font-display text-3xl">Moderación</h1>
           <span className="text-xs uppercase">{role?.toUpperCase()}</span>
         </div>
+        {sectionNav}
         <div className="mt-3">
           <ModerationPendingCounter state={pending} onRetry={() => void loadPending()} />
         </div>

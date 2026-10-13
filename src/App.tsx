@@ -33,13 +33,22 @@ const MediaHarnessPage = import.meta.env.DEV
 // Su propio chunk: las páginas /admin/* solo se descargan al entrar a /admin/*.
 const LoginPage = lazy(() => import("./pages/LoginPage"));
 const SignupPage = lazy(() => import("./pages/SignupPage"));
+const ForgotPasswordPage = lazy(() => import("./pages/ForgotPasswordPage"));
+const CopyrightClaimPage = lazy(() => import("./pages/CopyrightClaimPage"));
+const CopyrightAppealPage = lazy(() => import("./pages/CopyrightAppealPage"));
+const ResetPasswordPage = lazy(() => import("./pages/ResetPasswordPage"));
 const AccountPage = lazy(() => import("./pages/AccountPage"));
 const AdminAuthLayout = lazy(() => import("./pages/admin/AdminAuthLayout"));
 const AdminLoginPage = lazy(() => import("./pages/admin/AdminLoginPage"));
 const AdminSignupPage = lazy(() => import("./pages/admin/AdminSignupPage"));
 const AdminMfaPage = lazy(() => import("./pages/admin/AdminMfaPage"));
 const AdminActivatePage = lazy(() => import("./pages/admin/AdminActivatePage"));
+const AdminMfaRecoveryPage = lazy(() => import("./pages/admin/AdminMfaRecoveryPage"));
+const AdminMfaRecoveryCancelPage = lazy(
+  () => import("./pages/admin/AdminMfaRecoveryCancelPage"),
+);
 const AdminDashboardPage = lazy(() => import("./pages/admin/AdminDashboardPage"));
+const DeveloperPage = lazy(() => import("./pages/admin/DeveloperPage"));
 const AdminModerationPage = lazy(() => import("./pages/admin/AdminModerationPage"));
 
 function SectionFallback() {
@@ -135,8 +144,12 @@ function AppShell() {
             )}
             <Route path="/terms" element={<TermsPage />} />
             <Route path="/privacy" element={<PrivacyPage />} />
+            <Route path="/copyright" element={<CopyrightClaimPage />} />
+            <Route path="/copyright/appeal" element={<CopyrightAppealPage />} />
             <Route path="/login" element={<LoginPage />} />
             <Route path="/signup" element={<SignupPage />} />
+            <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+            <Route path="/reset-password" element={<ResetPasswordPage />} />
             <Route path="/account" element={<AccountPage />} />
             {/* /@username (Fase 9J-2B): React Router v6 no admite mezclar texto literal ("@") y
                 un segmento dinámico dentro del MISMO segmento de ruta (matchPath("/@:username",
@@ -150,10 +163,16 @@ function AppShell() {
             <Route path="/:usernameParam" element={<ProfilePage />} />
             <Route element={<AdminAuthLayout />}>
               <Route path="/admin" element={<AdminDashboardPage />} />
+              <Route path="/admin/developer" element={<DeveloperPage />} />
               <Route path="/admin/moderation" element={<AdminModerationPage />} />
               <Route path="/admin/login" element={<AdminLoginPage />} />
               <Route path="/admin/signup" element={<AdminSignupPage />} />
               <Route path="/admin/mfa" element={<AdminMfaPage />} />
+              <Route path="/admin/mfa/recovery" element={<AdminMfaRecoveryPage />} />
+              <Route
+                path="/admin/mfa/recovery/cancel"
+                element={<AdminMfaRecoveryCancelPage />}
+              />
               <Route path="/admin/activate" element={<AdminActivatePage />} />
             </Route>
             <Route path="*" element={<Navigate to="/" replace />} />

@@ -1,10 +1,10 @@
 import { useEffect, useRef } from "react";
-import CommunityPostEditorForm from "./CommunityPostEditorForm";
+import CommunityPostEditorGate from "./CommunityPostEditorGate";
 import type { CommunityOwnPost } from "@/lib/community-client";
 
 // Modal ligero para "Nueva publicación"/"Editar publicación" desde el perfil público PROPIO
 // (Fase 9J-2B.1, ver ProfilePage.tsx). Nunca reimplementa el formulario: envuelve
-// CommunityPostEditorForm.tsx TAL CUAL (la misma implementación que ya usa
+// CommunityPostEditorGate.tsx (R5-F: compuerta de restricción + CommunityPostEditorForm.tsx; la misma implementación que ya usa
 // CommunityPostsSection.tsx en /account, inline sin modal) con el chrome mínimo de diálogo —
 // fondo, panel, título, botón cerrar, Escape para cerrar. El perfil público NUNCA muestra el
 // formulario completo permanentemente debajo del encabezado (el checkpoint es explícito): este
@@ -64,7 +64,7 @@ export default function CommunityPostEditorDialog({
           </button>
         </div>
 
-        <CommunityPostEditorForm
+        <CommunityPostEditorGate
           initialPost={initialPost}
           onSaved={onSaved}
           onCancel={onClose}

@@ -37,8 +37,16 @@ export type ReturnRoutes = Readonly<Record<string, ReturnRoute>>;
 export const RETURN_ROUTES: ReturnRoutes = Object.freeze({
   "/admin": Object.freeze({ allowsIntent: false }),
   "/admin/moderation": Object.freeze({ allowsIntent: false }),
+  // Developer Panel V1: tras un login o un MFA se vuelve al panel Developer (sin parámetros).
+  "/admin/developer": Object.freeze({ allowsIntent: false }),
   "/admin/activate": Object.freeze({ allowsIntent: false }),
+  // MFA fase 2: tras iniciar sesión se vuelve a la recuperación de autenticador. Sin parámetros: el
+  // código del correo NUNCA viaja en returnTo (se conserva en memoria, ver pending-recovery-code.ts).
+  "/admin/mfa/recovery": Object.freeze({ allowsIntent: false }),
   "/account": Object.freeze({ allowsIntent: false }),
+  // COPY-1 fase 2B: tras iniciar sesión se vuelve a la apelación de copyright. Sin parámetros: el token del enlace NUNCA viaja en
+  // returnTo (se conserva en memoria, ver pending-appeal-token.ts).
+  "/copyright/appeal": Object.freeze({ allowsIntent: false }),
   "/community": Object.freeze({ allowsIntent: false }),
   // Fase 9I-1: la UI privilegiada de Cosplay vive en /cosplay (sin panel aparte). allowsIntent
   // solo transporta QUÉ intención reabrir (crear/editar/eliminar) tras el step-up de MFA; nunca

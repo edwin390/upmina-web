@@ -41,8 +41,11 @@ describe("allowlist inicial", () => {
       "/account",
       "/admin",
       "/admin/activate",
+      "/admin/developer",
+      "/admin/mfa/recovery",
       "/admin/moderation",
       "/community",
+      "/copyright/appeal",
       "/cosplay",
     ]);
   });
@@ -394,5 +397,33 @@ describe("longitud y robustez", () => {
     parseSafeReturnTo("/admin");
     parseSafeReturnTo("https://evil.com");
     expect(window.location.href).toBe(before);
+  });
+});
+
+describe("MFA fase 2 — /admin/mfa/recovery como destino de retorno", () => {
+  it("se acepta tal cual, sin parámetros", () => {
+    expect(parseSafeReturnTo("/admin/mfa/recovery")).toEqual({
+      pathname: "/admin/mfa/recovery",
+      intent: null,
+      path: "/admin/mfa/recovery",
+    });
+  });
+  it.each([
+    ["con el código en el fragmento", `/admin/mfa/recovery#c=${"A".repeat(43)}`],
+    ["con el código en la query", `/admin/mfa/recovery?c=${"A".repeat(43)}`],
+    ["con intent", "/admin/mfa/recovery?intent=create"],
+    ["barra final", "/admin/mfa/recovery/"],
+    [
+      "la página pública de cancelación NO es destino de retorno",
+      "/admin/mfa/recovery/cancel",
+    ],
+    ["subruta", "/admin/mfa/recovery/x"],
+    ["protocol-relative", "//evil.example/admin/mfa/recovery"],
+    ["URL absoluta", "https://evil.example/admin/mfa/recovery"],
+    ["mayúsculas", "/Admin/mfa/recovery"],
+    ["segmento ..", "/admin/mfa/../mfa/recovery"],
+    ["codificado", "/admin/mfa/recover%79"],
+  ])("rechaza %s", (_n, raw) => {
+    expect(parseSafeReturnTo(raw)).toBeNull();
   });
 });

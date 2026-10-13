@@ -20,6 +20,7 @@ const {
   reorderCommunityPostMedia,
   detachCommunityPostMedia,
   deleteCommunityPost,
+  fetchAuthorRestriction,
 } = await import("./community-client");
 const { MediaClientError, reserveMediaUpload } = await import("./media-client");
 const { restrictionOutcome } = await import("./author-restriction");
@@ -37,7 +38,7 @@ async function failure(op: () => Promise<unknown>): Promise<Failure> {
 const RESTRICTION = {
   level: 1,
   permanent: false,
-  endsAt: "2026-10-20T10:00:00+00:00",
+  endsAt: "2099-10-20T10:00:00+00:00",
   reason: "Motivo",
 };
 function respond(status: number, body: unknown) {
@@ -154,5 +155,45 @@ describe("Media client: reserve rejected by the non-authoritative precheck", () 
     respond(400, { error: "x", code: "invalid_kind", restriction: RESTRICTION });
     const err = await failure(() => reserveMediaUpload(reserveInput));
     expect(err.restriction).toBeNull();
+  });
+});
+
+describe("fetchAuthorRestriction (R5-F)", () => {
+  it("GET sin identidad en la URL: sin restricción → null; restringida → vista parseada", async () => {
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(JSON.stringify({ restricted: false, restriction: null }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    expect(await fetchAuthorRestriction()).toBeNull();
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toBe("/api/admin/community-author-restriction");
+    expect(init.method).toBe("GET");
+    respond(200, { restricted: true, restriction: RESTRICTION });
+    expect(await fetchAuthorRestriction()).toEqual(RESTRICTION);
+  });
+
+  it("503, red caída o forma inesperada LANZAN: nunca se interpreta como sin restricción", async () => {
+    respond(503, { error: "x", code: "restriction_unavailable" });
+    await expect(fetchAuthorRestriction()).rejects.toMatchObject({ status: 503 });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        throw new Error("network");
+      }),
+    );
+    await expect(fetchAuthorRestriction()).rejects.toBeInstanceOf(CommunityClientError);
+    for (const body of [
+      {},
+      { restricted: "no" },
+      { restricted: true },
+      { restricted: true, restriction: { ...RESTRICTION, level: 9 } },
+    ]) {
+      respond(200, body);
+      await expect(fetchAuthorRestriction()).rejects.toBeInstanceOf(CommunityClientError);
+    }
   });
 });

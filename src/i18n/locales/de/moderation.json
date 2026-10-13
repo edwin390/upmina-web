@@ -90,6 +90,9 @@
       "harassment": "Belästigung",
       "hate_speech": "Hassrede",
       "sexual_content": "Sexuelle Inhalte",
+      "violence": "Gewalt",
+      "off_topic": "Hat nichts mit Mina zu tun",
+      "ai_generated": "KI-generiert",
       "other": "Sonstiges"
     },
     "hiddenOnly": "Nur vorsorglich verborgene Beiträge",
@@ -125,5 +128,508 @@
     "retry": "Laden erneut versuchen",
     "retryHint": "Schlägt es weiter fehl, aktualisiere den Fall: Der Dateizugriff ist möglicherweise abgelaufen.",
     "videoFallback": "Video ohne Vorschau"
+  },
+  "report": {
+    "trigger": "Melden",
+    "triggerLabel": "Diesen Beitrag melden",
+    "reported": "Gemeldet",
+    "title": "Beitrag melden",
+    "intro": "Sag uns, was mit diesem Beitrag nicht stimmt. Das Moderationsteam prüft ihn; deine Identität wird anderen Nutzern nicht angezeigt.",
+    "reasonLegend": "Grund der Meldung",
+    "reasons": {
+      "harassment": "Belästigung oder Mobbing",
+      "hate_speech": "Diskriminierung oder Hassrede",
+      "sexual_content": "Sexuelle Inhalte",
+      "violence": "Gewalt oder Drohungen",
+      "off_topic": "Inhalt ohne Bezug zu Mina",
+      "ai_generated": "KI-generierte Bilder oder Videos",
+      "spam": "Spam oder Täuschung",
+      "other": "Anderer Grund"
+    },
+    "copyrightNote": "Wenn du Inhaber der Urheberrechte an dem Beitrag bist, ist diese Meldung nicht der richtige Weg: Nutze das Formular für Urheberrechtsbeschwerden.",
+    "copyrightLink": "Urheberrechtsformular öffnen",
+    "detailLabel": "Erklärung (optional)",
+    "detailHelp": "Gib keine persönlichen Daten von dir oder anderen an.",
+    "counter": "{count} von {max} Zeichen",
+    "submit": "Meldung senden",
+    "sending": "Wird gesendet…",
+    "cancel": "Abbrechen",
+    "close": "Schließen",
+    "successTitle": "Meldung gesendet",
+    "successBody": "Danke. Das Moderationsteam prüft sie.",
+    "successAlready": "Du hast diesen Beitrag bereits gemeldet. Deine Meldung wird noch geprüft.",
+    "errors": {
+      "reasonRequired": "Wähle einen Grund.",
+      "detailTooLong": "Die Erklärung darf höchstens {max} Zeichen lang sein.",
+      "detailInvalid": "Die Erklärung enthält nicht erlaubte Zeichen.",
+      "selfReport": "Du kannst deinen eigenen Beitrag nicht melden.",
+      "notFound": "Dieser Beitrag existiert nicht mehr.",
+      "notReportable": "Dieser Beitrag kann nicht mehr gemeldet werden.",
+      "unauthenticated": "Melde dich an, um zu melden.",
+      "generic": "Die Meldung konnte nicht gesendet werden. Bitte versuche es in einigen Minuten erneut."
+    }
+  },
+  "copyright": {
+    "form": {
+      "title": "Urheberrechtsbeschwerde",
+      "intro": "Wenn du Rechteinhaber:in bist oder in deren Namen handelst und glaubst, dass ein Community-Beitrag dein Werk verletzt, teile es uns hier mit. Du brauchst kein Konto.",
+      "manualReview": "Jede Beschwerde wird von einer Person im Moderationsteam geprüft. Das Absenden blendet keinen Beitrag automatisch aus und entfernt ihn nicht.",
+      "legend": {
+        "claimant": "Deine Angaben",
+        "work": "Das Werk und der Beitrag",
+        "statements": "Erklärungen"
+      },
+      "fields": {
+        "claimantName": "Vollständiger Name",
+        "claimantEmail": "Kontakt-E-Mail",
+        "organization": "Organisation (optional)",
+        "relationship": "Deine Beziehung zum Werk",
+        "workDescription": "Beschreibe das Werk",
+        "infringementDescription": "Was im Beitrag das Werk verletzt",
+        "evidenceUrls": "Links, die deine Rechte belegen",
+        "postUrl": "Link zum Beitrag",
+        "signature": "Unterschrift (dein vollständiger Name)"
+      },
+      "hints": {
+        "workDescription": "Titel, Urheber:in, Jahr und wo es zuerst veröffentlicht wurde.",
+        "infringementDescription": "Erkläre, welcher Inhalt im Beitrag von dir stammt oder dein Werk kopiert.",
+        "evidenceUrls": "Ein Link pro Zeile (höchstens 5, nur http oder https). Dateianhänge werden nicht angenommen.",
+        "postUrl": "Füge die Adresse des Beitrags ein (zum Beispiel die mit /community/… am Ende).",
+        "signature": "Die Eingabe deines Namens gilt als Unterschrift unter diese Beschwerde."
+      },
+      "relationship": {
+        "placeholder": "Option auswählen",
+        "owner": "Ich bin Rechteinhaber:in",
+        "authorized_representative": "Ich vertrete die Rechteinhaber:in mit deren Erlaubnis"
+      },
+      "statements": {
+        "intro": "Mit dem Absenden bestätigst du, dass:",
+        "rightsHolder": "ich Rechteinhaber:in des beschriebenen Werks bin oder befugt bin, in deren Namen zu handeln.",
+        "goodFaith": "ich nach Treu und Glauben davon ausgehe, dass die beschriebene Nutzung weder vom Rechteinhaber, dessen Vertretung noch vom Gesetz erlaubt ist.",
+        "accurate": "die Angaben in dieser Beschwerde nach meinem besten Wissen zutreffen.",
+        "accept": "Ich bestätige diese Erklärungen"
+      },
+      "errors": {
+        "required": "Dieses Feld ist erforderlich.",
+        "tooShort": "Das ist zu kurz.",
+        "tooLong": "Das ist zu lang.",
+        "invalid": "Dieser Wert ist ungültig.",
+        "evidenceUrlsInvalid": "Prüfe die Links: einer pro Zeile, beginnend mit http:// oder https://, ohne Leerzeichen.",
+        "evidenceUrlsTooMany": "Du kannst höchstens 5 Links angeben.",
+        "statementsRequired": "Du musst die Erklärungen bestätigen, um die Beschwerde zu senden."
+      },
+      "submit": "Beschwerde senden",
+      "submitting": "Wird gesendet…",
+      "received": {
+        "title": "Beschwerde eingegangen",
+        "body": "Danke. Das Moderationsteam prüft sie und schreibt dir an die angegebene E-Mail-Adresse, falls weitere Informationen nötig sind.",
+        "reference": "Referenz",
+        "referenceHint": "Bewahre diese Referenz auf, falls du sie nennen musst."
+      },
+      "failures": {
+        "rateLimited": "Du hast zu viele Beschwerden gesendet. Versuche es in {minutes} Min. erneut.",
+        "invalid": "Wir konnten das Formular nicht validieren. Prüfe die Angaben und versuche es erneut.",
+        "unavailable": "Wir konnten die Beschwerde nicht senden. Versuche es in ein paar Minuten erneut; deine Angaben bleiben im Formular."
+      }
+    },
+    "panel": {
+      "sections": {
+        "label": "Moderationsbereiche",
+        "reports": "Community-Meldungen",
+        "copyright": "Urheberrecht"
+      },
+      "title": "Urheberrechtsbeschwerden",
+      "safeNote": "Das Prüfen einer Beschwerde ändert nur deren Status. Ein Beitrag wird ausschließlich über die ausdrückliche Aktion „Beitrag entfernen“ ausgeblendet, die eine zweite Bestätigung verlangt.",
+      "scope": {
+        "open": "Offen",
+        "closed": "Abgeschlossen"
+      },
+      "refresh": "Aktualisieren",
+      "loading": "Beschwerden werden geladen…",
+      "loadError": "Die Beschwerden konnten nicht geladen werden.",
+      "retry": "Erneut versuchen",
+      "empty": {
+        "open": "Es gibt keine offenen Beschwerden.",
+        "closed": "Es gibt noch keine abgeschlossenen Beschwerden."
+      },
+      "next": "Nächste Seite",
+      "open": "Details öffnen",
+      "postFound": {
+        "yes": "Beitrag gefunden",
+        "no": "Beitrag nicht gefunden"
+      },
+      "status": {
+        "received": "Eingegangen",
+        "in_review": "In Prüfung",
+        "needs_info": "Informationen fehlen",
+        "dismissed": "Abgewiesen",
+        "withdrawn": "Vom Beschwerdeführer zurückgezogen",
+        "removed": "Beitrag entfernt",
+        "appeal_pending": "Einspruch offen",
+        "restored": "Nach Einspruch wiederhergestellt",
+        "purged": "Endgültig gelöscht"
+      },
+      "relationship": {
+        "owner": "Rechteinhaber:in",
+        "authorized_representative": "Bevollmächtigte Vertretung"
+      },
+      "detail": {
+        "title": "Details der Beschwerde",
+        "close": "Details schließen",
+        "loading": "Details werden geladen…",
+        "loadError": "Die Beschwerde konnte nicht geladen werden.",
+        "fields": {
+          "claimant": "Beschwerdeführer:in",
+          "email": "E-Mail",
+          "organization": "Organisation",
+          "relationship": "Beziehung zum Werk",
+          "work": "Werk",
+          "infringement": "Was es verletzt",
+          "evidence": "Nachweis-Links",
+          "claimedPost": "Angegebener Beitrag",
+          "snapshot": "Beitragstext bei Eingang der Beschwerde",
+          "snapshotEmpty": "Kein Text oder Beitrag nicht gefunden",
+          "mediaCount": "Bei Eingang angehängte Medien",
+          "currentStatus": "Aktueller Status des Beitrags",
+          "postGone": "Der Beitrag existiert nicht mehr",
+          "signature": "Unterschrift",
+          "statements": "Version der Erklärungen",
+          "received": "Eingegangen"
+        },
+        "eventsTitle": "Verlauf der Beschwerde",
+        "actor": {
+          "claimant": "Beschwerdeführer:in",
+          "human": "Moderation"
+        }
+      },
+      "events": {
+        "received": "Beschwerde eingegangen",
+        "review_started": "Prüfung gestartet",
+        "info_requested": "Weitere Informationen angefordert",
+        "review_resumed": "Prüfung wieder aufgenommen",
+        "note": "Notiz hinzugefügt",
+        "dismissed": "Beschwerde abgewiesen",
+        "withdrawn": "Beschwerde vom Beschwerdeführer zurückgezogen",
+        "removed": "Beitrag entfernt (ausgeblendet)",
+        "notified": "Mitteilung an den Autor gesendet",
+        "notification_failed": "Mitteilung an den Autor fehlgeschlagen",
+        "token_reissued": "Einspruchslink neu ausgestellt",
+        "appeal_submitted": "Einspruch vom Autor eingereicht",
+        "appeal_accepted": "Einspruch angenommen",
+        "appeal_rejected": "Einspruch abgelehnt",
+        "restored": "Beitrag wiederhergestellt",
+        "purged": "Beitrag endgültig gelöscht",
+        "strike_applied": "Strike vergeben",
+        "strike_notified": "Strike-Benachrichtigung an den Autor gesendet",
+        "strike_notification_failed": "Strike-Benachrichtigung an den Autor fehlgeschlagen"
+      },
+      "actions": {
+        "title": "Prüfung",
+        "noteLabel": "Prüfnotiz",
+        "noteHelp": "Erforderlich, um Informationen anzufordern, abzuweisen, einen Rückzug zu vermerken oder eine Notiz hinzuzufügen. Höchstens 1000 Zeichen.",
+        "start_review": "Prüfung starten",
+        "request_info": "Weitere Informationen anfordern",
+        "resume_review": "Prüfung fortsetzen",
+        "dismiss": "Beschwerde abweisen",
+        "withdraw": "Rückzug des Beschwerdeführers vermerken",
+        "add_note": "Notiz hinzufügen",
+        "submitting": "Wird gespeichert…",
+        "done": "Prüfung vermerkt.",
+        "closed": "Diese Beschwerde ist abgeschlossen und kann nicht mehr geändert werden.",
+        "errors": {
+          "note_required": "Schreibe eine Notiz für diese Aktion.",
+          "invalid_note": "Die Notiz ist ungültig (1 bis 1000 Zeichen, keine Steuerzeichen).",
+          "version_conflict": "Die Beschwerde hat sich während deiner Prüfung geändert. Wir haben die Daten neu geladen; prüfe sie und versuche es erneut.",
+          "invalid_transition": "Diese Aktion ist im aktuellen Status nicht mehr möglich.",
+          "generic": "Die Prüfung konnte nicht vermerkt werden. Versuche es erneut."
+        }
+      },
+      "removal": {
+        "title": "Entfernung, Einspruch und Löschung",
+        "working": "Wird bearbeitet…",
+        "remove": {
+          "intro": "Das Entfernen BLENDET den Beitrag sofort aus, ohne seine Dateien zu löschen, und schickt dem Autor per E-Mail (auf Englisch) die Referenz, den Grund und einen persönlichen Einspruchslink. Prüfe vorher manuell die Berechtigung der meldenden Person und ihre Nachweise.",
+          "noPost": "Entfernen nicht möglich: Der Beitrag wurde nicht gefunden.",
+          "notPublished": "Entfernen nicht möglich: Der Beitrag ist nicht veröffentlicht (aktueller Status: {status}).",
+          "reasonLabel": "Grund der Entfernung (der Autor erhält ihn)",
+          "reasonHelp": "10 bis 1000 Zeichen. Er wird unverändert in die E-Mail an den Autor übernommen: auf Englisch und ohne persönliche Daten der meldenden Person.",
+          "review": "Prüfen und entfernen…",
+          "done": "Beitrag entfernt. Der Autor wurde per E-Mail benachrichtigt."
+        },
+        "confirm": {
+          "reference": "Referenz",
+          "post": "Beitrag",
+          "noText": "(kein Text)",
+          "details": "Angaben",
+          "media": "{count} angehängte Dateien",
+          "version": "Version {version}",
+          "reason": "Grund, den der Autor erhält",
+          "removeTitle": "Entfernung bestätigen",
+          "removeWarning": "Der Beitrag wird sofort ausgeblendet. Es wird nichts gelöscht. Der Autor erhält eine E-Mail auf Englisch mit Referenz, Grund und einem persönlichen Einspruchslink.",
+          "removeConfirm": "Entfernung bestätigen",
+          "cancel": "Abbrechen",
+          "purgeTitle": "Endgültige Löschung bestätigen",
+          "purgeWarning": "Der Beitrag wird gelöscht und seine ausschließlich genutzten Dateien werden zur Löschung markiert. Das lässt sich nicht rückgängig machen.",
+          "purgeConfirm": "Endgültig löschen"
+        },
+        "info": {
+          "removedAt": "Entfernt am",
+          "reason": "Grund",
+          "currentPost": "Aktueller Status des Beitrags",
+          "postGone": "Existiert nicht mehr",
+          "notice": "Erste Mitteilung an den Autor",
+          "noticeSent": "Gesendet am {date}",
+          "noticePending": "Nicht gesendet",
+          "attempts": "Fehlgeschlagene Versuche: {count}",
+          "lastError": "Letzter Fehler: {error}",
+          "window": "Einspruchsfrist",
+          "deadline": "Frist bis",
+          "deadlinePending": "Beginnt, sobald der Versand der ersten Mitteilung bestätigt ist."
+        },
+        "window": {
+          "m60": "1 Stunde (Testumgebung)",
+          "m1440": "24 Stunden"
+        },
+        "noticeErrors": {
+          "not_configured": "E-Mail ist nicht konfiguriert",
+          "rejected": "der Anbieter hat die Nachricht abgelehnt",
+          "rate_limited": "Limit des E-Mail-Anbieters",
+          "provider_unavailable": "E-Mail-Anbieter nicht erreichbar",
+          "timeout": "Zeitüberschreitung",
+          "invalid_response": "ungültige Antwort des Anbieters",
+          "no_recipient": "das Konto des Autors hat keine E-Mail-Adresse"
+        },
+        "notice": {
+          "failedNow": "Die Entscheidung wurde gespeichert, aber die Mitteilung an den Autor konnte nicht gesendet werden ({error}). Sie bleibt zum erneuten Senden offen.",
+          "resent": "Mitteilung an den Autor gesendet.",
+          "initialPending": "Die erste Mitteilung an den Autor wurde noch nicht gesendet: Die Einspruchsfrist hat nicht begonnen und die endgültige Löschung ist gesperrt.",
+          "resendInitial": "Mitteilung an den Autor erneut senden",
+          "resolutionPending": "Die Mitteilung über die Entscheidung an den Autor steht noch aus.",
+          "resendResolution": "Mitteilung über die Entscheidung erneut senden",
+          "resolutionSent": "Mitteilung über die Entscheidung am {date} gesendet."
+        },
+        "appeal": {
+          "title": "Einspruch des Autors",
+          "status": "Status des Einspruchs",
+          "statuses": {
+            "pending": "Entscheidung offen",
+            "accepted": "Angenommen",
+            "rejected": "Abgelehnt"
+          },
+          "submittedAt": "Eingereicht am",
+          "contact": "Kontakt",
+          "reason": "Grund",
+          "reasons": {
+            "own_work": "Es ist mein eigenes Werk",
+            "authorized": "Ich habe eine Erlaubnis oder Lizenz",
+            "not_infringing": "Es verletzt kein Urheberrecht",
+            "legal_exception": "Nutzung durch eine gesetzliche Ausnahme gedeckt",
+            "mistake": "Der Inhalt wurde irrtümlich gemeldet",
+            "other": "Anderer Grund"
+          },
+          "explanation": "Erklärung",
+          "evidenceText": "Nachweise (Text)",
+          "evidenceUrls": "Nachweise (Links)",
+          "resolvedAt": "Entschieden am",
+          "resolutionNote": "Begründung der Entscheidung",
+          "noteLabel": "Begründung der Entscheidung (Pflicht; sie steht in der E-Mail an den Autor)",
+          "noteHelp": "1 bis 1000 Zeichen. Annehmen stellt den Beitrag wieder her, wenn er noch so ist, wie ihn die Entfernung hinterlassen hat; Ablehnen lässt ihn ausgeblendet.",
+          "accept": "Einspruch annehmen und wiederherstellen",
+          "reject": "Einspruch ablehnen",
+          "acceptedDone": "Einspruch angenommen: Der Beitrag wurde wiederhergestellt und der Fall wandert in den Verlauf.",
+          "rejectedDone": "Einspruch abgelehnt: Der Beitrag bleibt ausgeblendet."
+        },
+        "purge": {
+          "title": "Endgültige Löschung (manuell)",
+          "intro": "Nach Ablauf der Frist wird nichts automatisch gelöscht. Das kann nur eine moderierende Person tun, wenn alle Bedingungen erfüllt sind; der Server prüft sie erneut.",
+          "button": "Endgültig löschen",
+          "blockers": {
+            "appeal_pending": "Ein Einspruch wartet auf eine Entscheidung.",
+            "not_removed": "Der Beitrag befindet sich nicht im Status „entfernt“.",
+            "notification_pending": "Die erste Mitteilung an den Autor wurde noch nicht erfolgreich gesendet.",
+            "window_open": "Die Einspruchsfrist läuft noch.",
+            "resolution_notice_pending": "Die Mitteilung über die Entscheidung an den Autor steht noch aus."
+          },
+          "noteLabel": "Notiz zur Löschung (Pflicht)",
+          "done": "Beitrag gelöscht. {marked} Dateien wurden zur Löschung markiert; {retained} blieben erhalten, weil sie geteilt werden oder anderswo gehören.",
+          "assetsPending": "{count} Dateien warten auf die Speicherbereinigung.",
+          "assetsDone": "Alle markierten Dateien wurden gelöscht."
+        },
+        "closed": {
+          "restored": "Beitrag am {date} wiederhergestellt.",
+          "purged": "Beitrag am {date} gelöscht."
+        },
+        "errors": {
+          "note_required": "Schreibe die Begründung oder Notiz, die diese Aktion verlangt.",
+          "invalid_reason": "Der Grund muss 10 bis 1000 Zeichen lang sein und darf keine Steuerzeichen enthalten.",
+          "invalid_note": "Der Text ist ungültig (1 bis 1000 Zeichen, keine Steuerzeichen).",
+          "version_conflict": "Der Fall hat sich während deiner Prüfung geändert. Wir haben die Daten neu geladen; prüfe sie und versuche es erneut.",
+          "invalid_transition": "Diese Aktion ist im aktuellen Status nicht mehr möglich.",
+          "confirmation_mismatch": "Die Bestätigung passt nicht zur Beschwerde.",
+          "post_state_conflict": "Der Beitrag hat nicht mehr den erwarteten Status.",
+          "post_version_conflict": "Der Beitrag hat sich geändert, seit du ihn gesehen hast. Wir haben die Daten neu geladen; prüfe sie und versuche es erneut.",
+          "post_not_found": "Der Beitrag existiert nicht mehr.",
+          "restore_unsafe": "Eine sichere Wiederherstellung ist nicht möglich: Der Beitrag hat sich seit der Entfernung geändert. Der Einspruch bleibt offen.",
+          "purge_blocked": "Die Bedingungen für die endgültige Löschung sind noch nicht erfüllt.",
+          "generic": "Die Aktion konnte nicht abgeschlossen werden. Versuche es erneut."
+        }
+      },
+      "strike": {
+        "title": "Copyright-Strike",
+        "intro": "Ein Strike ist eine menschliche Entscheidung, unabhängig von der Löschung: Er kann erst vergeben werden, wenn der Beitrag endgültig gelöscht wurde. Er zählt zusammen mit den Community-Strikes, wenn die Stufe festgelegt wird.",
+        "loading": "Strike-Status wird geladen…",
+        "loadError": "Der Strike-Status konnte nicht geladen werden.",
+        "retry": "Erneut versuchen",
+        "apply": "Strike vergeben…",
+        "confirm": {
+          "title": "Strike bestätigen",
+          "reference": "Meldung",
+          "level": "Zu vergebende Stufe",
+          "reasonLabel": "Begründung des Strikes (erhält der Autor)",
+          "reasonHelp": "Pflichtfeld, bis zu 1000 Zeichen. Sie wird unverändert in die E-Mail an den Autor übernommen: auf Englisch und ohne personenbezogene Daten der meldenden Person schreiben.",
+          "reasonError": "Gib eine Begründung ein (höchstens 1000 Zeichen).",
+          "irreversible": "Der Autor erhält eine englische E-Mail mit Stufe, Dauer und dieser Begründung. Es gibt keinen neuen Einspruch: Nur ein Administrator kann dies mit den bestehenden Kontrollen korrigieren.",
+          "submit": "Strike bestätigen",
+          "working": "Wird vergeben…",
+          "cancel": "Abbrechen"
+        },
+        "effect": {
+          "1": "Sperrt neue Community-Beiträge und Bearbeitungen für 14 Tage.",
+          "2": "Sperrt neue Community-Beiträge und Bearbeitungen für 1 Monat.",
+          "3": "Sperrt neue Community-Beiträge und Bearbeitungen dauerhaft."
+        },
+        "applied": {
+          "title": "Strike vergeben",
+          "level": "Stufe",
+          "starts": "Ab",
+          "ends": "Bis",
+          "permanent": "Dauerhaft",
+          "reason": "Begründung",
+          "revoked": "Widerrufen am {date}"
+        },
+        "notice": {
+          "title": "Benachrichtigung des Autors",
+          "sent": "Per E-Mail gesendet.",
+          "pending": "Wartet auf den Versand.",
+          "failed": "Der Versand ist fehlgeschlagen ({error}). Du kannst ihn wiederholen.",
+          "resend": "Benachrichtigung erneut senden",
+          "resending": "Wird erneut gesendet…"
+        },
+        "blockers": {
+          "claim_not_purged": "Ein Strike kann erst vergeben werden, wenn der Beitrag endgültig gelöscht wurde.",
+          "author_unavailable": "Es kann kein Strike vergeben werden: Das Konto des Autors ist nicht mehr verfügbar.",
+          "self_strike_forbidden": "Du kannst keinen Strike auf deine eigenen Inhalte vergeben.",
+          "strike_already_issued": "Für diese Meldung wurde bereits ein Strike vergeben."
+        },
+        "done": "Strike vergeben.",
+        "doneNoticeFailed": "Strike vergeben, aber die E-Mail-Benachrichtigung ist fehlgeschlagen: Du kannst sie erneut senden.",
+        "errors": {
+          "level_changed": "Die Stufe hat sich während der Bestätigung geändert. Prüfe die neue Stufe und bestätige erneut.",
+          "strike_already_issued": "Für diese Meldung wurde bereits ein Strike vergeben.",
+          "claim_not_purged": "Ein Strike kann erst nach der endgültigen Löschung vergeben werden.",
+          "author_unavailable": "Das Konto des Autors ist nicht mehr verfügbar.",
+          "self_strike_forbidden": "Du kannst keinen Strike auf deine eigenen Inhalte vergeben.",
+          "reason_required": "Gib eine Begründung ein.",
+          "generic": "Die Aktion konnte nicht abgeschlossen werden. Bitte versuche es erneut."
+        }
+      }
+    },
+    "appeal": {
+      "title": "Einspruch gegen eine Urheberrechts-Entfernung",
+      "intro": "Wenn du glaubst, dass wir einen deiner Beiträge irrtümlich entfernt haben, kannst du hier Einspruch einlegen. Über jeden Einspruch entscheidet eine moderierende Person; das Einreichen stellt allein nichts wieder her.",
+      "loading": "Link wird geprüft…",
+      "incomplete": {
+        "title": "Unvollständiger Link",
+        "body": "Öffne den persönlichen Link aus der erhaltenen E-Mail erneut, um Einspruch einzulegen. Wenn du das Gerät gewechselt hast, öffne den Link dort."
+      },
+      "signIn": {
+        "title": "Mit dem Autorenkonto anmelden",
+        "body": "Um Einspruch einzulegen, musst du dich mit demselben Konto anmelden, das den entfernten Beitrag veröffentlicht hat. Danach kehrst du zu dieser Seite zurück.",
+        "button": "Anmelden"
+      },
+      "notAvailable": {
+        "title": "Einspruch nicht verfügbar",
+        "body": "Dieser Link ist für dein Konto nicht gültig oder der Einspruch ist nicht mehr verfügbar. Prüfe, ob du mit dem Autorenkonto angemeldet bist und den neuesten Link aus der E-Mail geöffnet hast."
+      },
+      "reference": "Referenz",
+      "removalReason": "Grund der Entfernung",
+      "deadline": "Einspruch möglich bis",
+      "state": {
+        "submitted": {
+          "title": "Einspruch eingereicht",
+          "body": "Du hast bereits einen Einspruch gegen diese Entfernung eingereicht. Wir informieren dich per E-Mail, sobald entschieden ist."
+        },
+        "expired": {
+          "title": "Die Einspruchsfrist ist abgelaufen",
+          "body": "Für diese Entfernung werden keine Einsprüche mehr angenommen. Der Beitrag bleibt ausgeblendet; eine moderierende Person entscheidet über die nächsten Schritte."
+        },
+        "closed": {
+          "title": "Dieser Fall ist abgeschlossen",
+          "body": "Gegen diese Entfernung kann kein Einspruch mehr eingelegt werden."
+        }
+      },
+      "appealStatus": {
+        "pending": "Status: Entscheidung offen.",
+        "accepted": "Status: Einspruch angenommen.",
+        "rejected": "Status: Einspruch abgelehnt."
+      },
+      "noUploads": "Wir verlangen nur Text und Links. Lade keine Ausweisdokumente oder Dateien hoch: Dieses Formular nimmt sie nicht an.",
+      "legend": {
+        "contact": "Kontaktdaten",
+        "appeal": "Dein Einspruch",
+        "statement": "Erklärung"
+      },
+      "fields": {
+        "contactName": "Kontaktname",
+        "contactEmail": "Kontakt-E-Mail",
+        "reason": "Grund des Einspruchs",
+        "explanation": "Erkläre, warum die Entfernung ein Irrtum ist",
+        "evidenceText": "Nachweise (Text)",
+        "evidenceUrls": "Nachweise (Links)"
+      },
+      "hints": {
+        "explanation": "10 bis 2000 Zeichen.",
+        "evidence": "Gib Nachweise als Text, als Links oder beides an (mindestens eines).",
+        "evidenceUrls": "Ein Link pro Zeile (höchstens 5, nur http oder https)."
+      },
+      "reasons": {
+        "placeholder": "Grund auswählen",
+        "own_work": "Es ist mein eigenes Werk",
+        "authorized": "Ich habe eine Erlaubnis oder Lizenz",
+        "not_infringing": "Es verletzt kein Urheberrecht",
+        "legal_exception": "Nutzung durch eine gesetzliche Ausnahme gedeckt",
+        "mistake": "Der Inhalt wurde irrtümlich gemeldet",
+        "other": "Anderer Grund"
+      },
+      "statement": "Ich erkläre, dass die Angaben in diesem Einspruch nach bestem Wissen wahr und richtig sind.",
+      "errors": {
+        "required": "Dieses Feld ist erforderlich.",
+        "tooShort": "Der Wert ist zu kurz.",
+        "tooLong": "Der Wert ist zu lang.",
+        "invalid": "Der Wert ist ungültig.",
+        "evidenceRequired": "Gib Nachweise als Text oder Links an.",
+        "evidenceUrlsInvalid": "Prüfe die Links: einer pro Zeile, beginnend mit http:// oder https://, ohne Leerzeichen.",
+        "evidenceUrlsTooMany": "Du kannst höchstens 5 Links angeben.",
+        "statementRequired": "Du musst die Erklärung bestätigen, um den Einspruch einzureichen."
+      },
+      "submit": "Einspruch einreichen",
+      "submitting": "Wird gesendet…",
+      "submitted": {
+        "title": "Einspruch eingereicht",
+        "body": "Danke. Das Moderationsteam prüft ihn und informiert dich per E-Mail über die Entscheidung. Der Beitrag wird nicht gelöscht, solange der Einspruch offen ist."
+      },
+      "failures": {
+        "invalid": "Wir konnten das Formular nicht validieren. Prüfe deine Angaben und versuche es erneut.",
+        "error": "Wir konnten den Vorgang nicht abschließen. Versuche es in einigen Minuten erneut.",
+        "alreadySubmitted": "Für diese Entfernung wurde bereits ein Einspruch eingereicht.",
+        "windowClosed": "Die Einspruchsfrist ist bereits abgelaufen.",
+        "notAvailable": "Dieser Einspruch ist nicht mehr verfügbar.",
+        "unauthenticated": "Deine Sitzung ist abgelaufen. Melde dich erneut an und öffne den Link aus der E-Mail noch einmal."
+      }
+    }
+  },
+  "caseDetail": {
+    "title": "Details der Meldung",
+    "close": "Details schließen"
   }
 }

@@ -31,6 +31,25 @@ export default function CommunityRestrictionNotice({
       </p>
     );
   }
+  // Defensa de presentación: si el plazo ya venció según este dispositivo (p. ej. el aviso quedó
+  // visible en un editor abierto), no se afirma que la restricción continúa. El servidor sigue
+  // siendo la autoridad: un nuevo intento o una nueva apertura vuelve a consultarlo.
+  if (
+    restriction &&
+    !restriction.permanent &&
+    restriction.endsAt &&
+    Date.parse(restriction.endsAt) <= Date.now()
+  ) {
+    return (
+      <p
+        role="alert"
+        data-testid="restriction-changed"
+        className="mt-4 rounded-md border border-border-subtle p-3 text-sm text-text-secondary"
+      >
+        {RESTRICTION_CHANGED_MESSAGE}
+      </p>
+    );
+  }
   const copy = restrictionCopy(restriction);
   return (
     <section
@@ -47,6 +66,11 @@ export default function CommunityRestrictionNotice({
       </h3>
       <p>{copy.headline}</p>
       {copy.duration && <p>{copy.duration}</p>}
+      {copy.warning && (
+        <p data-testid="restriction-warning" className="font-medium text-text-primary">
+          {copy.warning}
+        </p>
+      )}
       {copy.reason && (
         <p className="whitespace-pre-wrap break-words [overflow-wrap:anywhere]">
           <strong className="font-semibold text-text-primary">Motivo:</strong>{" "}

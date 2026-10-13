@@ -11,6 +11,9 @@ import {
 import AdminAuthCard from "@/components/admin/AdminAuthCard";
 import SocialConnectionsSection from "@/components/admin/SocialConnectionsSection";
 import TeamInvitationsSection from "@/components/admin/TeamInvitationsSection";
+import MfaCleanupsSection from "@/components/admin/MfaCleanupsSection";
+import MfaRecoveriesSection from "@/components/admin/MfaRecoveriesSection";
+import BecomeDeveloperSection from "@/components/admin/BecomeDeveloperSection";
 import TeamMembersSection from "@/components/admin/TeamMembersSection";
 
 // /admin (Bloque 5C, reescrito en la Fase 9G-3). Máquina de estados sobre lo que el SERVIDOR dice:
@@ -71,6 +74,8 @@ function AdminDashboard() {
   const hadPanelRef = useRef(false);
 
   const [panel, setPanel] = useState<PanelState>({ kind: "loading" });
+  // MFA fase 1: se incrementa tras retirar un acceso para recargar los autenticadores pendientes.
+  const [mfaRefresh, setMfaRefresh] = useState(0);
 
   const role = access?.role ?? null;
   const mfaRecent = access?.mfaRecent ?? false;
@@ -337,10 +342,18 @@ function AdminDashboard() {
           <SocialConnectionsSection />
 
           {panel.capabilities.includes("team_admin") ? <TeamInvitationsSection /> : null}
-          {panel.capabilities.includes("team_admin") ? <TeamMembersSection /> : null}
+          {panel.capabilities.includes("team_admin") ? (
+            <TeamMembersSection onMfaChanged={() => setMfaRefresh((n) => n + 1)} />
+          ) : null}
+          {panel.capabilities.includes("team_admin") ? (
+            <MfaCleanupsSection refreshKey={mfaRefresh} />
+          ) : null}
+          {panel.capabilities.includes("team_admin") ? <MfaRecoveriesSection /> : null}
+          {/* Siempre visible para un Admin: transferir SU PROPIA cuenta a Developer (el servidor decide). */}
+          <BecomeDeveloperSection />
 
-          <nav className="mt-8 grid gap-3" aria-label="Herramientas administrativas">
-            {panel.capabilities.includes("moderation") ? (
+          {panel.capabilities.includes("moderation") ? (
+            <nav className="mt-8 grid gap-3" aria-label="Herramientas administrativas">
               <Link
                 to="/admin/moderation"
                 state={{ cancelTo: "/admin" }}
@@ -348,19 +361,8 @@ function AdminDashboard() {
               >
                 Moderación
               </Link>
-            ) : null}
-            <span className="rounded-md border border-border-subtle px-4 py-3 text-sm text-text-secondary">
-              Próximamente: usuarios
-            </span>
-          </nav>
-
-          <button
-            type="button"
-            onClick={() => void signOut()}
-            className="mt-8 inline-flex min-h-11 items-center rounded-md border border-accent-primary/60 bg-accent-primary px-5 py-2.5 text-sm font-bold uppercase tracking-[0.18em] text-text-inverse shadow-glow-primary transition duration-200 ease-bounce hover:-translate-y-1 hover:bg-accent-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-secondary focus-visible:ring-offset-2 focus-visible:ring-offset-bg-surface"
-          >
-            Cerrar sesión
-          </button>
+            </nav>
+          ) : null}
         </div>
       </PrivilegedFailureContext.Provider>
     </div>

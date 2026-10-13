@@ -7,7 +7,7 @@ import {
   RESTRICTION_DELETE_HINT,
 } from "./author-restriction";
 
-const ENDS = "2026-10-20T10:00:00+00:00";
+const ENDS = "2099-10-20T10:00:00+00:00";
 const base: AuthorRestrictionView = {
   level: 1,
   permanent: false,
@@ -69,14 +69,21 @@ describe("author restriction model (single central representation)", () => {
     ])
       expect(restrictionOutcome(other)).toBeNull();
   });
-  it("copy: Strike 1 / 2 are temporary with the exact deadline, Strike 3 is permanent", () => {
+  it("copy: Strike 1 / 2 son temporales con el plazo exacto y su advertencia; Strike 3 es permanente", () => {
     const one = restrictionCopy(base);
-    expect(one.headline).toBe("Tu cuenta tiene un Strike 1 activo en Community.");
-    expect(one.duration).toMatch(
-      /^No puedes crear ni editar publicaciones de Community hasta .*2026/,
+    expect(one.headline).toBe(
+      "Has recibido tu primer strike por incumplir las normas de la comunidad.",
+    );
+    expect(one.duration).toMatch(/^No puedes crear ni editar publicaciones hasta .*2099/);
+    expect(one.warning).toBe(
+      "Advertencia: los strikes siguen contando aunque termine su restricción temporal, salvo que sean revocados. Un segundo strike supondrá una restricción de un mes y un tercero, la pérdida permanente del permiso para publicar.",
     );
     const two = restrictionCopy({ ...base, level: 2 });
-    expect(two.headline).toBe("Tu cuenta tiene un Strike 2 activo en Community.");
+    expect(two.headline).toBe("Has recibido tu segundo strike.");
+    expect(two.duration).toMatch(/^No puedes crear ni editar publicaciones hasta .*2099/);
+    expect(two.warning).toBe(
+      "Última advertencia: si recibes un tercer strike, perderás permanentemente el permiso para crear y editar publicaciones en la comunidad. Los strikes anteriores siguen contando incluso después de cumplir su restricción, salvo que sean revocados.",
+    );
     const three = restrictionCopy({
       level: 3,
       permanent: true,
@@ -87,10 +94,26 @@ describe("author restriction model (single central representation)", () => {
     expect(three.duration).toBe(
       "No puedes crear ni editar publicaciones de Community de forma permanente.",
     );
+    // Strike 3 es el máximo: no hay «siguiente sanción» que advertir.
+    expect(three.warning).toBeNull();
     for (const c of [one, two, three]) {
       expect(c.title).toBe("Publicación restringida");
       expect(c.deleteHint).toBe(RESTRICTION_DELETE_HINT);
     }
+  });
+  it("copy: la advertencia de Strike 2 es más urgente y no promete lo que no ocurre", () => {
+    const one = restrictionCopy(base);
+    const two = restrictionCopy({ ...base, level: 2 });
+    expect(one.warning).toMatch(/^Advertencia:/);
+    expect(two.warning).toMatch(/^Última advertencia:/);
+    // Nunca se dice que el Strike 1/2 «no» restringe, ni que el tercero sea el único que lo hace.
+    for (const c of [one, two]) {
+      expect(c.warning).not.toMatch(/solo con el tercer|hasta el tercer/i);
+      expect(c.duration).toMatch(/^No puedes crear ni editar publicaciones hasta/);
+    }
+  });
+  it("copy sin detalle (backend no pudo explicar): neutro y sin advertencia", () => {
+    expect(restrictionCopy(null).warning).toBeNull();
   });
   it("copy: the FULL reason is shown and nothing internal ever appears", () => {
     const long = "😀".repeat(1000);

@@ -1,5 +1,22 @@
 import { handleModerationCaseDecision } from "../../src/lib/moderation-decision-handlers.js";
 import {
+  handleCopyrightClaim,
+  handleCopyrightClaimCreate,
+  handleCopyrightClaimReview,
+  handleCopyrightClaims,
+} from "../../src/lib/copyright-handlers.js";
+import {
+  handleCopyrightAppealContext,
+  handleCopyrightAppealResolve,
+  handleCopyrightAppealSubmit,
+  handleCopyrightClaimNotice,
+  handleCopyrightClaimPurge,
+  handleCopyrightClaimRemove,
+  handleCopyrightStrikeApply,
+  handleCopyrightStrikeNotice,
+  handleCopyrightStrikeState,
+} from "../../src/lib/copyright-removal-handlers.js";
+import {
   handleModerationStrikeApply,
   handleModerationStrikeRevoke,
 } from "../../src/lib/moderation-strike-handlers.js";
@@ -14,6 +31,15 @@ import {
   handleAdminActivate,
   handleAdminMe,
 } from "../../src/lib/admin-handlers.js";
+import {
+  handleAdminTeamDeveloperRemove,
+  handleAdminTeamDeveloperRestore,
+  handleAdminTeamDeveloperTransfer,
+} from "../../src/lib/developer-transition-handlers.js";
+import {
+  handleDeveloperMfaCleanups,
+  handleDeveloperMfaRecoveries,
+} from "../../src/lib/developer-panel-handlers.js";
 import { handleAdminSocialConnect } from "../../src/lib/social-connect-handlers.js";
 import { handleAdminSocialDisconnect } from "../../src/lib/social-disconnect-handlers.js";
 import { handleAdminSocialStatus } from "../../src/lib/social-status-handlers.js";
@@ -22,7 +48,15 @@ import {
   handleAdminTeamInvitations,
 } from "../../src/lib/admin-team-invitations.js";
 import {
+  handleAdminMfaRecovery,
+  handleAdminMfaRecoveryAdmin,
+  handleAdminMfaRecoveryCancel,
+  handleAdminMfaRecoveryWebhook,
+} from "../../src/lib/admin-mfa-recovery-handlers.js";
+import {
   handleAdminTeamMemberRemove,
+  handleAdminTeamMfaCleanups,
+  handleAdminTeamMfaCleanupRetry,
   handleAdminTeamMemberRole,
   handleAdminTeamMembers,
 } from "../../src/lib/admin-team-members.js";
@@ -35,6 +69,7 @@ import {
   handleCosplayPostSave,
 } from "../../src/lib/cosplay-editor-handlers.js";
 import {
+  handleCommunityAuthorRestriction,
   handleCommunityPostDelete,
   handleCommunityPostDetachMedia,
   handleCommunityPostListOwn,
@@ -104,6 +139,17 @@ import {
 // (cola, GET), "moderation-report" (detalle de uno, GET ?id=) y "moderation-report-status" (cambia
 // su estado, POST) SÍ son privilegiadas: capacidad `moderation` (moderator/developer/admin) + MFA
 // reciente, vía requireCapability. Lógica en src/lib/moderation-handlers.ts.
+// "copyright-claim-create" (COPY-1 fase 2A — reclamación de copyright de un titular, INCLUSO SIN CUENTA: PÚBLICA, sin sesión,
+// con validación estricta, señuelo anti-bots y límites por IP/red/correo). "copyright-claims" (cola, GET), "copyright-claim"
+// (detalle, GET ?id=) y "copyright-claim-review" (revisión, POST) SÍ son privilegiadas: capacidad `moderation` + MFA reciente.
+// Solo cambian el estado de la RECLAMACIÓN: nunca retiran, restauran ni eliminan publicaciones (fase 2B). Lógica en
+// src/lib/copyright-handlers.ts; este dispatcher sigue siendo la misma función serverless (12 de 12).
+// COPY-1 fase 2B (src/lib/copyright-removal-handlers.ts, misma función serverless): "copyright-claim-remove" (retira = OCULTA y avisa
+// al autor), "copyright-claim-notice" (reintento de aviso), "copyright-claim-appeal-resolve" y "copyright-claim-purge" (eliminación
+// MANUAL) son privilegiadas (`moderation` + MFA reciente). "copyright-appeal-context" y "copyright-appeal-submit" las usa el AUTOR
+// de la publicación con su sesión y el token de su enlace. Nada se elimina por vencimiento ni por proceso automático.
+// Strikes manuales de Copyright (mismo archivo de handlers): "copyright-strike-state", "copyright-strike-apply" (solo con la reclamación en
+// `purged`) y "copyright-strike-notice" (reintento del aviso): privilegiadas (`moderation` + MFA reciente).
 // La lógica de cada una vive en src/lib/admin-handlers.ts, no aquí, siguiendo el mismo
 // patrón que los otros dos dispatchers.
 export default function handler(req: VercelRequest, res: VercelResponse) {
@@ -143,6 +189,28 @@ export default function handler(req: VercelRequest, res: VercelResponse) {
       return handleAdminTeamMemberRole(req, res);
     case "team-members-remove":
       return handleAdminTeamMemberRemove(req, res);
+    case "mfa-recovery":
+      return handleAdminMfaRecovery(req, res);
+    case "mfa-recovery-admin":
+      return handleAdminMfaRecoveryAdmin(req, res);
+    case "mfa-recovery-cancel":
+      return handleAdminMfaRecoveryCancel(req, res);
+    case "mfa-recovery-webhook":
+      return handleAdminMfaRecoveryWebhook(req, res);
+    case "team-developer-transfer":
+      return handleAdminTeamDeveloperTransfer(req, res);
+    case "team-developer-restore":
+      return handleAdminTeamDeveloperRestore(req, res);
+    case "team-developer-remove":
+      return handleAdminTeamDeveloperRemove(req, res);
+    case "developer-mfa-cleanups":
+      return handleDeveloperMfaCleanups(req, res);
+    case "developer-mfa-recoveries":
+      return handleDeveloperMfaRecoveries(req, res);
+    case "team-members-mfa-cleanups":
+      return handleAdminTeamMfaCleanups(req, res);
+    case "team-members-mfa-cleanup":
+      return handleAdminTeamMfaCleanupRetry(req, res);
     case "cosplay-post-save":
       return handleCosplayPostSave(req, res);
     case "cosplay-post-delete":
@@ -163,6 +231,8 @@ export default function handler(req: VercelRequest, res: VercelResponse) {
       return handleCommunityPostDetachMedia(req, res);
     case "community-post-delete":
       return handleCommunityPostDelete(req, res);
+    case "community-author-restriction":
+      return handleCommunityAuthorRestriction(req, res);
     case "community-post-list-own":
       return handleCommunityPostListOwn(req, res);
     case "community-post-set-like":
@@ -177,6 +247,32 @@ export default function handler(req: VercelRequest, res: VercelResponse) {
       return handleModerationReport(req, res);
     case "moderation-report-status":
       return handleModerationReportStatus(req, res);
+    case "copyright-claim-create":
+      return handleCopyrightClaimCreate(req, res);
+    case "copyright-claims":
+      return handleCopyrightClaims(req, res);
+    case "copyright-claim":
+      return handleCopyrightClaim(req, res);
+    case "copyright-claim-review":
+      return handleCopyrightClaimReview(req, res);
+    case "copyright-claim-remove":
+      return handleCopyrightClaimRemove(req, res);
+    case "copyright-claim-notice":
+      return handleCopyrightClaimNotice(req, res);
+    case "copyright-claim-appeal-resolve":
+      return handleCopyrightAppealResolve(req, res);
+    case "copyright-claim-purge":
+      return handleCopyrightClaimPurge(req, res);
+    case "copyright-appeal-context":
+      return handleCopyrightAppealContext(req, res);
+    case "copyright-appeal-submit":
+      return handleCopyrightAppealSubmit(req, res);
+    case "copyright-strike-state":
+      return handleCopyrightStrikeState(req, res);
+    case "copyright-strike-apply":
+      return handleCopyrightStrikeApply(req, res);
+    case "copyright-strike-notice":
+      return handleCopyrightStrikeNotice(req, res);
     default:
       return res.status(404).json({ error: "No encontrado" });
   }

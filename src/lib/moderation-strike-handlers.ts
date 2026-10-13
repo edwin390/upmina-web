@@ -1,6 +1,8 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { AdminAuthError, authErrorBody, requireCapability } from "./admin-auth.js";
+import { notifyCommunityStrike } from "./community-strike-notice.js";
+import { readMailConfig } from "./mfa-recovery-mail.js";
 import {
   parseStrikeApplyInput,
   parseStrikeRevokeInput,
@@ -92,9 +94,24 @@ async function authorize(req: VercelRequest, res: VercelResponse): Promise<Autho
   }
 }
 
+/** Aviso por correo del strike ya CONFIRMADO (inglés, mismo generador que Copyright). Se inyecta para poder probarlo sin red. */
+export interface ModerationStrikeApplyDeps {
+  notify: (actor: string, strikeId: string) => Promise<unknown>;
+}
+const defaultApplyDeps: ModerationStrikeApplyDeps = {
+  notify: (actor, strikeId) =>
+    notifyCommunityStrike(
+      serviceClient(),
+      () => readMailConfig(process.env),
+      actor,
+      strikeId,
+    ),
+};
+
 export async function handleModerationStrikeApply(
   req: VercelRequest,
   res: VercelResponse,
+  deps: ModerationStrikeApplyDeps = defaultApplyDeps,
 ): Promise<VercelResponse> {
   res.setHeader("Cache-Control", NO_STORE);
   if (req.method !== "POST") {
@@ -130,6 +147,12 @@ export async function handleModerationStrikeApply(
       return res
         .status(500)
         .json({ error: "Respuesta inválida", code: "invalid_response" });
+    }
+    // El strike ya está confirmado y respondido: el aviso es un efecto secundario que JAMÁS cambia la respuesta ni repite la sanción.
+    try {
+      await deps.notify(auth.userId, body.strike.id);
+    } catch {
+      /* el fallo del aviso queda registrado por notifyCommunityStrike y es reintentable */
     }
     return res.status(201).json(body);
   } catch {

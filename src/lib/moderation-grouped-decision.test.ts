@@ -103,6 +103,8 @@ async function rejects(action: () => Promise<unknown>, error: string) {
   await db.exec("rollback to savepoint failure");
   expect(await snap()).toEqual(before);
 }
+// Comportamiento HISTÓRICO de 20261015 (aviso también con 1 denuncia). La migración 20261031130000 (R5-F) lo
+// restringe al caso «ocultada y restaurada»; ver community-author-access.test.ts.
 it.each([1, 3])(
   "No procede closes %i reports and only attributable HPR changes post",
   async (n) => {

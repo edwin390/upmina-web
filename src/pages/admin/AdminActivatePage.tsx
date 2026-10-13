@@ -106,6 +106,32 @@ const MFA_ERROR: ActivationError = {
   action: "mfa",
 };
 
+// MFA fase 1: tras perder el acceso privilegiado hay que configurar un autenticador NUEVO; el
+// anterior (aunque la sesión lo recuerde) no sirve para activar.
+const REENROLL_ERROR: ActivationError = {
+  message:
+    "Tu verificación en dos pasos anterior ya no es válida. Configura un autenticador nuevo para activar tu acceso. Si vuelves a esta pantalla sin que te lo pida, cierra sesión y vuelve a entrar.",
+  action: "mfa",
+};
+
+const CLEANUP_PENDING_ERROR: ActivationError = {
+  message:
+    "Estamos terminando de restablecer tu autenticador anterior. Inténtalo de nuevo en unos minutos.",
+};
+
+/** Código de negocio de una respuesta de error (sin consumir el cuerpo original). */
+async function readErrorCode(response: Response): Promise<string | null> {
+  try {
+    // En el navegador la respuesta es clonable; el cuerpo original queda intacto para quien siga.
+    const source = typeof response.clone === "function" ? response.clone() : response;
+    const body: unknown = await source.json();
+    const code = (body as { code?: unknown } | null)?.code;
+    return typeof code === "string" ? code : null;
+  } catch {
+    return null;
+  }
+}
+
 type FinalStep = { kind: "activated" } | { kind: "rejected" } | { kind: "unavailable" };
 
 const BUTTON_SECONDARY =
@@ -221,6 +247,31 @@ export default function AdminActivatePage() {
 
       if (response.status === 401) {
         setActivationError(SESSION_ERROR);
+        return;
+      }
+
+      if (
+        response.status === 403 &&
+        (await readErrorCode(response)) === "mfa_reenroll_required"
+      ) {
+        // El token de la sesión puede seguir diciendo aal2 aunque Supabase ya degradó la sesión al
+        // borrar el factor antiguo: se renueva y se revalida el acceso para que el recorrido pase
+        // por /admin/mfa (enrolar y verificar uno nuevo). El servidor sigue decidiendo.
+        try {
+          await supabase.auth.refreshSession();
+        } catch {
+          /* sin renovación: el servidor sigue decidiendo en la siguiente comprobación */
+        }
+        setActivationError(REENROLL_ERROR);
+        await invalidate();
+        return;
+      }
+
+      if (
+        response.status === 503 &&
+        (await readErrorCode(response)) === "mfa_cleanup_pending"
+      ) {
+        setActivationError(CLEANUP_PENDING_ERROR);
         return;
       }
 

@@ -740,6 +740,11 @@ describe("AdminMfaPage — sesión AAL1 con factor TOTP existente", () => {
     expect(screen.queryByAltText(/código qr/i)).not.toBeInTheDocument();
     // Un factor TOTP ya verificado JAMÁS se desenrola, ni siquiera implícitamente.
     expect(mfaFakes.calls.unenroll).toHaveLength(0);
+    // MFA fase 2: quien perdió el autenticador tiene una salida clara, sin acción automática.
+    expect(screen.getByRole("link", { name: "Perdí mi autenticador" })).toHaveAttribute(
+      "href",
+      "/admin/mfa/recovery",
+    );
   });
 
   it("challenge usa el factor correcto y verify recibe factor/challenge/código exactos", async () => {
@@ -891,6 +896,10 @@ describe("AdminMfaPage — sesión AAL1 sin factor TOTP", () => {
     expect(screen.getByLabelText("Código de verificación")).toBeInTheDocument();
     // El secreto está oculto por defecto (input type="password"), nunca expuesto en texto plano sin acción explícita.
     expect(screen.getByLabelText("Clave manual")).toHaveAttribute("type", "password");
+    // La clave manual NO es un código de recuperación: la ayuda lo dice y está asociada al campo.
+    expect(screen.getByLabelText("Clave manual")).toHaveAccessibleDescription(
+      /no un código de recuperación/,
+    );
     expect(localStorageSpy).not.toHaveBeenCalled();
     // SVG crudo (no es una data URI ya completa): buildTotpQrImageSrc lo detecta y lo
     // encodea EXACTAMENTE una vez antes de anteponer el prefijo (ver src/lib/mfa-qr.ts).

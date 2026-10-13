@@ -47,6 +47,12 @@ export default function Footer() {
           >
             Privacy
           </Link>
+          <Link
+            to="/copyright"
+            className="py-2 transition-colors duration-200 ease-smooth hover:text-accent-secondary"
+          >
+            Copyright
+          </Link>
         </nav>
 
         <p className="max-w-2xl text-text-muted">

@@ -8,6 +8,7 @@ import {
 } from "./account-state.js";
 import { checkBio, checkDisplayName } from "./profile-fields.js";
 import { checkUsername } from "./profile-username.js";
+import { handlePasswordRecoveryRequest } from "./password-recovery-handlers.js";
 
 // Handler HTTP de POST /api/profile (Bloque 7C.1): crea el perfil público inicial del
 // usuario autenticado eligiendo SOLO su username. Crear un perfil es únicamente crear
@@ -378,11 +379,17 @@ export async function handleProfileUpdate(
   }
 }
 
-/** Router interno de /api/profile: POST = onboarding, PATCH = edición. */
+/**
+ * Router interno de /api/profile: POST = onboarding, PATCH = edición. La acción PÚBLICA y sin sesión
+ * `?action=password-recovery` (lote 3P-R, «Olvidé mi contraseña») vive aquí para no sumar otra función Serverless (el
+ * proyecto está en el límite de 12 del plan Hobby); sin `action` el comportamiento y los contratos anteriores no cambian.
+ */
 export function handleProfile(
   req: VercelRequest,
   res: VercelResponse,
 ): Promise<VercelResponse> | VercelResponse {
+  const action = req.query?.action;
+  if (action === "password-recovery") return handlePasswordRecoveryRequest(req, res);
   if (req.method === "POST") return handleProfileCreate(req, res);
   if (req.method === "PATCH") return handleProfileUpdate(req, res);
   res.setHeader("Allow", "POST, PATCH");

@@ -10,7 +10,16 @@ import {
 // validar todo: esto es UX, no seguridad.
 const AUTHOR_DEBOUNCE_MS = 400;
 const AUTHOR_RE = /^[a-z0-9_]{2,20}$/i;
-const REASONS = ["spam", "harassment", "hate_speech", "sexual_content", "other"] as const;
+const REASONS = [
+  "spam",
+  "harassment",
+  "hate_speech",
+  "sexual_content",
+  "violence",
+  "off_topic",
+  "ai_generated",
+  "other",
+] as const;
 const field =
   "min-h-11 w-full rounded-md border border-border-subtle bg-bg-surface px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-secondary disabled:opacity-50";
 

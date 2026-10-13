@@ -29,6 +29,9 @@ vi.mock("@/lib/supabase", () => ({
   supabase: { auth: { getSession: async () => ({ data: { session: auth.session } }) } },
 }));
 
+const totp = vi.hoisted(() => ({ reverify: vi.fn() }));
+vi.mock("@/lib/totp-reverify", () => ({ reverifyTotp: totp.reverify }));
+
 type Member = Record<string, unknown>;
 const member = (user_id: string, over: Member = {}): Member => ({
   user_id,
@@ -65,9 +68,11 @@ const res = (status: number, body: unknown = {}) => ({
 });
 
 interface Routes {
+  restore?: (body: string) => unknown;
   list?: () => unknown;
   role?: (body: string) => unknown;
   remove?: (body: string) => unknown;
+  devRemove?: (body: string) => unknown;
 }
 function route(r: Routes) {
   fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
@@ -80,11 +85,20 @@ function route(r: Routes) {
         r.role?.(String(init?.body)) ??
         res(200, {
           user_id: MOD,
-          role: "developer",
+          role: "admin",
           previous_role: "moderator",
           changed_at: "2026-09-28T10:00:00.000Z",
           revoked_invitations: 0,
         })
+      );
+    }
+    if (url === "/api/admin/team-developer-restore" && method === "POST") {
+      return r.restore?.(String(init?.body)) ?? res(200, { status: "restored" });
+    }
+    if (url === "/api/admin/team-developer-remove" && method === "POST") {
+      return (
+        r.devRemove?.(String(init?.body)) ??
+        res(200, { status: "removed", user_id: DEV, last_developer: false })
       );
     }
     if (url === "/api/admin/team-members-remove" && method === "POST") {
@@ -106,9 +120,13 @@ const calls = (method: string, url: string) =>
 const gets = () => calls("GET", "/api/admin/team-members");
 const roles = () => calls("POST", "/api/admin/team-members-role");
 const removes = () => calls("POST", "/api/admin/team-members-remove");
+const restores = () => calls("POST", "/api/admin/team-developer-restore");
+const devRemoves = () => calls("POST", "/api/admin/team-developer-remove");
 
 beforeEach(() => {
   auth.session = { access_token: TOKEN };
+  totp.reverify.mockReset();
+  totp.reverify.mockResolvedValue("ok");
   fetchMock.mockReset();
   vi.stubGlobal("fetch", fetchMock);
 });
@@ -252,7 +270,7 @@ describe("listado", () => {
       list: () => {
         call++;
         return call === 1
-          ? res(200, { members: [SELF_M, MOD_M, DEV_M] })
+          ? res(200, { members: [SELF_M, MOD_M, ADM_M] })
           : new Promise((r) => held.push(r));
       },
     });
@@ -262,16 +280,16 @@ describe("listado", () => {
     fireEvent.click(within(first).getByRole("button", { name: /^Quitar acceso a/ }));
     fireEvent.click(within(first).getByRole("button", { name: "Sí, quitar acceso" }));
     await waitFor(() => expect(held).toHaveLength(1));
-    const second = row("@dev_solo");
+    const second = row("Otro Admin");
     fireEvent.click(within(second).getByRole("button", { name: /^Quitar acceso a/ }));
     fireEvent.click(within(second).getByRole("button", { name: "Sí, quitar acceso" }));
     await waitFor(() => expect(held).toHaveLength(2));
 
     // La más reciente responde primero (solo queda SELF); la antigua llega después (aún con MOD).
     await act(async () => held[1](res(200, { members: [SELF_M] })));
-    await act(async () => held[0](res(200, { members: [SELF_M, DEV_M] })));
+    await act(async () => held[0](res(200, { members: [SELF_M, ADM_M] })));
 
-    expect(screen.queryByText("@dev_solo")).toBeNull();
+    expect(screen.queryByText("Otro Admin")).toBeNull();
     expect(screen.getByText("Yo Mismo")).toBeInTheDocument();
   });
 });
@@ -285,9 +303,38 @@ describe("fila propia", () => {
     expect(within(self).queryByRole("button")).toBeNull();
   });
 
+  it("Developer es independiente de Admin: su selector solo restaura (ni DEVELOPER como destino) y «Quitar acceso» usa su propia ruta", async () => {
+    await renderReady();
+    const li = row("@dev_solo");
+    expect(within(li).getByRole("button", { name: /^Quitar acceso a/ })).toBeEnabled();
+    // nunca existe una acción para convertir a alguien EN Developer
+    expect(screen.queryByRole("option", { name: "DEVELOPER" })).toBeNull();
+    expect(within(li).queryByRole("button", { name: /^Restaurar a/ })).toBeNull();
+  });
+
+  it("Developer usa el mismo selector «Nuevo rol» + «Aplicar» que las demás cuentas, solo con Moderador y Admin", async () => {
+    await renderReady();
+    const li = row("@dev_solo");
+    const select = within(li).getByLabelText("Nuevo rol");
+    expect(
+      within(select)
+        .getAllByRole("option")
+        .map((o) => o.textContent),
+    ).toEqual(["Elegir rol…", "MODERADOR", "ADMIN"]);
+    const apply = within(li).getByRole("button", { name: /^Aplicar cambio de rol a/ });
+    expect(apply).toBeDisabled();
+    fireEvent.change(select, { target: { value: "admin" } });
+    expect(apply).toBeEnabled();
+    // un valor que no sea Moderador/Admin (p. ej. developer) se descarta
+    fireEvent.change(select, { target: { value: "developer" } });
+    expect(apply).toBeDisabled();
+    // igual que las demás filas, tiene «Quitar acceso»
+    expect(within(li).getByRole("button", { name: /^Quitar acceso a/ })).toBeEnabled();
+  });
+
   it("los demás miembros sí tienen selector, Aplicar y Quitar acceso", async () => {
     await renderReady();
-    for (const text of ["Mina Moderadora", "@dev_solo", "Otro Admin"]) {
+    for (const text of ["Mina Moderadora", "Otro Admin"]) {
       const li = row(text);
       expect(within(li).getByLabelText("Nuevo rol")).toBeInTheDocument();
       expect(
@@ -302,7 +349,12 @@ describe("fila propia", () => {
     const options = within(row("Mina Moderadora"))
       .getAllByRole("option")
       .map((o) => o.textContent);
-    expect(options).toEqual(["Elegir rol…", "ADMIN", "DEVELOPER"]);
+    // Admin nunca ofrece Developer (lo asigna solo el operador).
+    expect(options).toEqual(["Elegir rol…", "ADMIN"]);
+    const adminOptions = within(row("Otro Admin"))
+      .getAllByRole("option")
+      .map((o) => o.textContent);
+    expect(adminOptions).toEqual(["Elegir rol…", "MODERADOR"]);
   });
 });
 
@@ -310,19 +362,19 @@ describe("cambio de rol", () => {
   it("Aplicar exige confirmación: elegir rol no envía nada y la confirmación nombra a la persona", async () => {
     await renderReady();
     const li = row("Mina Moderadora");
-    pickRole(li, "developer");
+    pickRole(li, "admin");
 
     expect(roles()).toHaveLength(0);
     const group = within(li).getByRole("group", { name: "Confirmar cambio de rol" });
     expect(group).toHaveTextContent(
-      "¿Cambiar el rol de Mina Moderadora de MODERADOR a DEVELOPER?",
+      "¿Cambiar el rol de Mina Moderadora de MODERADOR a ADMIN?",
     );
   });
 
   it("al abrir la confirmación el foco va a «Cancelar»; cancelar devuelve el foco a Aplicar y no envía", async () => {
     await renderReady();
     const li = row("Mina Moderadora");
-    pickRole(li, "developer");
+    pickRole(li, "admin");
     const cancel = within(li).getByRole("button", { name: "Cancelar" });
     await waitFor(() => expect(cancel).toHaveFocus());
 
@@ -343,21 +395,21 @@ describe("cambio de rol", () => {
         served++;
         return served === 1
           ? res(200, { members: [SELF_M, MOD_M] })
-          : res(200, { members: [SELF_M, { ...MOD_M, role: "developer" }] });
+          : res(200, { members: [SELF_M, { ...MOD_M, role: "admin" }] });
       },
     });
     const li = row("Mina Moderadora");
-    pickRole(li, "developer");
+    pickRole(li, "admin");
     fireEvent.click(within(li).getByRole("button", { name: "Sí, cambiar rol" }));
 
     await waitFor(() => expect(roles()).toHaveLength(1));
-    expect(JSON.parse(roles()[0][1].body)).toEqual({ user_id: MOD, role: "developer" });
+    expect(JSON.parse(roles()[0][1].body)).toEqual({ user_id: MOD, role: "admin" });
     expect(roles()[0][1].headers).toMatchObject({ Authorization: `Bearer ${TOKEN}` });
 
     // El rol mostrado es el que devuelve el servidor tras releer.
     await waitFor(() => expect(gets()).toHaveLength(2));
     await waitFor(() =>
-      expect(within(row("Mina Moderadora")).getByText("DEVELOPER")).toBeInTheDocument(),
+      expect(within(row("Mina Moderadora")).getByText("ADMIN")).toBeInTheDocument(),
     );
     expect(screen.getByRole("status")).toHaveTextContent("Rol actualizado.");
     expect(document.activeElement?.textContent).toBe("Miembros actuales");
@@ -367,17 +419,17 @@ describe("cambio de rol", () => {
     let release!: (v: unknown) => void;
     await renderReady({ role: () => new Promise((r) => (release = r)) });
     const li = row("Mina Moderadora");
-    pickRole(li, "developer");
+    pickRole(li, "admin");
     fireEvent.click(within(li).getByRole("button", { name: "Sí, cambiar rol" }));
     await waitFor(() => expect(roles()).toHaveLength(1));
 
     expect(within(row("Mina Moderadora")).getByText("MODERADOR")).toBeInTheDocument();
-    expect(within(row("Mina Moderadora")).queryByText("DEVELOPER")).toBeNull();
+    expect(within(row("Mina Moderadora")).queryByText("ADMIN")).toBeNull();
     await act(async () =>
       release(
         res(200, {
           user_id: MOD,
-          role: "developer",
+          role: "admin",
           previous_role: "moderator",
           changed_at: "2026-09-28T10:00:00.000Z",
           revoked_invitations: 0,
@@ -390,7 +442,7 @@ describe("cambio de rol", () => {
     let release!: (v: unknown) => void;
     await renderReady({ role: () => new Promise((r) => (release = r)) });
     const li = row("Mina Moderadora");
-    pickRole(li, "developer");
+    pickRole(li, "admin");
     const confirm = within(li).getByRole("button", { name: "Sí, cambiar rol" });
     await act(async () => {
       fireEvent.click(confirm);
@@ -411,7 +463,7 @@ describe("cambio de rol", () => {
       release(
         res(200, {
           user_id: MOD,
-          role: "developer",
+          role: "admin",
           previous_role: "moderator",
           changed_at: "2026-09-28T10:00:00.000Z",
           revoked_invitations: 0,
@@ -450,14 +502,14 @@ describe("cambio de rol", () => {
       role: () =>
         res(200, {
           user_id: ADM,
-          role: "developer",
+          role: "moderator",
           previous_role: "admin",
           changed_at: "2026-09-28T10:00:00.000Z",
           revoked_invitations: 1,
         }),
     });
     const li = row("Otro Admin");
-    pickRole(li, "developer");
+    pickRole(li, "moderator");
     fireEvent.click(within(li).getByRole("button", { name: "Sí, cambiar rol" }));
     await waitFor(() =>
       expect(screen.getByRole("status")).toHaveTextContent(
@@ -503,7 +555,7 @@ describe("cambio de rol", () => {
     async (status, message) => {
       await renderReady({ role: () => res(status, { error: "detalle" }) });
       const li = row("Mina Moderadora");
-      pickRole(li, "developer");
+      pickRole(li, "admin");
       fireEvent.click(within(li).getByRole("button", { name: "Sí, cambiar rol" }));
 
       await waitFor(() => expect(gets()).toHaveLength(2));
@@ -526,7 +578,7 @@ describe("cambio de rol", () => {
         role: () => res(status, { error: "password authentication failed" }),
       });
       const li = row("Mina Moderadora");
-      pickRole(li, "developer");
+      pickRole(li, "admin");
       fireEvent.click(within(li).getByRole("button", { name: "Sí, cambiar rol" }));
 
       const alert = await within(li).findByRole("alert");
@@ -546,7 +598,7 @@ describe("cambio de rol", () => {
       },
     });
     const li = row("Mina Moderadora");
-    pickRole(li, "developer");
+    pickRole(li, "admin");
     fireEvent.click(within(li).getByRole("button", { name: "Sí, cambiar rol" }));
     const alert = await within(li).findByRole("alert");
     expect(alert).toHaveTextContent("No pudimos cambiar el rol. Inténtalo de nuevo.");
@@ -557,7 +609,7 @@ describe("cambio de rol", () => {
     await renderReady();
     const li = row("Mina Moderadora");
     fireEvent.change(within(li).getByLabelText("Nuevo rol"), {
-      target: { value: "developer" },
+      target: { value: "admin" },
     });
     expect(
       within(li).getByRole("button", { name: /^Aplicar cambio de rol a/ }),
@@ -616,6 +668,45 @@ describe("quitar acceso", () => {
     expect(screen.getByRole("status")).toHaveTextContent("Acceso quitado.");
     expect(document.activeElement?.textContent).toBe("Miembros actuales");
   });
+
+  it.each([
+    [
+      "completed",
+      { status: "completed", factors_deleted: 1 },
+      /Acceso quitado\. Su autenticador anterior quedó invalidado\./,
+      false,
+    ],
+    ["not_needed", { status: "not_needed" }, /^Acceso quitado\.$/, false],
+    [
+      "pending",
+      { status: "pending", error_class: "auth_delete_failed" },
+      /Atención: el acceso se retiró, pero su autenticador anterior todavía no se pudo invalidar/,
+      true,
+    ],
+  ])(
+    "MFA fase 1 — resultado %s: el aviso lo explica sin mentir y recarga los pendientes solo si hace falta",
+    async (_name, mfa_reset, text, pending) => {
+      const onMfaChanged = vi.fn();
+      route({
+        remove: () =>
+          res(200, {
+            user_id: MOD,
+            previous_role: "moderator",
+            revoked_invitations: 0,
+            mfa_reset,
+          }),
+      });
+      auth.session = { access_token: TOKEN };
+      render(<TeamMembersSection onMfaChanged={onMfaChanged} />);
+      const li = await screen.findByText("Mina Moderadora").then((n) => n.closest("li")!);
+      fireEvent.click(within(li).getByRole("button", { name: /^Quitar acceso a/ }));
+      fireEvent.click(within(li).getByRole("button", { name: "Sí, quitar acceso" }));
+      await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent(text));
+      expect(onMfaChanged).toHaveBeenCalledTimes(1);
+      if (pending)
+        expect(screen.getByRole("status")).toHaveTextContent(/Reintentar|reintentarlo/);
+    },
+  );
 
   it("SIN actualización optimista: la fila sigue hasta que el servidor responde", async () => {
     let release!: (v: unknown) => void;
@@ -770,5 +861,384 @@ describe("una sola mutación a la vez y limpieza", () => {
       err.mock.calls,
     ]);
     expect(dump).not.toContain("example.invalid");
+  });
+});
+
+describe("restauración de un Developer por otro Admin", () => {
+  const openRestore = (target: "Moderador" | "Admin") => {
+    const li = row("@dev_solo");
+    fireEvent.change(within(li).getByLabelText("Nuevo rol"), {
+      target: { value: target === "Admin" ? "admin" : "moderator" },
+    });
+    fireEvent.click(within(li).getByRole("button", { name: /^Aplicar cambio de rol a/ }));
+    return li;
+  };
+  const enter = (li: HTMLElement, code = "123456") =>
+    fireEvent.change(within(li).getByLabelText("Código de tu app autenticadora"), {
+      target: { value: code },
+    });
+
+  it("pide confirmación y código: elegir no envía nada y la confirmación nombra a la persona y el rol", async () => {
+    await renderReady();
+    const li = openRestore("Moderador");
+    expect(restores()).toHaveLength(0);
+    expect(totp.reverify).not.toHaveBeenCalled();
+    const group = within(li).getByRole("group", { name: /Confirmar la restauración de/ });
+    expect(group).toHaveTextContent("el rol de Moderador");
+    expect(group).toHaveTextContent("Dejará de ser Developer");
+    expect(within(li).getByRole("button", { name: "Sí, restaurar" })).toBeDisabled();
+    fireEvent.click(within(li).getByRole("button", { name: "Cancelar" }));
+    expect(within(li).queryByRole("group")).toBeNull();
+    expect(restores()).toHaveLength(0);
+  });
+
+  it.each([
+    ["Moderador", "moderator"],
+    ["Admin", "admin"],
+  ])(
+    "restaurar como %s: verifica el TOTP, envía SOLO { user_id, role } con el Bearer y relee el listado",
+    async (label, role) => {
+      let served = 0;
+      await renderReady({
+        list: () => {
+          served++;
+          return served === 1
+            ? res(200, { members: [SELF_M, DEV_M] })
+            : res(200, { members: [SELF_M, { ...DEV_M, role }] });
+        },
+      });
+      const li = openRestore(label as "Moderador" | "Admin");
+      enter(li);
+      fireEvent.click(within(li).getByRole("button", { name: "Sí, restaurar" }));
+      await waitFor(() => expect(restores()).toHaveLength(1));
+      expect(totp.reverify).toHaveBeenCalledWith("123456");
+      expect(JSON.parse(restores()[0][1].body)).toEqual({ user_id: DEV, role });
+      expect(restores()[0][1].headers).toMatchObject({
+        Authorization: `Bearer ${TOKEN}`,
+      });
+      expect(JSON.stringify(restores()[0])).not.toContain("123456"); // el código no viaja a nuestros endpoints
+      await waitFor(() => expect(gets()).toHaveLength(2));
+      expect(await screen.findByRole("status")).toHaveTextContent("vuelve a ser");
+      // ya no es Developer: sin controles de restauración
+      await waitFor(() =>
+        expect(
+          screen.queryByRole("group", { name: /Confirmar la restauración/ }),
+        ).toBeNull(),
+      );
+    },
+  );
+
+  it("código incorrecto: se informa y NO se envía la restauración", async () => {
+    totp.reverify.mockResolvedValue("invalid_code");
+    await renderReady();
+    const li = openRestore("Admin");
+    enter(li);
+    fireEvent.click(within(li).getByRole("button", { name: "Sí, restaurar" }));
+    expect(await within(li).findByRole("alert")).toHaveTextContent(
+      "Código incorrecto o expirado.",
+    );
+    expect(restores()).toHaveLength(0);
+  });
+
+  it.each([
+    [409, "recovery_in_progress", /recuperación de autenticador en curso/, false],
+    [409, "mfa_not_enrolled", /verificación en dos pasos/, false],
+    [409, "not_developer", /ya no es Developer/, true],
+    [404, "not_found", /ya no está en el equipo/, true],
+  ])(
+    "rechazo %i «%s»: mensaje claro (y la lista se relee si cambió)",
+    async (status, code, message, reloads) => {
+      await renderReady({
+        restore: () => res(status, { error: "Operación no permitida", code }),
+      });
+      const li = openRestore("Admin");
+      enter(li);
+      fireEvent.click(within(li).getByRole("button", { name: "Sí, restaurar" }));
+      expect(await within(li).findByRole("alert")).toHaveTextContent(message);
+      if (reloads) await waitFor(() => expect(gets()).toHaveLength(2));
+      else expect(gets()).toHaveLength(1);
+    },
+  );
+
+  it("step_up_required del servidor pide repetir el código y deja la confirmación abierta", async () => {
+    await renderReady({
+      restore: () => res(403, { error: "No autorizado", code: "step_up_required" }),
+    });
+    const li = openRestore("Moderador");
+    enter(li);
+    fireEvent.click(within(li).getByRole("button", { name: "Sí, restaurar" }));
+    expect(await within(li).findByRole("alert")).toHaveTextContent(
+      "no es lo bastante reciente",
+    );
+    expect(
+      within(li).getByLabelText("Código de tu app autenticadora"),
+    ).toBeInTheDocument();
+  });
+
+  it("un solo envío aunque se pulse dos veces; las demás filas no tienen estos controles", async () => {
+    let release!: (v: unknown) => void;
+    await renderReady({ restore: () => new Promise((r) => (release = r)) });
+    expect(
+      within(row("Mina Moderadora")).queryByRole("group", {
+        name: /Confirmar la restauración/,
+      }),
+    ).toBeNull();
+    const li = openRestore("Admin");
+    enter(li);
+    const confirm = within(li).getByRole("button", { name: "Sí, restaurar" });
+    await act(async () => {
+      fireEvent.click(confirm);
+      fireEvent.click(confirm);
+    });
+    await waitFor(() => expect(restores()).toHaveLength(1));
+    await act(async () => release(res(200, { status: "restored" })));
+    expect(totp.reverify).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("quitar acceso a un Developer", () => {
+  const openRemove = () => {
+    const li = row("@dev_solo");
+    fireEvent.click(within(li).getByRole("button", { name: /^Quitar acceso a/ }));
+    return li;
+  };
+  const enter = (li: HTMLElement, code = "123456") =>
+    fireEvent.change(within(li).getByLabelText("Código de tu app autenticadora"), {
+      target: { value: code },
+    });
+  const confirmButton = (li: HTMLElement) =>
+    within(li).getByRole("button", { name: "Sí, quitar acceso" });
+
+  it("pide confirmación y código: abrir no envía nada; el texto dice que pierde sus privilegios pero conserva su cuenta", async () => {
+    await renderReady();
+    const li = openRemove();
+    expect(devRemoves()).toHaveLength(0);
+    expect(totp.reverify).not.toHaveBeenCalled();
+    const group = within(li).getByRole("group", { name: /Confirmar quitar el acceso a/ });
+    expect(group).toHaveTextContent("Perderá todos sus privilegios de equipo");
+    expect(group).toHaveTextContent("cuenta personal NO se elimina");
+    // también se retira su verificación en dos pasos asociada al acceso de equipo
+    expect(group).toHaveTextContent("se retirará la verificación en dos pasos");
+    expect(confirmButton(li)).toBeDisabled();
+    fireEvent.click(within(li).getByRole("button", { name: "Cancelar" }));
+    expect(within(li).queryByRole("group")).toBeNull();
+    expect(devRemoves()).toHaveLength(0);
+  });
+
+  it("verifica el TOTP, envía SOLO { user_id } al endpoint propio con el Bearer, relee el listado y avisa", async () => {
+    let served = 0;
+    await renderReady({
+      list: () => {
+        served++;
+        return served === 1
+          ? res(200, { members: [SELF_M, MOD_M, DEV_M, ADM_M] })
+          : res(200, { members: [SELF_M, MOD_M, ADM_M] });
+      },
+    });
+    const li = openRemove();
+    enter(li);
+    fireEvent.click(confirmButton(li));
+    await waitFor(() => expect(devRemoves()).toHaveLength(1));
+    expect(totp.reverify).toHaveBeenCalledWith("123456");
+    expect(JSON.parse(devRemoves()[0][1].body)).toEqual({ user_id: DEV });
+    expect(devRemoves()[0][1].headers).toMatchObject({
+      Authorization: `Bearer ${TOKEN}`,
+    });
+    expect(JSON.stringify(devRemoves()[0])).not.toContain("123456");
+    expect(restores()).toHaveLength(0);
+    expect(removes()).toHaveLength(0); // no usa la ruta de Admin/Moderator
+    await waitFor(() => expect(gets()).toHaveLength(2));
+    expect(await screen.findByRole("status")).toHaveTextContent(
+      "ya no tiene acceso al equipo",
+    );
+    expect(screen.queryByText("@dev_solo")).toBeNull();
+  });
+
+  it("limpieza MFA completada: el aviso lo dice y se refresca la lista de autenticadores pendientes", async () => {
+    const onMfaChanged = vi.fn();
+    route({
+      devRemove: () =>
+        res(200, {
+          status: "removed",
+          user_id: DEV,
+          last_developer: false,
+          mfa_reset: { status: "completed", factors_deleted: 1 },
+        }),
+    });
+    render(<TeamMembersSection onMfaChanged={onMfaChanged} />);
+    await waitFor(() => expect(screen.queryByText("Cargando miembros…")).toBeNull());
+    const li = openRemove();
+    enter(li);
+    fireEvent.click(confirmButton(li));
+    const status = await screen.findByRole("status");
+    expect(status).toHaveTextContent("ya no tiene acceso al equipo");
+    expect(status).toHaveTextContent(
+      "verificación en dos pasos asociada al acceso de equipo también quedó retirada",
+    );
+    expect(onMfaChanged).toHaveBeenCalledTimes(1);
+  });
+
+  it("limpieza MFA PENDIENTE: el acceso se da por retirado pero NUNCA se afirma que la verificación en dos pasos se retiró", async () => {
+    const onMfaChanged = vi.fn();
+    route({
+      devRemove: () =>
+        res(200, {
+          status: "removed",
+          user_id: DEV,
+          last_developer: false,
+          mfa_reset: { status: "pending", error_class: "auth_delete_failed" },
+        }),
+    });
+    render(<TeamMembersSection onMfaChanged={onMfaChanged} />);
+    await waitFor(() => expect(screen.queryByText("Cargando miembros…")).toBeNull());
+    const li = openRemove();
+    enter(li);
+    fireEvent.click(confirmButton(li));
+    const status = await screen.findByRole("status");
+    expect(status).toHaveTextContent("el acceso se retiró");
+    expect(status).toHaveTextContent("todavía no se pudo retirar");
+    expect(status).toHaveTextContent("Autenticadores pendientes de restablecer");
+    expect(status).not.toHaveTextContent("también quedó retirada");
+    expect(status).not.toHaveTextContent("auth_delete_failed");
+    expect(onMfaChanged).toHaveBeenCalledTimes(1);
+  });
+
+  it("sin dato de limpieza (no había factores) no se afirma nada sobre el autenticador", async () => {
+    await renderReady({
+      devRemove: () =>
+        res(200, {
+          status: "removed",
+          user_id: DEV,
+          last_developer: false,
+          mfa_reset: { status: "not_needed" },
+        }),
+    });
+    const li = openRemove();
+    enter(li);
+    fireEvent.click(confirmButton(li));
+    const status = await screen.findByRole("status");
+    expect(status).toHaveTextContent("ya no tiene acceso al equipo");
+    expect(status).not.toHaveTextContent("dos pasos");
+  });
+
+  it("es el único Developer: la confirmación lo advierte; con otro Developer no", async () => {
+    await renderReady();
+    expect(within(openRemove()).getByRole("note")).toHaveTextContent("único Developer");
+    cleanup();
+    fetchMock.mockReset();
+    const DEV2 = member("66666666-6666-4666-8666-666666666666", {
+      role: "developer",
+      username: "dev_dos",
+    });
+    await renderReady({
+      list: () => res(200, { members: [SELF_M, DEV_M, DEV2] }),
+    });
+    expect(within(openRemove()).queryByRole("note")).toBeNull();
+  });
+
+  it("si el servidor confirma que era el último Developer, el aviso final lo recuerda", async () => {
+    await renderReady({
+      devRemove: () =>
+        res(200, { status: "removed", user_id: DEV, last_developer: true }),
+    });
+    const li = openRemove();
+    enter(li);
+    fireEvent.click(confirmButton(li));
+    expect(await screen.findByRole("status")).toHaveTextContent(
+      "Ya no queda ningún Developer",
+    );
+  });
+
+  it("código incorrecto: se informa y NO se envía nada", async () => {
+    totp.reverify.mockResolvedValue("invalid_code");
+    await renderReady();
+    const li = openRemove();
+    enter(li);
+    fireEvent.click(confirmButton(li));
+    expect(await within(li).findByRole("alert")).toHaveTextContent(
+      "Código incorrecto o expirado.",
+    );
+    expect(devRemoves()).toHaveLength(0);
+  });
+
+  it("sin código de 6 dígitos no se puede confirmar", async () => {
+    await renderReady();
+    const li = openRemove();
+    enter(li, "123");
+    expect(confirmButton(li)).toBeDisabled();
+  });
+
+  it.each([
+    [409, "recovery_in_progress", /recuperación de autenticador en curso/, false],
+    [409, "approval_in_progress", /aprobó una recuperación/, false],
+    [409, "recovery_depends_on_developer", /solo esta persona puede aprobar/, false],
+    [409, "not_developer", /ya no es Developer/, true],
+    [404, "not_found", /ya no está en el equipo/, true],
+  ])(
+    "rechazo %i «%s»: mensaje claro (y la lista se relee si cambió)",
+    async (status, code, message, reloads) => {
+      await renderReady({
+        devRemove: () => res(status, { error: "Operación no permitida", code }),
+      });
+      const li = openRemove();
+      enter(li);
+      fireEvent.click(confirmButton(li));
+      expect(await within(li).findByRole("alert")).toHaveTextContent(message);
+      if (reloads) await waitFor(() => expect(gets()).toHaveLength(2));
+      else expect(gets()).toHaveLength(1);
+    },
+  );
+
+  it("step_up_required del servidor pide repetir el código y deja la confirmación abierta", async () => {
+    await renderReady({
+      devRemove: () => res(403, { error: "No autorizado", code: "step_up_required" }),
+    });
+    const li = openRemove();
+    enter(li);
+    fireEvent.click(confirmButton(li));
+    expect(await within(li).findByRole("alert")).toHaveTextContent(
+      "no es lo bastante reciente",
+    );
+    expect(
+      within(li).getByLabelText("Código de tu app autenticadora"),
+    ).toBeInTheDocument();
+  });
+
+  it("un error genérico del servidor no filtra detalles", async () => {
+    await renderReady({
+      devRemove: () => res(500, { error: "detalle interno secreto" }),
+    });
+    const li = openRemove();
+    enter(li);
+    fireEvent.click(confirmButton(li));
+    const alert = await within(li).findByRole("alert");
+    expect(alert).toHaveTextContent("No se pudo completar el cambio");
+    expect(alert).not.toHaveTextContent("secreto");
+  });
+
+  it("un solo envío aunque se pulse dos veces", async () => {
+    let release!: (v: unknown) => void;
+    await renderReady({ devRemove: () => new Promise((r) => (release = r)) });
+    const li = openRemove();
+    enter(li);
+    const confirm = confirmButton(li);
+    await act(async () => {
+      fireEvent.click(confirm);
+      fireEvent.click(confirm);
+    });
+    await waitFor(() => expect(devRemoves()).toHaveLength(1));
+    await act(async () =>
+      release(res(200, { status: "removed", user_id: DEV, last_developer: false })),
+    );
+    expect(totp.reverify).toHaveBeenCalledTimes(1);
+  });
+
+  it("Admin y Moderator conservan su propia ruta de retirada y no usan la del Developer", async () => {
+    await renderReady();
+    const mod = row("Mina Moderadora");
+    fireEvent.click(within(mod).getByRole("button", { name: /^Quitar acceso a/ }));
+    expect(within(mod).getByRole("group")).toHaveTextContent("Quitar el acceso");
+    expect(within(mod).queryByLabelText("Código de tu app autenticadora")).toBeNull();
+    expect(devRemoves()).toHaveLength(0);
   });
 });

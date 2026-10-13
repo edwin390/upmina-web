@@ -24,7 +24,8 @@ const VALID_TOKEN_HASH = createHash("sha256").update(VALID_TOKEN).digest("hex");
 const authFakes = vi.hoisted(() => ({
   /** Identidad que devuelve requireAuthenticated, o undefined para usar throwWith. */
   identity: undefined as
-    { userId: string; aal: string; mfaVerifiedAt: number | null } | undefined,
+    | { userId: string; aal: string; mfaVerifiedAt: number | null; sessionId?: string }
+    | undefined,
   /** Si está definido, requireAuthenticated lanza esto en vez de devolver identity. */
   throwWith: undefined as unknown,
   calls: 0,
@@ -88,6 +89,24 @@ const rpcFakes = vi.hoisted(() => ({
   calls: [] as { name: string; params: unknown }[],
 }));
 
+// MFA fase 1: respuestas de las funciones admin_mfa_* y de la API de administración de Auth.
+const mfaFakes = vi.hoisted(() => ({
+  /** Respuestas sucesivas de admin_mfa_activation_check (la última se repite). */
+  gate: [] as { data: unknown; error: unknown }[],
+  gateCalls: [] as unknown[],
+  pending: { data: [], error: null } as { data: unknown; error: unknown },
+  record: { data: "completed", error: null } as { data: unknown; error: unknown },
+  recordCalls: [] as unknown[],
+  deleteResult: { error: null } as { error: unknown },
+  deleteCalls: [] as unknown[],
+  listResult: { data: { factors: [] as { id: string }[] }, error: null } as {
+    data: unknown;
+    error: unknown;
+  },
+}));
+
+const ALLOWED = { data: { allowed: true, reason: "no_reset_history" }, error: null };
+
 const clientFakes = vi.hoisted(() => ({
   /** Cada createClient(url, key) real: permite comprobar qué key usó el cliente RPC. */
   calls: [] as { url: string; key: string }[],
@@ -97,7 +116,28 @@ vi.mock("@supabase/supabase-js", () => ({
   createClient: (url: string, key: string) => {
     clientFakes.calls.push({ url, key });
     return {
+      auth: {
+        admin: {
+          mfa: {
+            deleteFactor: async (p: unknown) => {
+              mfaFakes.deleteCalls.push(p);
+              return mfaFakes.deleteResult;
+            },
+            listFactors: async () => mfaFakes.listResult,
+          },
+        },
+      },
       rpc: async (name: string, params: unknown) => {
+        if (name === "admin_mfa_activation_check") {
+          mfaFakes.gateCalls.push(params);
+          const i = Math.min(mfaFakes.gateCalls.length - 1, mfaFakes.gate.length - 1);
+          return mfaFakes.gate[i] ?? ALLOWED;
+        }
+        if (name === "admin_mfa_pending_reset") return mfaFakes.pending;
+        if (name === "admin_mfa_reset_record") {
+          mfaFakes.recordCalls.push(params);
+          return mfaFakes.record;
+        }
         rpcFakes.calls.push({ name, params });
         if (rpcFakes.throwWith !== undefined) throw rpcFakes.throwWith;
         return rpcFakes.result ?? { data: null, error: { message: "sin configurar" } };
@@ -114,6 +154,14 @@ function resetFakes() {
   rpcFakes.throwWith = undefined;
   rpcFakes.calls = [];
   clientFakes.calls = [];
+  mfaFakes.gate = [];
+  mfaFakes.gateCalls = [];
+  mfaFakes.pending = { data: [], error: null };
+  mfaFakes.record = { data: "completed", error: null };
+  mfaFakes.recordCalls = [];
+  mfaFakes.deleteResult = { error: null };
+  mfaFakes.deleteCalls = [];
+  mfaFakes.listResult = { data: { factors: [] }, error: null };
   accessFakes.summary = undefined;
   accessFakes.throwWith = undefined;
   accessFakes.calls = 0;
@@ -124,7 +172,12 @@ function resetFakes() {
 
 // Por defecto: aal2 con un TOTP verificado ahora mismo (MFA reciente).
 function okIdentity(
-  overrides: Partial<{ userId: string; aal: string; mfaVerifiedAt: number | null }> = {},
+  overrides: Partial<{
+    userId: string;
+    aal: string;
+    mfaVerifiedAt: number | null;
+    sessionId: string;
+  }> = {},
 ) {
   authFakes.identity = {
     userId: "11111111-1111-4111-8111-111111111111",
@@ -304,6 +357,132 @@ describe("handleAdminActivate", () => {
 
     expect(state.status).toBe(200);
     expect(rpcFakes.calls).toHaveLength(1);
+  });
+
+  describe("puerta MFA fase 1 (reinvitación tras retirar privilegios)", () => {
+    const SESSION = "55555555-5555-4555-8555-555555555555";
+    const RESET = "66666666-6666-4666-8666-666666666666";
+    const OLD = "77777777-7777-4777-8777-777777777777";
+    const deny = (reason: string) => ({
+      data: { allowed: false, reason, resetId: RESET },
+      error: null,
+    });
+
+    it("pasa a la puerta el user_id y el session_id del JWT verificado, nunca datos del body", async () => {
+      okIdentity({ sessionId: SESSION });
+      okRpc("moderator");
+      const { res, state } = mockRes();
+      await handleAdminActivate(
+        req({
+          body: { token: VALID_TOKEN, user_id: "x", session_id: "y", sessionId: "z" },
+        }),
+        res,
+      );
+      expect(state.status).toBe(200);
+      expect(mfaFakes.gateCalls).toEqual([
+        { p_user_id: "11111111-1111-4111-8111-111111111111", p_session_id: SESSION },
+      ]);
+    });
+
+    it("sin claim session_id: la puerta recibe null (y decide en BD)", async () => {
+      okIdentity();
+      okRpc("moderator");
+      const { res } = mockRes();
+      await handleAdminActivate(req(), res);
+      expect(mfaFakes.gateCalls).toEqual([
+        { p_user_id: "11111111-1111-4111-8111-111111111111", p_session_id: null },
+      ]);
+    });
+
+    it("sesión que no acredita un factor NUEVO → 403 mfa_reenroll_required y la invitación NO se consume", async () => {
+      okIdentity({ sessionId: SESSION });
+      okRpc("moderator");
+      mfaFakes.gate = [deny("mfa_reenroll_required")];
+      const { res, state } = mockRes();
+      await handleAdminActivate(req(), res);
+      expect(state.status).toBe(403);
+      expect(state.body).toMatchObject({ code: "mfa_reenroll_required" });
+      expect(rpcFakes.calls).toHaveLength(0);
+    });
+
+    it("limpieza pendiente que se resuelve aquí (solo los ids de la instantánea) → se vuelve a comprobar y se activa", async () => {
+      okIdentity({ sessionId: SESSION });
+      okRpc("moderator");
+      mfaFakes.gate = [deny("mfa_cleanup_pending"), ALLOWED];
+      mfaFakes.pending = {
+        data: [{ out_reset_id: RESET, out_factor_ids: [OLD] }],
+        error: null,
+      };
+      const { res, state } = mockRes();
+      await handleAdminActivate(req(), res);
+      expect(state.status).toBe(200);
+      expect(mfaFakes.deleteCalls).toEqual([
+        { id: OLD, userId: "11111111-1111-4111-8111-111111111111" },
+      ]);
+      expect(mfaFakes.recordCalls).toMatchObject([{ p_reset_id: RESET, p_ok: true }]);
+      expect(rpcFakes.calls).toHaveLength(1);
+    });
+
+    it("limpieza pendiente que NO se puede resolver → 503 mfa_cleanup_pending, sin consumir la invitación", async () => {
+      okIdentity({ sessionId: SESSION });
+      okRpc("moderator");
+      mfaFakes.gate = [deny("mfa_cleanup_pending")];
+      mfaFakes.pending = {
+        data: [{ out_reset_id: RESET, out_factor_ids: [OLD] }],
+        error: null,
+      };
+      mfaFakes.deleteResult = {
+        error: { status: 500, message: "texto interno de Auth" },
+      };
+      const { res, state } = mockRes();
+      await handleAdminActivate(req(), res);
+      expect(state.status).toBe(503);
+      expect(state.body).toMatchObject({ code: "mfa_cleanup_pending" });
+      expect(JSON.stringify(state.body)).not.toMatch(/texto interno/);
+      expect(rpcFakes.calls).toHaveLength(0);
+    });
+
+    it("tras resolver la limpieza, si la sesión sigue sin acreditar el factor nuevo → 403 (no se activa)", async () => {
+      okIdentity({ sessionId: SESSION });
+      okRpc("moderator");
+      mfaFakes.gate = [deny("mfa_cleanup_pending"), deny("mfa_reenroll_required")];
+      mfaFakes.pending = {
+        data: [{ out_reset_id: RESET, out_factor_ids: [OLD] }],
+        error: null,
+      };
+      const { res, state } = mockRes();
+      await handleAdminActivate(req(), res);
+      expect(state.status).toBe(403);
+      expect(state.body).toMatchObject({ code: "mfa_reenroll_required" });
+      expect(rpcFakes.calls).toHaveLength(0);
+    });
+
+    it.each([
+      ["error de la RPC", { data: null, error: { message: "boom" } }],
+      ["respuesta vacía", { data: null, error: null }],
+      ["forma inesperada", { data: { allowed: "sí" }, error: null }],
+      ["razón desconocida", { data: { allowed: false, reason: "otra" }, error: null }],
+    ])(
+      "falla CERRADO ante %s: 500 genérico y la invitación NO se consume",
+      async (_n, gate) => {
+        okIdentity({ sessionId: SESSION });
+        okRpc("moderator");
+        mfaFakes.gate = [gate];
+        const { res, state } = mockRes();
+        await handleAdminActivate(req(), res);
+        expect(state.status).toBe(500);
+        expect(JSON.stringify(state.body)).not.toMatch(/boom/);
+        expect(rpcFakes.calls).toHaveLength(0);
+      },
+    );
+
+    it("sin MFA reciente sigue ganando el 403 step_up_required (la puerta ni se consulta)", async () => {
+      okIdentity({ aal: "aal1", mfaVerifiedAt: null, sessionId: SESSION });
+      const { res, state } = mockRes();
+      await handleAdminActivate(req(), res);
+      expect(state.status).toBe(403);
+      expect(mfaFakes.gateCalls).toHaveLength(0);
+    });
   });
 
   it("body ausente → 400, sin autenticar de más ni llamar a la RPC", async () => {
@@ -674,7 +853,7 @@ describe("handleAdminMe", () => {
     expect(state.body).toEqual({ role: "moderator", capabilities: ["moderation"] });
   });
 
-  it("GET + DEVELOPER + aal2 → 200 { developer, moderation + technical } (sin social_admin/team_admin)", async () => {
+  it("GET + DEVELOPER + aal2 → 200 { developer, moderation + technical + developer_panel } (sin social_admin/team_admin)", async () => {
     adminFakes.identity = {
       userId: "11111111-1111-4111-8111-111111111111",
       role: "developer",
@@ -686,7 +865,7 @@ describe("handleAdminMe", () => {
     expect(state.status).toBe(200);
     expect(state.body).toEqual({
       role: "developer",
-      capabilities: ["moderation", "technical"],
+      capabilities: ["moderation", "technical", "developer_panel"],
     });
   });
 
@@ -903,5 +1082,76 @@ describe("handleAdminAccess (GET /api/admin/access) — 9G-1", () => {
     expect(state.status).toBe(500);
     expect(state.body).toEqual({ error: "Error interno" });
     expect(state.headers["Cache-Control"]).toBe("no-store");
+  });
+});
+
+describe("handleAdminAccess — MFA fase 2: reconciliación al acceder con MFA reciente", () => {
+  const USER = "33333333-3333-4333-8333-333333333333";
+  const SESSION = "88888888-8888-4888-8888-888888888888";
+  const summary = (over: Record<string, unknown> = {}) => ({
+    role: "moderator",
+    capabilities: ["moderation"],
+    mfaRecent: true,
+    userId: USER,
+    sessionId: SESSION,
+    ...over,
+  });
+  const completes = () =>
+    rpcFakes.calls.filter((c) => c.name === "admin_mfa_recovery_complete");
+
+  beforeEach(() => {
+    vi.stubEnv("VITE_SUPABASE_URL", "https://proyecto-ficticio.supabase.co");
+    vi.stubEnv("SUPABASE_SERVICE_ROLE_KEY", "srk-ficticia");
+    rpcFakes.result = { data: { ok: false, reason: "no_request" }, error: null };
+  });
+
+  it("miembro con MFA reciente: reintenta el cierre con la identidad VERIFICADA y la respuesta no cambia", async () => {
+    accessFakes.summary = summary();
+    const { res, state } = mockRes();
+    await handleAdminAccess(meReq(), res);
+    expect(state.status).toBe(200);
+    expect(state.body).toEqual({
+      role: "moderator",
+      capabilities: ["moderation"],
+      mfa: { recent: true },
+    });
+    expect(completes()).toHaveLength(1);
+    expect(completes()[0].params).toEqual({ p_user_id: USER, p_session_id: SESSION });
+    expect(JSON.stringify(state.body)).not.toContain(USER); // no se filtra la identidad
+  });
+
+  it.each([
+    ["sin MFA reciente", { mfaRecent: false }],
+    ["USER (sin rol)", { role: null, capabilities: [] }],
+    ["sin identidad", { userId: undefined }],
+  ])("%s: NO se reconcilia", async (_n, over) => {
+    accessFakes.summary = summary(over);
+    const { res, state } = mockRes();
+    await handleAdminAccess(meReq(), res);
+    expect(state.status).toBe(200);
+    expect(completes()).toHaveLength(0);
+  });
+
+  it("un fallo de la base al reconciliar no cambia ni retrasa la respuesta de acceso", async () => {
+    accessFakes.summary = summary();
+    rpcFakes.throwWith = new Error("red caída");
+    const { res, state } = mockRes();
+    await handleAdminAccess(meReq(), res);
+    expect(state.status).toBe(200);
+    expect(state.body).toMatchObject({ role: "moderator", mfa: { recent: true } });
+  });
+
+  it("una sesión sin session_id verificado pasa session nulo (la base no cerrará nada)", async () => {
+    accessFakes.summary = summary({ sessionId: undefined });
+    const { res } = mockRes();
+    await handleAdminAccess(meReq(), res);
+    expect(completes()[0].params).toEqual({ p_user_id: USER, p_session_id: null });
+  });
+
+  it("sin recuperación pendiente: solo UNA consulta, sin correos ni otras RPC", async () => {
+    accessFakes.summary = summary();
+    const { res } = mockRes();
+    await handleAdminAccess(meReq(), res);
+    expect(rpcFakes.calls.map((c) => c.name)).toEqual(["admin_mfa_recovery_complete"]);
   });
 });

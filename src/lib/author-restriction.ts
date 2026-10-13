@@ -63,6 +63,8 @@ export interface RestrictionCopy {
   headline: string;
   /** Hasta cuándo (o permanente). null si el backend no pudo dar detalle. */
   duration: string | null;
+  /** R5-F: advertencia sobre la siguiente sanción (solo Strike 1 y 2; Strike 3 es la máxima). */
+  warning: string | null;
   reason: string | null;
   deleteHint: string;
 }
@@ -73,23 +75,68 @@ export const RESTRICTION_DELETE_HINT =
 export const RESTRICTION_CHANGED_MESSAGE =
   "El estado de tu restricción cambió. Vuelve a intentarlo.";
 
+// Reglas reales (SQL de R5-B, sin cambios): el nivel es min(strikes NO revocados + 1, 3); Strike 1 =
+// 14 días, Strike 2 = un mes calendario, Strike 3 = permanente. Una sanción que expira NO quita el
+// strike de la escalada; solo la revocación lo hace. Los avisos se redactan con esa semántica y solo
+// se generan a partir de una restricción VIGENTE leída del servidor: si expira o se revoca, el
+// servidor deja de devolverla y no queda ningún aviso que afirme que continúa activa.
+const FIRST_STRIKE_HEADLINE =
+  "Has recibido tu primer strike por incumplir las normas de la comunidad.";
+const FIRST_STRIKE_WARNING =
+  "Advertencia: los strikes siguen contando aunque termine su restricción temporal, salvo que sean revocados. Un segundo strike supondrá una restricción de un mes y un tercero, la pérdida permanente del permiso para publicar.";
+const SECOND_STRIKE_HEADLINE = "Has recibido tu segundo strike.";
+const SECOND_STRIKE_WARNING =
+  "Última advertencia: si recibes un tercer strike, perderás permanentemente el permiso para crear y editar publicaciones en la comunidad. Los strikes anteriores siguen contando incluso después de cumplir su restricción, salvo que sean revocados.";
+
 export function restrictionCopy(r: AuthorRestrictionView | null): RestrictionCopy {
   if (!r) {
     return {
       title: RESTRICTION_TITLE,
       headline: "Tu cuenta tiene una restricción activa en Community.",
       duration: "No puedes crear ni editar publicaciones de Community por ahora.",
+      warning: null,
       reason: null,
       deleteHint: RESTRICTION_DELETE_HINT,
     };
   }
+  if (r.permanent || !r.endsAt) {
+    return {
+      title: RESTRICTION_TITLE,
+      headline: `Tu cuenta tiene un Strike ${r.level} activo en Community.`,
+      duration:
+        "No puedes crear ni editar publicaciones de Community de forma permanente.",
+      warning: null,
+      reason: r.reason,
+      deleteHint: RESTRICTION_DELETE_HINT,
+    };
+  }
+  const until = `No puedes crear ni editar publicaciones hasta ${formatRestrictionDate(r.endsAt)}.`;
+  if (r.level === 1) {
+    return {
+      title: RESTRICTION_TITLE,
+      headline: FIRST_STRIKE_HEADLINE,
+      duration: until,
+      warning: FIRST_STRIKE_WARNING,
+      reason: r.reason,
+      deleteHint: RESTRICTION_DELETE_HINT,
+    };
+  }
+  if (r.level === 2) {
+    return {
+      title: RESTRICTION_TITLE,
+      headline: SECOND_STRIKE_HEADLINE,
+      duration: until,
+      warning: SECOND_STRIKE_WARNING,
+      reason: r.reason,
+      deleteHint: RESTRICTION_DELETE_HINT,
+    };
+  }
+  // Un nivel 3 siempre es permanente (parseAuthorRestriction lo exige); defensa para formas imposibles.
   return {
     title: RESTRICTION_TITLE,
     headline: `Tu cuenta tiene un Strike ${r.level} activo en Community.`,
-    duration:
-      r.permanent || !r.endsAt
-        ? "No puedes crear ni editar publicaciones de Community de forma permanente."
-        : `No puedes crear ni editar publicaciones de Community hasta ${formatRestrictionDate(r.endsAt)}.`,
+    duration: until,
+    warning: null,
     reason: r.reason,
     deleteHint: RESTRICTION_DELETE_HINT,
   };
