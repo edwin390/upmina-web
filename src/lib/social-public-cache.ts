@@ -2,8 +2,8 @@
 //
 // Una respuesta ya almacenada en el borde NO ejecuta la función: ni una desconexión ni `no-store` posterior
 // la retiran. Por eso: (1) TTL corto y SIN stale-while-revalidate (nunca se sirve una copia vencida de una
-// cuenta que pudo desconectarse); (2) etiqueta de caché por proveedor para invalidar al instante al desconectar
-// (si hay credenciales de invalidación configuradas); (3) antes de marcar una respuesta como cacheable se
+// cuenta que pudo desconectarse); (2) etiqueta de caché por proveedor para BORRAR al instante al desconectar
+// (dangerously-delete-by-tags: la siguiente petición va a la función; «invalidate» serviría una copia vieja una vez más); (3) antes de marcar una respuesta como cacheable se
 // confirma que la conexión sigue vigente, para que una petición en vuelo durante la desconexión no
 // reintroduzca el contenido. Sin invalidación, la exposición máxima tras desconectar es SOCIAL_CACHE_TTL_SECONDS.
 import type { VercelResponse } from "@vercel/node";
@@ -21,6 +21,8 @@ export function setSocialPublicCache(
   cacheControl: string = SOCIAL_PUBLIC_CACHE_CONTROL,
 ) {
   res.setHeader("Cache-Control", cacheControl);
+  // Para el CDN de Vercel manda esta cabecera (misma vigencia); es la que la documentación empareja con Vercel-Cache-Tag.
+  res.setHeader("Vercel-CDN-Cache-Control", cacheControl.replace("s-maxage", "max-age"));
   res.setHeader("Vercel-Cache-Tag", socialCacheTag(provider));
 }
 
@@ -38,7 +40,7 @@ export async function socialStillConnected(
 
 export type SocialPurgeResult = "purged" | "not_configured" | "failed";
 
-/** Invalida en Vercel las copias etiquetadas del proveedor. Requiere VERCEL_CACHE_PURGE_TOKEN y
+/** Borra en Vercel las copias etiquetadas del proveedor (POST /v1/edge-cache/dangerously-delete-by-tags: regeneración en primer plano). Requiere VERCEL_CACHE_PURGE_TOKEN y
  *  VERCEL_CACHE_PURGE_PROJECT_ID (y VERCEL_CACHE_PURGE_TEAM_ID si el proyecto es de un equipo). Nunca lanza
  *  ni registra el token. Las copias anteriores sin etiqueta solo desaparecen por TTL o por un despliegue nuevo. */
 export async function purgeSocialPublicCache(
@@ -50,7 +52,7 @@ export async function purgeSocialPublicCache(
   const project = env.VERCEL_CACHE_PURGE_PROJECT_ID?.trim();
   if (!token || !project) return "not_configured";
   const team = env.VERCEL_CACHE_PURGE_TEAM_ID?.trim();
-  const url = new URL("https://api.vercel.com/v1/edge-cache/invalidate-by-tags");
+  const url = new URL("https://api.vercel.com/v1/edge-cache/dangerously-delete-by-tags");
   url.searchParams.set("projectIdOrName", project);
   if (team) url.searchParams.set("teamId", team);
   try {

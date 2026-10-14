@@ -25,6 +25,7 @@ describe("caché pública de redes sociales", () => {
     expect(headers["Cache-Control"]).toBe(SOCIAL_PUBLIC_CACHE_CONTROL);
     expect(headers["Cache-Control"]).not.toMatch(/stale/);
     expect(headers["Vercel-Cache-Tag"]).toBe("social-tiktok");
+    expect(headers["Vercel-CDN-Cache-Control"]).toBe("public, max-age=60");
   });
 
   it("confirmación fail-closed: sin función, false o error = no conectado", async () => {
@@ -44,7 +45,7 @@ describe("caché pública de redes sociales", () => {
       await purgeSocialPublicCache("instagram", ENV, f as unknown as typeof fetch),
     ).toBe("purged");
     const [url, init] = f.mock.calls[0] as unknown as [URL, RequestInit];
-    expect(url.pathname).toBe("/v1/edge-cache/invalidate-by-tags");
+    expect(url.pathname).toBe("/v1/edge-cache/dangerously-delete-by-tags");
     expect(url.searchParams.get("projectIdOrName")).toBe("prj_sintetico");
     expect(JSON.parse(String(init.body))).toEqual({ tags: ["social-instagram"] });
   });

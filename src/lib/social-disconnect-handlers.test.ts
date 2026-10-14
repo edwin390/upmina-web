@@ -805,7 +805,7 @@ describe("invalidación de la caché pública del CDN al desconectar", () => {
     vi.stubEnv("VERCEL_CACHE_PURGE_PROJECT_ID", "prj_sintetico");
   };
   const purgeCalls = () =>
-    fetchMock.mock.calls.filter(([u]) => String(u).includes("invalidate-by-tags"));
+    fetchMock.mock.calls.filter(([u]) => String(u).includes("dangerously-delete-by-tags"));
 
   it("configurada: invalida solo la etiqueta del proveedor y lo indica", async () => {
     configure();
