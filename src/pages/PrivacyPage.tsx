@@ -147,9 +147,9 @@ export default function PrivacyPage() {
         <p>
           Backups maintained by our providers, caches and signed links that were already
           issued may still contain data for a limited time until they expire or are
-          rotated; they are not erased instantly. Accounts with team roles follow a
-          separate administrative procedure. To ask questions about your data, contact us
-          at <ContactLink />.
+          rotated; they are not erased instantly. Accounts with team roles cannot be
+          deleted through this self-service process. To ask questions about your data, or
+          about the deletion of such an account, contact us at <ContactLink />.
         </p>
       </LegalSection>
 

@@ -1,6 +1,6 @@
 # Community → Production: estado, inventario y plan de despliegue
 
-Elaborado el 2026-10-14 desde la rama `feat/community-copyright-integration` (3 commits locales de eliminación de cuentas sobre `646889c`).
+Elaborado el 2026-10-14. Actualizado tras la integración local con `main`: rama **`integration/community-main`** (merge `8d92f52`; `feat/community-copyright-integration` y `main` no se han tocado).
 **Nada de este plan se ha ejecutado en Production.** Inventario de Production = solo lectura.
 
 ## 1. Estado de cierre
@@ -15,10 +15,11 @@ Elaborado el 2026-10-14 desde la rama `feat/community-copyright-integration` (3 
 
 ### Pendientes
 **Bloqueantes para Production**
-- B1 · **Integración con `main`** (ver §3): la rama diverge de `main` (6 commits propios) con conflictos y una colisión de versiones de migración.
+- ~~B1 · Integración con `main`~~ · **RESUELTA en local** (§3): rama `integration/community-main`, `20261116120000_username_impersonation_guard` aplicada y validada en DEV. Falta solo el merge/push a `main` (autorización).
 - B2 · **Worker de entrega de Production inexistente** (solo `upmina-media-delivery-dev`). Hay que crearlo (§4.3).
-- B3 · **Variables de Production ausentes** para medios y eliminación (§4.2).
+- B3 · **Variables de Production ausentes** para medios y eliminación (§4.2). **Vault de Production vacío.**
 - B4 · **Extensiones** `pg_cron` y `pg_net` no instaladas en Production (las exige `20261021`).
+- B8 · **Sin punto de restauración en Production**: `supabase backups list` → WAL-G activo, **PITR desactivado y 0 backups**. Antes de migrar hay que crear un `pg_dump` (§4.1).
 - B5 · **Revisión jurídica** del texto de privacidad y de los plazos de retención (docs/DEL-3 §3). El texto dice que los plazos «no están definidos».
 - B6 · **Configuración de Auth de Production** (Site URL, Redirect URLs, plantillas, SMTP): no inspeccionable con las herramientas disponibles → comprobación manual en el panel.
 - B7 · **CORS del bucket de Production** (`upmina-media-prod-*`): no inspeccionable → debe admitir el origen de producción y exponer `ETag`.
@@ -50,16 +51,17 @@ Elaborado el 2026-10-14 desde la rama `feat/community-copyright-integration` (3 
 Estado: `origin/main` = `6a2e441`; la rama está **4 commits por delante** y 0 por detrás. La `main` **local** tiene 9 commits sin subir (3 de AUTH + 6 propios: `b1072a0` guard de suplantación de username, `b3ac59d` diálogo de reportes, `ccc1c9e` diseño Copyright, `1c19037` privacidad, `b990488` fix de checksums de R2, `dbb06aa` docs).
 `git merge-tree` (sin tocar nada) detecta conflictos en: `CommunityReportButton(.test).tsx`, `community-report(.test).ts`, `community-report-reasons-sql.test.ts`, `profile-handlers.ts` y los 6 JSON de i18n (`auth`, `moderation`), además de `PrivacyPage.tsx`.
 **Colisión de migraciones**: `main` define `20261101120000_username_impersonation_guard` y `20261102120000_community_report_reasons`; la rama ya usa esas versiones para `developer_panel` y `developer_transition`. La `20261102` de `main` es el mismo contenido que la `20261106` de la rama (ya en DEV).
-Propuesta (mínima y reversible), a ejecutar tras la autorización:
-1. Crear una rama de integración local desde la rama actual y fusionar `main` en ella (sin tocar `main`).
+**Ejecutado en local** (rama `integration/community-main`, merge `8d92f52`):
+1. Rama de integración creada desde la rama actual y `main` fusionada en ella (`main` intacta).
 2. Descartar la `20261102…report_reasons` de `main` (duplicada por la `20261106` de la rama); renumerar `username_impersonation_guard` a `20261116120000` (libre, posterior a todo) con su rollback.
 3. Resolver JSON de i18n por unión de claves; conservar el flujo de reportes ya validado en DEV; reconciliar `PrivacyPage` (el texto de la rama es el vigente; el borrador de `main` aporta la corrección sobre cuentas y localStorage: ya incluida).
 4. Re-ejecutar la puerta técnica y las pruebas del guard de username, de reportes y de R2.
-5. Aplicar `20261116…` en DEV con `supabase db push` y validar el guard.
+5. `20261116…` aplicada en DEV con `supabase db push` (dry-run previo: solo esa migración); `db push --dry-run` posterior: «up to date». Guard validado con las funciones de PostgreSQL (`upmina`→exact, `Upm1na_oficial`→affixed, `fan_sintetico`→ok).
+Resultado de pruebas tras el merge: guard (247+268+6), reportes, perfil, R2, i18n, moderación, eliminación de cuentas y medios en verde; `tsc`, `eslint`, `build` limpios. Se hizo robusto `AccountPage.profile.test` (fallaba en checkouts CRLF de Windows; no es un fallo de producto).
 
 ## 4. Infraestructura previa (antes de migrar)
 ### 4.1 Backups
-Comprobar en el panel de Supabase de Production un backup/PITR reciente y descargar un `pg_dump` lógico **antes** de la primera migración. Con 1 usuario y 1 publicación la restauración es barata; la ventana de riesgo está en el esquema, no en el volumen.
+**Hallazgo**: Production no tiene backups listados ni PITR. Crear un `pg_dump` lógico (esquema + datos) **antes** de la primera migración, guardarlo fuera del repo (contiene un correo real) y comprobar que se puede restaurar en un proyecto temporal. Valorar activar PITR/backups diarios antes del release. Con 1 usuario y 1 publicación la restauración es barata; la ventana de riesgo está en el esquema, no en el volumen.
 ### 4.2 Variables de Vercel (proyecto `upmina-web`, solo Production)
 Nuevas (valores generados para Production, **no copiados de DEV**): `MEDIA_CAP_SIGNING_PRIVATE_KEY`, `MEDIA_CAP_KEY_ID`, `MEDIA_CAP_AUDIENCE`, `MEDIA_DELIVERY_BASE_URL`, `MEDIA_CHECK_SHARED_SECRET`, `MEDIA_GC_SHARED_SECRET`, `ACCOUNT_DELETION_SHARED_SECRET`, `ACCOUNT_DELETION_APP_URL=https://upminaa-web.com`, `COPYRIGHT_APPEAL_APP_URL`. Verificar que `COPYRIGHT_TEST_WINDOW_MINUTES` **no** exista en Production.
 ### 4.3 Worker de entrega de Production
@@ -78,6 +80,14 @@ Habilitar `pg_cron` y `pg_net` (Dashboard). Cargar en Vault: `media_gc_shared_se
 5. **Smoke no destructivo** (§6). *Parada si falla.*
 6. **Cron de eliminación**: solo con aprobación aparte; cargar los secretos de Vault y programar `account-deletion-tick`.
 7. **Observabilidad**: logs de Vercel, `cron.job_run_details`, alertas Developer.
+
+## 5b. Pendientes de validación (estado)
+- **R2 DEV físico**: no demostrable. Las credenciales `R2_DEV_*` del proyecto de pruebas son de tipo oculto (no recuperables: el `env pull` devuelve valores redactados), no hay `.env.local`, y la API de Cloudflare disponible no lista ni hace HEAD de objetos. Evidencia disponible: BD (filas purgadas) y entrega HTTP del worker (404, **que no prueba ausencia física**).
+- **Moderator/Developer reales**: sin sesión privilegiada abierta; DEV no tiene Developer. Cubierto con pruebas automatizadas (`AdminModerationPage` 171, `DeveloperAccountDeletionsSection`, `DeveloperPage`, 401 sin sesión en los 4 endpoints). Pendiente visual: ver el caso `1a2ad960…` en `/admin/moderation` con una sesión Moderator.
+
+## 5c. Privacidad: coherencia técnica y decisiones jurídicas
+Coincide con el comportamiento: bloqueo inmediato; limpieza en segundo plano con reintentos; borrado de perfil, publicaciones, «me gusta» y archivos; liberación del username sin herencia; conservación restringida de reportes, casos, decisiones, sanciones, reclamaciones de Copyright y registro de la eliminación (vinculados a un UUID interno, sin correo ni token); límite de backups/cachés/URLs firmadas; correo y token de 30 min. **Corregido**: la frase que sugería un «procedimiento administrativo separado» ya operativo para cuentas de equipo (no existe aún; ahora dice que no pueden borrarse por esta vía).
+**Decisiones que requieren revisión profesional (no aprobadas)**: (1) responsable del tratamiento y base legal; (2) **plazos de conservación** de cada registro restringido (hoy «no definidos»); (3) conservar el UUID y el historial de moderación/strikes tras la baja (finalidad e interés legítimo); (4) datos de reclamantes de Copyright; (5) backups del proveedor y su caducidad; (6) transferencias internacionales (Supabase, Vercel, Cloudflare, Resend); (7) derechos de acceso/supresión y cómo ejercerlos; (8) procedimiento para cuentas con rol de equipo (D10).
 
 ## 6. Verificación posterior
 Carga de `/`, `/community`, login con la cuenta de prueba autorizada, publicar y leer (texto), subida y entrega de una imagen por el worker de Production, reporte y caso (cuenta de prueba), acceso Moderator/Admin (sesión real del propietario), `GET /api/admin/account-deletion-alerts` sin sesión → 401, `account-deletion-run` sin firma → 401, 0 tablas sin RLS, `VITE_SUPABASE_URL` de Production y ningún recurso `-dev-` en el bundle ni en las variables. **No** se ejecuta ninguna eliminación real en Production.
