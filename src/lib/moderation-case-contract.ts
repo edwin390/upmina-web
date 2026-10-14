@@ -26,7 +26,7 @@ export interface ModerationCaseItem {
   cycleNumber: number;
   caseStatus: "pending" | "closed";
   cycleStatus: "pending" | "closed";
-  closureKind: "legacy" | "decision" | null;
+  closureKind: "legacy" | "decision" | "author_deleted" | null;
   isCurrentCycle: boolean;
   createdAt: string;
   openedAt: string;

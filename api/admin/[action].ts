@@ -1,3 +1,11 @@
+import {
+  handleAccountDeletionAlerts,
+  handleAccountDeletionConfirm,
+  handleAccountDeletionPreview,
+  handleAccountDeletionRequest,
+  handleAccountDeletionRetry,
+  handleAccountDeletionRun,
+} from "../../src/lib/account-deletion-handlers.js";
 import { handleModerationCaseDecision } from "../../src/lib/moderation-decision-handlers.js";
 import {
   handleCopyrightClaim,
@@ -150,10 +158,26 @@ import {
 // de la publicación con su sesión y el token de su enlace. Nada se elimina por vencimiento ni por proceso automático.
 // Strikes manuales de Copyright (mismo archivo de handlers): "copyright-strike-state", "copyright-strike-apply" (solo con la reclamación en
 // `purged`) y "copyright-strike-notice" (reintento del aviso): privilegiadas (`moderation` + MFA reciente).
+// DEL-2 (src/lib/account-deletion-handlers.ts, misma función serverless): eliminación irreversible de la PROPIA cuenta.
+// "account-deletion-request", "account-deletion-preview" y "account-deletion-confirm" las usa la persona usuaria con su sesión (NO
+// privilegiadas; preview/confirm son las únicas que atienden a una cuenta ya bloqueada); "account-deletion-run" es interna y firmada
+// (despertador de la BD); "account-deletion-alerts" y "account-deletion-retry" son del rol developer (developer_panel + MFA reciente).
 // La lógica de cada una vive en src/lib/admin-handlers.ts, no aquí, siguiendo el mismo
 // patrón que los otros dos dispatchers.
 export default function handler(req: VercelRequest, res: VercelResponse) {
   switch (req.query.action) {
+    case "account-deletion-request":
+      return handleAccountDeletionRequest(req, res);
+    case "account-deletion-preview":
+      return handleAccountDeletionPreview(req, res);
+    case "account-deletion-confirm":
+      return handleAccountDeletionConfirm(req, res);
+    case "account-deletion-run":
+      return handleAccountDeletionRun(req, res);
+    case "account-deletion-alerts":
+      return handleAccountDeletionAlerts(req, res);
+    case "account-deletion-retry":
+      return handleAccountDeletionRetry(req, res);
     case "community-author-post":
       return handleCommunityAuthorPosts(req, res);
     case "community-author-notice-ack":

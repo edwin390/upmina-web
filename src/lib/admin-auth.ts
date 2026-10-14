@@ -1,3 +1,4 @@
+import { AccountGateUnavailableError, readAccountGate } from "./account-deletion-gate.js";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import type { VercelRequest } from "@vercel/node";
 import {
@@ -240,8 +241,34 @@ function extractBearerToken(req: VercelRequest): string | null {
  * fallo de red al resolver JWKS es, para quien llama, exactamente "no hay identidad
  * verificable" — no hace falta distinguirlo de un JWT inválido.
  */
+
+/**
+ * DEL-2 — barrera de cuenta en eliminación. Un JWT ya emitido sigue siendo criptográficamente válido hasta caducar, así que la
+ * identidad verificada se contrasta SIEMPRE con la barrera persistente (account_deletion_blocks, vía account_deletion_gate).
+ * Fail-closed: si el gate no se puede leer, NO hay identidad (AdminAuthInfrastructureError → 5xx), nunca se concede el acceso.
+ * Una cuenta bloqueada recibe el mismo 401 genérico que un token inválido (sin revelar el motivo).
+ */
+async function assertAccountNotDeleting(userId: string): Promise<void> {
+  let state: "active" | "blocked";
+  try {
+    state = await readAccountGate(() => getRolesLookupClient(), userId);
+  } catch (err) {
+    throw new AdminAuthInfrastructureError(
+      "No se pudo comprobar el estado de la cuenta",
+      err instanceof AccountGateUnavailableError ? err.code : undefined,
+    );
+  }
+  if (state === "blocked") throw new AdminAuthError("No autenticado", 401);
+}
+
+export interface RequireAuthenticatedOptions {
+  /** DEL-2: SOLO los endpoints de la propia eliminación (vista previa, confirmación) pueden atender a una cuenta ya bloqueada. */
+  allowDeletingAccount?: boolean;
+}
+
 export async function requireAuthenticated(
   req: VercelRequest,
+  options: RequireAuthenticatedOptions = {},
 ): Promise<AuthenticatedIdentity> {
   const token = extractBearerToken(req);
   if (!token) throw new AdminAuthError("No autenticado", 401);
@@ -275,6 +302,7 @@ export async function requireAuthenticated(
     typeof claims?.session_id === "string" && SESSION_ID_PATTERN.test(claims.session_id)
       ? claims.session_id
       : undefined;
+  if (!options.allowDeletingAccount) await assertAccountNotDeleting(sub);
   return {
     userId: sub,
     aal,

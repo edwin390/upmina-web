@@ -45,6 +45,8 @@ describe("la fase 2A no retira, restaura, purga ni borra", () => {
       '"appeal_pending"',
       '"restored"',
       '"purged"',
+      // DEL-2: cierre técnico por eliminación de la cuenta autora; lo escribe SOLO la etapa copyright_claims del ejecutor.
+      '"author_deleted"',
     ]);
   });
 

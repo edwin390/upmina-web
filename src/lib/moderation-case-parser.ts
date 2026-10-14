@@ -178,7 +178,9 @@ export function parseModerationCase(value: unknown): ModerationCaseItem {
     caseStatus: choice(r.caseStatus, ["pending", "closed"]),
     cycleStatus: choice(r.cycleStatus, ["pending", "closed"]),
     closureKind:
-      r.closureKind === null ? null : choice(r.closureKind, ["legacy", "decision"]),
+      r.closureKind === null
+        ? null
+        : choice(r.closureKind, ["legacy", "decision", "author_deleted"]),
     isCurrentCycle: bool(r.isCurrentCycle),
     createdAt: timestamp(r.createdAt),
     openedAt: timestamp(r.openedAt),

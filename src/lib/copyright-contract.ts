@@ -12,6 +12,8 @@ export const CLAIM_STATUSES = [
   "appeal_pending",
   "restored",
   "purged",
+  // DEL-2: cierre técnico cuando la cuenta autora se elimina (no es una resolución de la reclamación).
+  "author_deleted",
 ] as const;
 export type CopyrightClaimStatus = (typeof CLAIM_STATUSES)[number];
 
@@ -36,6 +38,7 @@ export const CLAIM_EVENT_KINDS = [
   "strike_applied",
   "strike_notified",
   "strike_notification_failed",
+  "author_deleted",
 ] as const;
 export type CopyrightEventKind = (typeof CLAIM_EVENT_KINDS)[number];
 
@@ -63,6 +66,7 @@ export const ACTIONS_BY_STATUS: Record<CopyrightClaimStatus, CopyrightReviewActi
   needs_info: ["resume_review", "dismiss", "withdraw", "add_note"],
   dismissed: [],
   withdrawn: [],
+  author_deleted: [],
   // Una reclamación retirada solo admite notas; retirar, resolver la apelación y eliminar tienen sus propias acciones.
   removed: ["add_note"],
   appeal_pending: ["add_note"],
@@ -131,7 +135,7 @@ export interface CopyrightClaimSummary {
 
 export interface CopyrightClaimEvent {
   kind: CopyrightEventKind;
-  actorKind: "claimant" | "human";
+  actorKind: "claimant" | "human" | "system";
   fromStatus: CopyrightClaimStatus | null;
   toStatus: CopyrightClaimStatus | null;
   note: string | null;
@@ -260,7 +264,7 @@ function parseEvent(value: unknown): CopyrightClaimEvent {
   const r = record(value);
   return {
     kind: oneOf(r.kind, CLAIM_EVENT_KINDS),
-    actorKind: oneOf(r.actorKind, ["claimant", "human"] as const),
+    actorKind: oneOf(r.actorKind, ["claimant", "human", "system"] as const),
     fromStatus: r.fromStatus == null ? null : oneOf(r.fromStatus, CLAIM_STATUSES),
     toStatus: r.toStatus == null ? null : oneOf(r.toStatus, CLAIM_STATUSES),
     note: nullableStr(r.note, 1000),

@@ -23,12 +23,22 @@ import {
 // requireModerator (¿qué puedes hacer?, solo admin_roles + AAL). Ningún endpoint existe
 // todavía: estos tests son la única red de seguridad de este bloque.
 
+// DEL-2: aquí se ejercita la lectura REAL de la barrera (setupTests la sustituye para el resto de suites).
+vi.mock("./account-deletion-gate", async (importOriginal) => await importOriginal());
+
 const auth = vi.hoisted(() => ({
   /** { data, error } que devuelve getClaims, o undefined para usar el default. */
   getClaimsResult: undefined as { data: unknown; error: unknown } | undefined,
   /** Si está definido, getClaims lanza esto en vez de devolver un resultado. */
   getClaimsThrow: undefined as unknown,
   getClaimsCalls: [] as string[],
+  /** DEL-2: respuesta de account_deletion_gate (por defecto, cuenta activa). */
+  gate: {
+    data: { blocked: false } as unknown,
+    error: null as unknown,
+    throwWith: undefined as unknown,
+  },
+  gateCalls: [] as unknown[],
 }));
 
 const roles = vi.hoisted(() => ({
@@ -51,6 +61,8 @@ function resetFakes() {
   auth.getClaimsResult = undefined;
   auth.getClaimsThrow = undefined;
   auth.getClaimsCalls = [];
+  auth.gate = { data: { blocked: false }, error: null, throwWith: undefined };
+  auth.gateCalls = [];
   roles.row = null;
   roles.error = undefined;
   roles.throwWith = undefined;
@@ -70,6 +82,11 @@ vi.mock("@supabase/supabase-js", () => ({
             auth.getClaimsResult ?? { data: null, error: { message: "sin configurar" } }
           );
         },
+      },
+      rpc: async (fn: string, args: unknown) => {
+        auth.gateCalls.push([fn, args]);
+        if (auth.gate.throwWith) throw auth.gate.throwWith;
+        return { data: auth.gate.data, error: auth.gate.error };
       },
       from: (table: string) => ({
         select: () => {
@@ -248,6 +265,64 @@ describe("requireAuthenticated", () => {
     const error = await catchError(() => requireAuthenticated(bearer()));
     expect(error).toBeInstanceOf(AdminAuthInfrastructureError);
     expect(auth.getClaimsCalls).toHaveLength(0);
+  });
+});
+
+describe("DEL-2 · barrera de cuenta en eliminación", () => {
+  it("una cuenta bloqueada recibe el mismo 401 genérico que un token inválido (JWT anterior inútil)", async () => {
+    okClaims();
+    auth.gate.data = { blocked: true, requestId: "r", status: "access_blocked" };
+    const error = await catchError(() => requireAuthenticated(bearer()));
+    expect(error).toBeInstanceOf(AdminAuthError);
+    expect((error as AdminAuthError).status).toBe(401);
+    expect(error.message).toBe("No autenticado");
+    expect(auth.gateCalls).toEqual([["account_deletion_gate", { p_user_id: USER_ID }]]);
+  });
+
+  it("también corta a las rutas privilegiadas: requirePrivileged y requireCapability nunca llegan a mirar admin_roles", async () => {
+    okClaims();
+    roles.row = { role: "admin" };
+    auth.gate.data = { blocked: true };
+    for (const run of [
+      () => requirePrivileged(bearer()),
+      () => requireCapability(bearer(), "social_admin"),
+    ])
+      expect(((await catchError(run)) as AdminAuthError).status).toBe(401);
+    expect(roles.queries).toHaveLength(0);
+  });
+
+  it("fail-closed: error del gate, excepción o respuesta incoherente → infraestructura, nunca acceso", async () => {
+    okClaims();
+    for (const bad of [
+      {
+        data: null,
+        error: { code: "42883", message: "no existe" },
+        throwWith: undefined,
+      },
+      { data: null, error: null, throwWith: new Error("red caída") },
+      { data: null, error: null, throwWith: undefined },
+      { data: { blocked: "no" }, error: null, throwWith: undefined },
+      { data: {}, error: null, throwWith: undefined },
+    ]) {
+      auth.gate = bad;
+      const error = await catchError(() => requireAuthenticated(bearer()));
+      expect(error).toBeInstanceOf(AdminAuthInfrastructureError);
+    }
+  });
+
+  it("solo la opción explícita allowDeletingAccount (endpoints de la propia eliminación) atiende a una cuenta bloqueada", async () => {
+    okClaims();
+    auth.gate.data = { blocked: true };
+    const identity = await requireAuthenticated(bearer(), { allowDeletingAccount: true });
+    expect(identity.userId).toBe(USER_ID);
+    expect(auth.gateCalls).toHaveLength(0);
+  });
+
+  it("una cuenta activa no cambia: misma identidad y una sola consulta de la barrera", async () => {
+    okClaims();
+    const identity = await requireAuthenticated(bearer());
+    expect(identity.userId).toBe(USER_ID);
+    expect(auth.gateCalls).toHaveLength(1);
   });
 });
 
@@ -447,9 +522,11 @@ describe("separación de keys entre clientes", () => {
     okClaims();
     await requireAuthenticated(bearer());
 
-    expect(clients.calls).toHaveLength(1);
+    // Cliente 1 (verificación del JWT): anon. Cliente 2: solo la barrera de eliminación (service_role, solo account_deletion_gate).
+    expect(clients.calls).toHaveLength(2);
     expect(clients.calls[0]).toEqual({ url: SUPABASE_URL, key: ANON_KEY });
     expect(clients.calls[0].key).not.toBe(SERVICE_ROLE_KEY);
+    expect(clients.calls[1]).toEqual({ url: SUPABASE_URL, key: SERVICE_ROLE_KEY });
   });
 
   it("getRolesLookupClient (usado para admin_roles) usa VITE_SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY, nunca la anon key", async () => {
@@ -459,9 +536,10 @@ describe("separación de keys entre clientes", () => {
 
     // Llamada 1 (requireAuthenticated → getClaims): anon key.
     expect(clients.calls[0]).toEqual({ url: SUPABASE_URL, key: ANON_KEY });
-    // Llamada 2 (getPrivilegedRole → admin_roles): service_role key, nunca la anon.
+    // Llamada 2 (barrera de eliminación) y 3 (getPrivilegedRole → admin_roles): service_role key, nunca la anon.
     expect(clients.calls[1]).toEqual({ url: SUPABASE_URL, key: SERVICE_ROLE_KEY });
-    expect(clients.calls[1].key).not.toBe(ANON_KEY);
+    expect(clients.calls[2]).toEqual({ url: SUPABASE_URL, key: SERVICE_ROLE_KEY });
+    expect(clients.calls[2].key).not.toBe(ANON_KEY);
   });
 });
 
