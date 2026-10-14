@@ -9,6 +9,7 @@ import {
 import { checkBio, checkDisplayName } from "./profile-fields.js";
 import { checkUsername } from "./profile-username.js";
 import { handlePasswordRecoveryRequest } from "./password-recovery-handlers.js";
+import { isImpersonationDisplayName } from "./username-impersonation.js";
 
 // Handler HTTP de POST /api/profile (Bloque 7C.1): crea el perfil público inicial del
 // usuario autenticado eligiendo SOLO su username. Crear un perfil es únicamente crear
@@ -66,7 +67,7 @@ function publicProfileBody(data: unknown) {
   };
 }
 
-type InsertFailure = "conflict" | "no_such_user" | "unexpected";
+type InsertFailure = "conflict" | "no_such_user" | "reserved" | "unexpected";
 
 /** Clasifica un error de PostgREST/Postgres SOLO por su SQLSTATE (`code`). Nunca se
  *  inspecciona message/details/hint ni nombres de constraint: 23505 (unique_violation)
@@ -76,6 +77,8 @@ function classifyInsertError(error: unknown): InsertFailure {
   const code = (error as { code?: unknown } | null)?.code;
   if (code === "23505") return "conflict";
   if (code === "23503") return "no_such_user";
+  // UR001: el guard de suplantación de la BD (red de seguridad si el chequeo del servidor se omitiera).
+  if (code === "UR001") return "reserved";
   return "unexpected";
 }
 
@@ -147,6 +150,8 @@ export async function handleProfileCreate(
           return res.status(409).json({ error: "Username no disponible" });
         case "no_such_user":
           return res.status(401).json({ error: "No autenticado" });
+        case "reserved":
+          return res.status(422).json({ error: "Username no disponible" });
         default:
           return res.status(500).json(GENERIC_ERROR_BODY);
       }
@@ -198,8 +203,10 @@ const hasOwn = (obj: object, key: string) =>
 
 function classifyUpdateError(
   error: unknown,
-): "check_violation" | "conflict" | "unexpected" {
+): "check_violation" | "conflict" | "reserved" | "display_reserved" | "unexpected" {
   const code = (error as { code?: unknown } | null)?.code;
+  if (code === "UR001") return "reserved";
+  if (code === "UR002") return "display_reserved";
   if (code === "23514") return "check_violation";
   if (code === "23505") return "conflict";
   return "unexpected";
@@ -267,10 +274,16 @@ export async function handleProfileUpdate(
       bio?: string | null;
       username?: string;
     } = {};
+    // Nombre visible que parece la identidad de Mina/Upmina: solo se rechaza si es un CAMBIO real
+    // (un perfil heredado que reenvía su mismo valor no se bloquea). La BD repite la regla (UR002).
+    let flaggedDisplayName: string | null = null;
     if (hasOwn(body, "display_name")) {
       const check = checkDisplayName(body.display_name as string | null);
       if (!check.ok) return res.status(422).json({ error: "Display name inválido" });
       changes.display_name = check.value;
+      if (check.value !== null && isImpersonationDisplayName(check.value)) {
+        flaggedDisplayName = check.value;
+      }
     }
     if (hasOwn(body, "bio")) {
       const check = checkBio(body.bio as string | null);
@@ -327,6 +340,25 @@ export async function handleProfileUpdate(
       }
     }
 
+    if (flaggedDisplayName !== null) {
+      const { data: cur, error: curError } = await client
+        .from("profiles")
+        .select("display_name")
+        .eq("user_id", userId)
+        .maybeSingle();
+      if (curError) return res.status(500).json(GENERIC_ERROR_BODY);
+      if (!cur) return res.status(404).json({ error: "Perfil no encontrado" });
+      if ((cur as { display_name: string | null }).display_name !== flaggedDisplayName) {
+        return res
+          .status(422)
+          .json({ error: "Display name no disponible", code: "display_name_reserved" });
+      }
+      delete changes.display_name; // valor heredado sin cambio real
+      if (Object.keys(changes).length === 0 && !noOpProfile) {
+        noOpProfile = { username: "", username_changed_at: null };
+      }
+    }
+
     if (Object.keys(changes).length === 0) {
       // Solo pudo llegar aquí un cambio de username no-op (mismo valor canónico) sin ningún
       // otro campo: éxito sin tocar la DB, nunca un 400 ni un 422 por "nada que cambiar".
@@ -361,6 +393,16 @@ export async function handleProfileUpdate(
       );
       if (incomplete) return respondAccountIncomplete(res, incomplete);
       const kind = classifyUpdateError(error);
+      if (hasOwn(changes, "display_name") && kind === "display_reserved") {
+        return res
+          .status(422)
+          .json({ error: "Display name no disponible", code: "display_name_reserved" });
+      }
+      if (isUsernameChange && kind === "reserved") {
+        return res
+          .status(422)
+          .json({ error: "Username no disponible", code: "username_reserved" });
+      }
       if (kind === "check_violation") {
         return res.status(422).json({ error: "Datos inválidos" });
       }

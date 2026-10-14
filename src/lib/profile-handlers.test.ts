@@ -623,3 +623,44 @@ describe("AUTH-2: el username exige email verificado (POST /api/profile)", () =>
     expect(JSON.stringify(state.body)).not.toContain("account_email_unverified");
   });
 });
+
+describe("suplantación de Mina/Upmina (variantes) en la creación de perfil", () => {
+  it.each([
+    "Mina",
+    "m1na",
+    "real_upm1naa",
+    "mi.na",
+    "upmine",
+    "UPMINAA",
+    "official.miina",
+  ])(
+    "%s → 422 'Username no disponible', sin tocar la base de datos",
+    async (username) => {
+      const state = await call({ body: { username } });
+      expect(state.status).toBe(422);
+      expect(state.body).toEqual({ error: "Username no disponible" });
+      expect(fakes.inserts).toHaveLength(0);
+    },
+  );
+  it.each(["amina", "minato", "terminal", "edwin390"])(
+    "%s (claramente distinto) sigue permitido",
+    async (username) => {
+      expect((await call({ body: { username } })).status).toBe(201);
+    },
+  );
+  it("formato inválido sigue siendo 'Username inválido' aunque parezca suplantación", async () => {
+    const state = await call({ body: { username: "m!na" } });
+    expect(state.status).toBe(422);
+    expect(state.body).toEqual({ error: "Username inválido" });
+  });
+  it("red de seguridad: si el guard de la BD rechaza (SQLSTATE UR001) → 422 genérico, no 500 ni texto de la BD", async () => {
+    fakes.insertResult = {
+      data: null,
+      error: { code: "UR001", message: "username_reserved: detalle interno" },
+    };
+    const state = await call({ body: { username: "nombre_libre" } });
+    expect(state.status).toBe(422);
+    expect(state.body).toEqual({ error: "Username no disponible" });
+    expect(JSON.stringify(state.body)).not.toContain("detalle interno");
+  });
+});

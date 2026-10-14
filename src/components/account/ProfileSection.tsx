@@ -11,7 +11,12 @@ import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/lib/auth-context";
 import AdminAuthField from "@/components/admin/AdminAuthField";
 import VerifyEmailFirstMessage from "./VerifyEmailFirstMessage";
+import ReservedIdentityMessage from "./ReservedIdentityMessage";
 import { isValidUsernameFormat, normalizeUsername } from "@/lib/profile-username";
+import {
+  isImpersonationDisplayName,
+  isImpersonationUsername,
+} from "@/lib/username-impersonation";
 
 // Perfil público dentro de /account (Bloque 7C.2). Lee public.profiles con el cliente de
 // Supabase del navegador (SELECT público por diseño) y, si el usuario aún no tiene perfil,
@@ -57,8 +62,17 @@ const MSG_CHOOSE_OTHER = "Elige otro username.";
 // texto vive en el namespace `auth` (EN/ES/DE); aquí solo se guarda un marcador y se renderiza
 // <VerifyEmailFirstMessage /> en su lugar.
 const MSG_VERIFY_EMAIL_FIRST = "__account_incomplete__";
+// Nombres protegidos (suplantación de Mina/Upmina): mensaje localizado es/en/de (namespace `auth`).
+const MSG_USERNAME_RESERVED = "__username_reserved__";
+const MSG_DISPLAY_RESERVED = "__display_name_reserved__";
 function renderFormError(message: string): ReactNode {
-  return message === MSG_VERIFY_EMAIL_FIRST ? <VerifyEmailFirstMessage /> : message;
+  if (message === MSG_VERIFY_EMAIL_FIRST) return <VerifyEmailFirstMessage />;
+  if (message === MSG_USERNAME_RESERVED)
+    return <ReservedIdentityMessage field="username" />;
+  if (message === MSG_DISPLAY_RESERVED) {
+    return <ReservedIdentityMessage field="displayName" />;
+  }
+  return message;
 }
 const MSG_SESSION = "Tu sesión ya no es válida. Cierra sesión e inicia de nuevo.";
 const MSG_GENERIC = "No se pudo crear tu perfil. Inténtalo de nuevo.";
@@ -69,7 +83,6 @@ const MSG_EDIT_INVALID = "Revisa el nombre visible y la bio.";
 const MSG_EDIT_GENERIC = "No se pudo guardar tu perfil. Inténtalo de nuevo.";
 const MSG_NAME_TOO_LONG = `El nombre visible admite hasta ${DISPLAY_NAME_MAX} caracteres.`;
 const MSG_BIO_TOO_LONG = `La bio admite hasta ${BIO_MAX} caracteres.`;
-const MSG_USERNAME_RESERVED = "Ese username no está disponible.";
 const MSG_USERNAME_TAKEN = "Ese username ya lo tiene otra cuenta.";
 const USERNAME_PUBLIC_NOTICE =
   "Tu username es público y formará tu dirección de perfil (/@username). Cambiarlo cambia esa dirección pública. Solo puedes cambiarlo una vez cada 30 días.";
@@ -137,6 +150,7 @@ function editStatusMessage(
   if (code === "account_incomplete") return MSG_VERIFY_EMAIL_FIRST;
   if (code === "invalid_username") return USERNAME_EDIT_INVALID;
   if (code === "username_reserved") return MSG_USERNAME_RESERVED;
+  if (code === "display_name_reserved") return MSG_DISPLAY_RESERVED;
   if (code === "username_taken") return MSG_USERNAME_TAKEN;
   if (code === "cooldown_active") {
     return nextChangeAllowedAt ? cooldownMessage(nextChangeAllowedAt) : MSG_EDIT_GENERIC;
@@ -261,13 +275,22 @@ export default function ProfileSection() {
     currentProfile !== null &&
     bioNormalized !== normalizeBioInput(currentProfile.bio ?? "");
   const usernameEditNormalized = normalizeUsername(usernameEditInput);
-  const usernameEditValid = isValidUsernameFormat(usernameEditNormalized);
+  const usernameEditFormatValid = isValidUsernameFormat(usernameEditNormalized);
   const usernameChanged =
     currentProfile !== null && usernameEditNormalized !== currentProfile.username;
+  // Complemento de UX: la autoridad es el servidor + el trigger de la BD (suplantación de Mina/Upmina).
+  const usernameEditReserved =
+    usernameChanged &&
+    usernameEditFormatValid &&
+    isImpersonationUsername(usernameEditNormalized);
+  const usernameEditValid = usernameEditFormatValid && !usernameEditReserved;
   const usernameShowInvalid = usernameChanged && !usernameEditValid;
+  // Complemento de UX: la autoridad es el servidor + el trigger de la BD.
+  const nameReserved = nameChanged && isImpersonationDisplayName(nameNormalized ?? "");
   const canSave =
     (nameChanged || bioChanged || usernameChanged) &&
     !nameTooLong &&
+    !nameReserved &&
     !bioTooLong &&
     (!usernameChanged || usernameEditValid);
 
@@ -364,7 +387,9 @@ export default function ProfileSection() {
   };
 
   const normalized = normalizeUsername(username);
-  const isValid = isValidUsernameFormat(normalized);
+  const isFormatValid = isValidUsernameFormat(normalized);
+  const isReserved = isFormatValid && isImpersonationUsername(normalized);
+  const isValid = isFormatValid && !isReserved;
   const showInvalid = username.length > 0 && !isValid;
 
   const handleSubmit = useCallback(
@@ -377,6 +402,10 @@ export default function ProfileSection() {
       const candidate = normalizeUsername(username);
       if (!isValidUsernameFormat(candidate)) {
         setSubmitError(USERNAME_INVALID);
+        return;
+      }
+      if (isImpersonationUsername(candidate)) {
+        setSubmitError(MSG_USERNAME_RESERVED);
         return;
       }
 
@@ -527,7 +556,11 @@ export default function ProfileSection() {
               id="account-profile-username-edit-help"
               className={`mt-2 text-xs ${usernameShowInvalid ? "text-accent-live" : "text-text-secondary"}`}
             >
-              {usernameShowInvalid ? USERNAME_EDIT_INVALID : USERNAME_PUBLIC_NOTICE}
+              {usernameEditReserved
+                ? renderFormError(MSG_USERNAME_RESERVED)
+                : usernameShowInvalid
+                  ? USERNAME_EDIT_INVALID
+                  : USERNAME_PUBLIC_NOTICE}
             </p>
           </div>
 
@@ -552,6 +585,11 @@ export default function ProfileSection() {
             {nameTooLong ? (
               <p role="alert" className="mt-1 text-sm text-accent-live">
                 {MSG_NAME_TOO_LONG}
+              </p>
+            ) : null}
+            {nameReserved ? (
+              <p role="alert" className="mt-1 text-sm text-accent-live">
+                {renderFormError(MSG_DISPLAY_RESERVED)}
               </p>
             ) : null}
           </div>
@@ -635,7 +673,11 @@ export default function ProfileSection() {
             id="account-profile-username-help"
             className={`mt-2 text-xs ${showInvalid ? "text-accent-live" : "text-text-secondary"}`}
           >
-            {showInvalid ? USERNAME_INVALID : USERNAME_HELP}
+            {isReserved
+              ? renderFormError(MSG_USERNAME_RESERVED)
+              : showInvalid
+                ? USERNAME_INVALID
+                : USERNAME_HELP}
           </p>
 
           {submitError ? (

@@ -18,17 +18,17 @@ export default function PrivacyPage() {
 
       <LegalSection title="2. Information Upmina Web processes directly">
         <p>
-          You can browse the Site without an account and without providing personal
-          information. Community features are optional and require an account; the data
-          involved is described in section 5. We do not include analytics or advertising
-          tools in the Site, and we do not build profiles of visitors.
+          You can browse the public parts of the Site without an account and without
+          providing personal information. Creating an account is optional and is described
+          in section 5. We do not include analytics or advertising tools in the Site, and
+          we do not build profiles of visitors.
         </p>
         <p>
-          The Site does not set its own cookies. If you sign in, your browser&rsquo;s
-          local storage keeps your session so that you stay signed in until you sign out,
-          and your language preference may also be stored there. Content you view is
-          cached temporarily in your browser&rsquo;s memory to make navigation faster and
-          is discarded when you close the page.
+          The Site does not set its own cookies. Your browser&rsquo;s local storage is
+          used for your language preference and, if you sign in, for the session that
+          keeps you signed in until you sign out. Content you view is also cached
+          temporarily in your browser&rsquo;s memory to make navigation faster and is
+          discarded when you close the page.
         </p>
       </LegalSection>
 
@@ -53,6 +53,12 @@ export default function PrivacyPage() {
             TikTok interfaces, where those integrations are enabled. These requests are
             made by our servers, not by your browser, and they do not contain information
             about you.
+          </li>
+          <li>
+            <strong className="text-text-primary">Accounts and Community.</strong> Account
+            sign-in and the data described in section 5 are handled with Supabase
+            (database and authentication). Photos and videos posted to the Community are
+            stored with Cloudflare R2 and delivered through Cloudflare.
           </li>
           <li>
             <strong className="text-text-primary">Images and thumbnails.</strong> Preview
@@ -82,13 +88,39 @@ export default function PrivacyPage() {
       </LegalSection>
 
       <LegalSection title="5. Community accounts and account deletion">
+        {/* LEGAL-REVIEW: este texto solo describe lo que el Site hace hoy. Pendiente de revisión
+            jurídica: responsable del tratamiento, bases legales, plazos de conservación, derechos
+            y cómo ejercerlos, transferencias internacionales (docs/REP-1-COPY-1.md §5.4,
+            docs/DEL-3-ACCOUNT-DELETION-UI.md §3). */}
         <p>
-          Community features require an account. To run them we process your email address
-          (to sign in and to send verification and account emails), the username and
-          profile you choose, and the posts, likes and files you create, together with the
-          reports, moderation records and copyright notices that relate to content on the
-          Site.
+          The Site lets people create an account and take part in the Community. Creating
+          an account is optional.
         </p>
+        <LegalList>
+          <li>
+            <strong className="text-text-primary">Account.</strong> When you sign up we
+            process your email address, which you must confirm, and your password for
+            signing in. We also use your email address to send verification and account
+            emails.
+          </li>
+          <li>
+            <strong className="text-text-primary">Profile.</strong> You choose a username
+            and may add a display name. Both are public. Your username is shown with
+            everything you post and on your public profile.
+          </li>
+          <li>
+            <strong className="text-text-primary">Posts.</strong> Text, photos and videos
+            you publish in the Community are public, together with your username and the
+            date. Likes are recorded against your account.
+          </li>
+          <li>
+            <strong className="text-text-primary">Reports and moderation.</strong> If you
+            report a post, we store the report and any explanation you add, linked to your
+            account, so the moderation team can review it. Other users are not shown who
+            reported a post. Moderation decisions and actions on posts and accounts, and
+            copyright notices that relate to content on the Site, are also recorded.
+          </li>
+        </LegalList>
         <p>
           <strong className="text-text-primary">Deleting your account.</strong> You can
           request the permanent deletion of your account from your account settings. We

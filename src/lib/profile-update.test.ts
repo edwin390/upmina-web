@@ -25,7 +25,13 @@ const fakes = vi.hoisted(() => ({
   // handleProfileUpdate) — independiente de `result`, que sigue siendo la respuesta del UPDATE
   // final. `undefined` = usar el valor por defecto (username "edwin390", sin cooldown activo).
   currentUsernameRow: undefined as
-    { username: string; username_changed_at: string | null } | null | undefined,
+    | {
+        username: string;
+        username_changed_at: string | null;
+        display_name?: string | null;
+      }
+    | null
+    | undefined,
   currentUsernameError: undefined as unknown,
   // AUTH-2: lectura autoritativa de la cuenta (community_account_state).
   accountState: "complete" as unknown,
@@ -86,7 +92,7 @@ vi.mock("@supabase/supabase-js", () => ({
                 return {
                   data: {
                     username: row.username,
-                    display_name: null,
+                    display_name: row.display_name ?? null,
                     bio: null,
                     avatar_path: null,
                     created_at: "2026-09-23T00:00:00Z",
@@ -880,5 +886,116 @@ describe("AUTH-2: cambiar username exige email verificado (PATCH /api/profile)",
     const state = await call({ username: "nuevo_user" });
     expect(state.status).toBe(403);
     expect(state.body).toMatchObject({ code: "account_incomplete" });
+  });
+});
+
+describe("suplantación de Mina/Upmina (variantes) en el cambio de username", () => {
+  it.each(["Mina", "m1na", "the.real.mina", "upmine"])(
+    "%s → 422 username_reserved y ningún UPDATE",
+    async (username) => {
+      fakes.currentUsernameRow = { username: "edwin390", username_changed_at: null };
+      const state = await call({ username });
+      expect(state.status).toBe(422);
+      expect(state.body).toEqual({
+        error: "Username no disponible",
+        code: "username_reserved",
+      });
+      expect(fakes.updates).toHaveLength(0);
+    },
+  );
+  it("red de seguridad: UR001 del trigger de la BD en el UPDATE de username → 422 username_reserved", async () => {
+    fakes.currentUsernameRow = { username: "edwin390", username_changed_at: null };
+    fakes.result = { data: null, error: { code: "UR001", message: "interno" } };
+    const state = await call({ username: "nombre_libre" });
+    expect(state.status).toBe(422);
+    expect(state.body).toEqual({
+      error: "Username no disponible",
+      code: "username_reserved",
+    });
+  });
+  it("UR001 en un UPDATE que NO cambia el username no se reinterpreta (500 genérico)", async () => {
+    fakes.result = { data: null, error: { code: "UR001", message: "x" } };
+    expect((await call({ bio: "x" })).status).toBe(500);
+  });
+});
+
+describe("suplantación de Mina/Upmina en el nombre visible (display_name)", () => {
+  it.each(["Mina", "Mina Oficial", "Team Upmina", "M1na", "Up_Mina", "Upminaa Web"])(
+    "%s → 422 display_name_reserved y ningún UPDATE",
+    async (display_name) => {
+      fakes.currentUsernameRow = {
+        username: "edwin390",
+        username_changed_at: null,
+        display_name: "Ana",
+      };
+      const state = await call({ display_name });
+      expect(state.status).toBe(422);
+      expect(state.body).toEqual({
+        error: "Display name no disponible",
+        code: "display_name_reserved",
+      });
+      expect(fakes.updates).toHaveLength(0);
+    },
+  );
+  it.each(["Mina Lopez", "Fan de Mina desde 2020", "Me encanta Upmina", "Ana"])(
+    "%s (frase personal) se guarda sin consultas extra",
+    async (display_name) => {
+      const state = await call({ display_name });
+      expect(state.status).toBe(200);
+      expect(fakes.updates).toEqual([{ display_name }]);
+      expect(fakes.ops).toEqual(["update"]);
+    },
+  );
+  it("perfil HEREDADO con un display_name conflictivo: reenviar el mismo valor no se bloquea y no se escribe", async () => {
+    fakes.currentUsernameRow = {
+      username: "edwin390",
+      username_changed_at: null,
+      display_name: "Mina Oficial",
+    };
+    const state = await call({ display_name: "Mina Oficial" });
+    expect(state.status).toBe(200);
+    expect(fakes.updates).toHaveLength(0);
+  });
+  it("perfil HEREDADO: cambiar solo la bio junto al mismo display_name guarda la bio y no toca el display_name", async () => {
+    fakes.currentUsernameRow = {
+      username: "edwin390",
+      username_changed_at: null,
+      display_name: "Mina Oficial",
+    };
+    const state = await call({ display_name: "Mina Oficial", bio: "nueva" });
+    expect(state.status).toBe(200);
+    expect(fakes.updates).toEqual([{ bio: "nueva" }]);
+  });
+  it("perfil HEREDADO: cambiarlo a otro nombre protegido sí se rechaza", async () => {
+    fakes.currentUsernameRow = {
+      username: "edwin390",
+      username_changed_at: null,
+      display_name: "Mina Oficial",
+    };
+    const state = await call({ display_name: "Real Mina" });
+    expect(state.status).toBe(422);
+    expect(fakes.updates).toHaveLength(0);
+  });
+  it("lectura previa fallida o perfil inexistente: 500 / 404, nunca se escribe", async () => {
+    fakes.currentUsernameError = { code: "XX000" };
+    expect((await call({ display_name: "Mina" })).status).toBe(500);
+    fakes.currentUsernameError = undefined;
+    fakes.currentUsernameRow = null;
+    expect((await call({ display_name: "Mina" })).status).toBe(404);
+    expect(fakes.updates).toHaveLength(0);
+  });
+  it("red de seguridad: UR002 del trigger de la BD → 422 display_name_reserved (no 500 ni texto de la BD)", async () => {
+    fakes.result = { data: null, error: { code: "UR002", message: "interno" } };
+    const state = await call({ display_name: "Nombre libre" });
+    expect(state.status).toBe(422);
+    expect(state.body).toEqual({
+      error: "Display name no disponible",
+      code: "display_name_reserved",
+    });
+    expect(JSON.stringify(state.body)).not.toContain("interno");
+  });
+  it("UR002 en un UPDATE que NO cambia display_name no se reinterpreta (500 genérico)", async () => {
+    fakes.result = { data: null, error: { code: "UR002", message: "x" } };
+    expect((await call({ bio: "x" })).status).toBe(500);
   });
 });

@@ -242,6 +242,21 @@ describe("cancelar", () => {
 });
 
 describe("estado sucio", () => {
+  it("suplantación de Mina/Upmina al editar el username: aviso 'no disponible', Guardar deshabilitado y sin envío", async () => {
+    await enterEdit({ display_name: "Edwin", bio: "A" });
+    const field = screen.getByLabelText("Username");
+    for (const name of ["mina", "Upm1na", "official.miina"]) {
+      fireEvent.change(field, { target: { value: name } });
+      expect(screen.getByText("Ese username no está disponible.")).toBeInTheDocument();
+      expect(saveButton()).toBeDisabled();
+      save();
+      expect(fetchMock).not.toHaveBeenCalled();
+    }
+    fireEvent.change(field, { target: { value: "amina" } });
+    expect(screen.queryByText("Ese username no está disponible.")).toBeNull();
+    expect(saveButton()).toBeEnabled();
+  });
+
   it("sin cambios → Guardar deshabilitado y no se envía nada", async () => {
     await enterEdit({ display_name: "Edwin", bio: "A\nB" });
     expect(saveButton()).toBeDisabled();
@@ -872,5 +887,87 @@ describe("XSS", () => {
       "utf8",
     );
     expect(src).not.toContain("dangerouslySetInnerHTML");
+  });
+});
+
+describe("suplantación de Mina/Upmina en el nombre visible (display_name)", () => {
+  afterEach(() => localStorage.clear());
+
+  it("nombres protegidos: aviso localizado, Guardar deshabilitado y ninguna petición", async () => {
+    localStorage.setItem("upmina:locale", "es");
+    await enterEdit({ display_name: "Ana", bio: "B" });
+    for (const name of ["Mina", "Mina Oficial", "Team Upmina", "M1na", "Up_Mina"]) {
+      setName(name);
+      expect(
+        await screen.findByText("Ese nombre visible no está disponible."),
+      ).toBeInTheDocument();
+      expect(saveButton()).toBeDisabled();
+      save();
+    }
+    expect(patchCalls()).toHaveLength(0);
+  });
+
+  it("frases personales que mencionan a Mina no se bloquean y se envían", async () => {
+    localStorage.setItem("upmina:locale", "es");
+    fetchMock.mockResolvedValue(
+      httpResponse(200, PATCHED({ display_name: "Fan de Mina desde 2020" })),
+    );
+    await enterEdit({ display_name: "Ana", bio: "B" });
+    setName("Fan de Mina desde 2020");
+    expect(screen.queryByText("Ese nombre visible no está disponible.")).toBeNull();
+    expect(saveButton()).toBeEnabled();
+    await act(async () => save());
+    expect(lastBody()).toEqual({ display_name: "Fan de Mina desde 2020" });
+  });
+
+  it.each([
+    ["en", "That display name isn't available.", "That username isn't available."],
+    [
+      "de",
+      "Dieser Anzeigename ist nicht verfügbar.",
+      "Dieser Benutzername ist nicht verfügbar.",
+    ],
+  ])(
+    "mensajes localizados (%s) para nombre visible y username",
+    async (locale, display, user) => {
+      localStorage.setItem("upmina:locale", locale);
+      await enterEdit({ display_name: "Ana", bio: "B" });
+      setName("Mina Staff");
+      expect(await screen.findByText(display)).toBeInTheDocument();
+      setName("Ana");
+      fireEvent.change(screen.getByLabelText("Username"), {
+        target: { value: "mina_fan" },
+      });
+      expect(await screen.findByText(user)).toBeInTheDocument();
+      expect(saveButton()).toBeDisabled();
+    },
+  );
+
+  it("si el servidor rechaza (422 display_name_reserved) se muestra el aviso localizado, sin error genérico", async () => {
+    localStorage.setItem("upmina:locale", "es");
+    fetchMock.mockResolvedValue(httpResponse(422, { code: "display_name_reserved" }));
+    await enterEdit({ display_name: "Ana", bio: "B" });
+    setName("Nombre libre");
+    await act(async () => save());
+    expect(
+      await screen.findByText("Ese nombre visible no está disponible."),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByText("No se pudo guardar tu perfil. Inténtalo de nuevo."),
+    ).toBeNull();
+    expect(nameField().value).toBe("Nombre libre"); // conserva lo escrito
+  });
+
+  it("si el servidor rechaza el username (422 username_reserved) también sale localizado", async () => {
+    localStorage.setItem("upmina:locale", "de");
+    fetchMock.mockResolvedValue(httpResponse(422, { code: "username_reserved" }));
+    await enterEdit({ display_name: "Ana", bio: "B" });
+    fireEvent.change(screen.getByLabelText("Username"), {
+      target: { value: "nombre_libre" },
+    });
+    await act(async () => save());
+    expect(
+      await screen.findAllByText("Dieser Benutzername ist nicht verfügbar."),
+    ).not.toHaveLength(0);
   });
 });
