@@ -42,15 +42,16 @@ Todo es de **solo lectura** (`pg_dump` abre transacciones de lectura). No inclui
 ### 2.2 Variables de Vercel (proyecto `upmina-web`, target *Production* únicamente)
 | Variable | Valor / origen | Estado |
 |---|---|---|
-| `MEDIA_CAP_SIGNING_PRIVATE_KEY`, `MEDIA_CAP_KEY_ID` | generador (PKCS#8 base64, `prod-1`) | falta |
-| `MEDIA_CAP_AUDIENCE` | `upmina-media-production` (igual que el worker) | falta |
-| `MEDIA_CHECK_SHARED_SECRET`, `MEDIA_GC_SHARED_SECRET` | generador | falta |
-| `MEDIA_DELIVERY_BASE_URL` | URL del worker de Production; **si no se define → modo LEGADO** (§4) | falta (opcional en fase A) |
-| `ACCOUNT_DELETION_SHARED_SECRET` | generador (≥ 32) | falta |
-| `ACCOUNT_DELETION_APP_URL` | `https://upminaa-web.com` (origen https exacto) | falta |
-| `COPYRIGHT_APPEAL_APP_URL` | `https://upminaa-web.com` | falta |
+| `MEDIA_CAP_SIGNING_PRIVATE_KEY`, `MEDIA_CAP_KEY_ID` | generador (PKCS#8 base64, `prod-1`) | **creadas 2026-10-14** (Production, sensitive/encrypted) |
+| `MEDIA_CAP_AUDIENCE` | `upmina-media-production` (igual que el worker) | **creada** |
+| `MEDIA_CHECK_SHARED_SECRET`, `MEDIA_GC_SHARED_SECRET` | generador | **creadas** (el worker y Vault deben recibir el mismo valor después) |
+| `MEDIA_DELIVERY_BASE_URL` | URL del worker de Production; **si no se define → modo LEGADO** (§4) | **retenida**: depende del worker de Cloudflare (aún no desplegado) |
+| `ACCOUNT_DELETION_SHARED_SECRET` | generador (≥ 32; ya generado en la carpeta privada, **no cargado**) | **retenida**: debe cargarse junto con el secreto de Vault y el cron; sin ella el ejecutor no arranca (fail-closed) y una cuenta confirmada quedaría bloqueada sin limpieza |
+| `ACCOUNT_DELETION_APP_URL` | `https://upminaa-web.com` (origen https exacto) | **retenida** (misma razón: se carga con el secreto, justo antes del despliegue) |
+| `COPYRIGHT_APPEAL_APP_URL` | `https://upminaa-web.com` | **creada** |
 | `COPYRIGHT_TEST_WINDOW_MINUTES` | **no definir** en Production (solo aplica a preview/development) | comprobar ausente |
 | Ya presentes | `R2_PROD_*`, `MFA_RECOVERY_*`, `RESEND_WEBHOOK_SECRET`, `SUPABASE_SERVICE_ROLE_KEY`, `VITE_SUPABASE_*`, Instagram/TikTok/Twitch/YouTube | ok |
+**Carga realizada (2026-10-14, solo nombres)**: en Vercel `upmina-web` (`prj_z6QNSyfd7SvZSunNv4YnPQzjLqln`, equipo `edwin-9cad`), target **production** únicamente, vía `vercel api POST /v10/projects/<id>/env` (sin `upsert`; no hay MCP de Vercel conectado): `MEDIA_CAP_SIGNING_PRIVATE_KEY`, `MEDIA_CAP_KEY_ID`, `MEDIA_CAP_AUDIENCE`, `MEDIA_CHECK_SHARED_SECRET`, `MEDIA_GC_SHARED_SECRET`, `COPYRIGHT_APPEAL_APP_URL`. Las 24 variables previas quedaron idénticas (id, target, tipo); Preview/Development y el proyecto de pruebas no se modificaron. Los secretos generados (incluidos los **retenidos**) están en `C:\Users\Edwin\upmina-secrets\prod-20261014\` (fuera del repo, ACL solo del usuario; pasar a un gestor de contraseñas). Cambiar variables **no** cambia el despliegue activo: solo se leen en el siguiente despliegue.
 Comprobar: ninguna variable `R2_DEV_*` ni URL de DEV en Production; `r2-client.ts` solo usa `R2_PROD_*` cuando `VERCEL_ENV=production`.
 
 ### 2.3 Cloudflare
