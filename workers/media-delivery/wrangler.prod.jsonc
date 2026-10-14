@@ -1,0 +1,22 @@
+{
+  // PRODUCCIÓN — PLANTILLA SIN APLICAR. Nunca desplegar sin la autorización explícita del propietario.
+  // Secretos fuera de este archivo:  wrangler secret put MEDIA_CHECK_SHARED_SECRET --config wrangler.prod.jsonc
+  // (mismo valor que MEDIA_CHECK_SHARED_SECRET de Vercel Production; generado con scripts/generate-production-secrets.mjs).
+  "name": "upmina-media-delivery-prod",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-09-01",
+  // Primer despliegue en workers.dev; el dominio propio (p. ej. media.upminaa-web.com) se añade después con "routes".
+  "workers_dev": true,
+  "r2_buckets": [
+    // Solo el bucket PÚBLICO de Production. Nunca el privado ni ningún bucket DEV.
+    { "binding": "MEDIA_BUCKET", "bucket_name": "upmina-media-prod-public" },
+  ],
+  "vars": {
+    // Debe coincidir EXACTAMENTE con MEDIA_CAP_AUDIENCE de Vercel Production.
+    "MEDIA_CAP_AUDIENCE": "upmina-media-production",
+    // JSON { "<kid>": "<SPKI base64>" }: pegar la salida MEDIA_CAP_PUBLIC_KEYS de generate-production-secrets.mjs.
+    "MEDIA_CAP_PUBLIC_KEYS": "REPLACE_WITH_GENERATED_PUBLIC_KEYS_JSON",
+    // Backend de Production (verificación de acceso firmada con MEDIA_CHECK_SHARED_SECRET).
+    "MEDIA_CHECK_URL": "https://upminaa-web.com/api/media/access",
+  },
+}
