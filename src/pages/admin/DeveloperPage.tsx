@@ -7,6 +7,7 @@ import type { PrivilegedFailure } from "@/lib/privileged-response";
 import AdminAuthCard from "@/components/admin/AdminAuthCard";
 import DeveloperCleanupsSection from "@/components/developer/DeveloperCleanupsSection";
 import DeveloperRecoveriesSection from "@/components/developer/DeveloperRecoveriesSection";
+import DeveloperAccountDeletionsSection from "@/components/developer/DeveloperAccountDeletionsSection";
 
 // /admin/developer (Developer Panel V1). Máquina de estados sobre lo que el SERVIDOR dice, con
 // navegación y protección INDEPENDIENTES del panel de Admin:
@@ -176,6 +177,7 @@ function DeveloperPanel() {
           </p>
           <DeveloperCleanupsSection />
           <DeveloperRecoveriesSection />
+          <DeveloperAccountDeletionsSection />
         </div>
       </PrivilegedFailureContext.Provider>
     </div>

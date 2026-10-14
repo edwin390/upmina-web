@@ -560,9 +560,11 @@ function AdminModeration() {
           <p>
             {detail.item.cycleStatus === "pending"
               ? "Pendiente de revisión humana"
-              : detail.item.closureKind === "legacy"
-                ? "Cierre histórico; sin decisión agrupada registrada"
-                : "Ciclo cerrado por decisión registrada"}
+              : detail.item.closureKind === "author_deleted"
+                ? tcd("closureAuthorDeleted")
+                : detail.item.closureKind === "legacy"
+                  ? "Cierre histórico; sin decisión agrupada registrada"
+                  : "Ciclo cerrado por decisión registrada"}
           </p>
           {!detail.item.isCurrentCycle && (
             <p>
@@ -914,6 +916,11 @@ function AdminModeration() {
                       {item.closureKind === "legacy" && (
                         <span className="text-xs">
                           Cierre histórico sin decisión agrupada
+                        </span>
+                      )}
+                      {item.closureKind === "author_deleted" && (
+                        <span className="text-xs">
+                          {tcd("closureAuthorDeletedShort")}
                         </span>
                       )}
                     </button>

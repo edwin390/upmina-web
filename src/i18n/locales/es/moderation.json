@@ -267,7 +267,8 @@
         "removed": "Publicación retirada",
         "appeal_pending": "Apelación pendiente",
         "restored": "Restaurada tras apelación",
-        "purged": "Eliminada definitivamente"
+        "purged": "Eliminada definitivamente",
+        "author_deleted": "Cerrada: cuenta del autor eliminada"
       },
       "relationship": {
         "owner": "Titular de los derechos",
@@ -299,7 +300,8 @@
         "eventsTitle": "Historial de la reclamación",
         "actor": {
           "claimant": "Reclamante",
-          "human": "Moderación"
+          "human": "Moderación",
+          "system": "Sistema"
         }
       },
       "events": {
@@ -321,7 +323,8 @@
         "purged": "Publicación eliminada definitivamente",
         "strike_applied": "Strike aplicado",
         "strike_notified": "Aviso del strike enviado al autor",
-        "strike_notification_failed": "Falló el aviso del strike al autor"
+        "strike_notification_failed": "Falló el aviso del strike al autor",
+        "author_deleted": "Cierre técnico: cuenta del autor eliminada"
       },
       "actions": {
         "title": "Revisión",
@@ -630,6 +633,8 @@
   },
   "caseDetail": {
     "title": "Detalles del reporte",
-    "close": "Cerrar detalles"
+    "close": "Cerrar detalles",
+    "closureAuthorDeleted": "Cierre administrativo: la cuenta de la autora o del autor fue eliminada. No es una decisión de moderación: no implica que los reportes procedan ni que no procedan, ni genera strike.",
+    "closureAuthorDeletedShort": "Cierre administrativo por eliminación de la cuenta"
   }
 }

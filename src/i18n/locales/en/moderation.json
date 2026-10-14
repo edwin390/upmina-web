@@ -267,7 +267,8 @@
         "removed": "Post removed",
         "appeal_pending": "Appeal pending",
         "restored": "Restored after appeal",
-        "purged": "Permanently deleted"
+        "purged": "Permanently deleted",
+        "author_deleted": "Closed: author account deleted"
       },
       "relationship": {
         "owner": "Rights holder",
@@ -299,7 +300,8 @@
         "eventsTitle": "Claim history",
         "actor": {
           "claimant": "Claimant",
-          "human": "Moderation"
+          "human": "Moderation",
+          "system": "System"
         }
       },
       "events": {
@@ -321,7 +323,8 @@
         "purged": "Post permanently deleted",
         "strike_applied": "Strike applied",
         "strike_notified": "Strike notice sent to the author",
-        "strike_notification_failed": "Strike notice to the author failed"
+        "strike_notification_failed": "Strike notice to the author failed",
+        "author_deleted": "Technical closure: author account deleted"
       },
       "actions": {
         "title": "Review",
@@ -630,6 +633,8 @@
   },
   "caseDetail": {
     "title": "Report details",
-    "close": "Close details"
+    "close": "Close details",
+    "closureAuthorDeleted": "Administrative closure: the author's account was deleted. This is not a moderation decision: it does not mean the reports were upheld or dismissed, and it creates no strike.",
+    "closureAuthorDeletedShort": "Administrative closure: account deleted"
   }
 }

@@ -4,6 +4,7 @@ import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/lib/auth-context";
 import AdminAuthCard from "@/components/admin/AdminAuthCard";
 import ProfileSection from "@/components/account/ProfileSection";
+import DeleteAccountLink from "@/components/account/DeleteAccountLink";
 
 // /account (Bloque 6E). Punto de entrada privado mínimo: solo requiere una sesión
 // autenticada normal, la misma que expone el AuthProvider global (un solo listener). No
@@ -98,6 +99,8 @@ export default function AccountPage() {
       {/* key por cuenta: un cambio A → B desmonta por completo la instancia de A (borradores,
           modo edición, errores, locks) y crea una limpia para B. */}
       <ProfileSection key={session.user.id} />
+
+      <DeleteAccountLink />
 
       {error ? (
         <p role="alert" className="mt-4 text-sm text-accent-live">

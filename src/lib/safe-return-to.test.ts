@@ -39,6 +39,7 @@ describe("allowlist inicial", () => {
   it("contiene las rutas privilegiadas permitidas, incluida moderación", () => {
     expect(Object.keys(RETURN_ROUTES).sort()).toEqual([
       "/account",
+      "/account/delete",
       "/admin",
       "/admin/activate",
       "/admin/developer",

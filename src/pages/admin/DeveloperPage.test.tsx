@@ -87,6 +87,7 @@ const signIn = (id = "u1") => {
 const SECTIONS = {
   "/api/admin/developer-mfa-cleanups": () => ok({ cleanups: [] }),
   "/api/admin/developer-mfa-recoveries": () => ok({ recoveries: [] }),
+  "/api/admin/account-deletion-alerts": () => ok({ alerts: [] }),
 };
 
 beforeEach(() => {
@@ -195,7 +196,7 @@ describe("/admin/developer — acceso", () => {
     expect(screen.getByRole("link", { name: "Verificar de nuevo" })).toBeInTheDocument();
   });
 
-  it("developer con MFA reciente → panel con las DOS secciones", async () => {
+  it("developer con MFA reciente → panel con las TRES secciones", async () => {
     signIn();
     routeFetch({ "/api/admin/access": () => access("developer", true), ...SECTIONS });
     renderPage();
@@ -205,6 +206,9 @@ describe("/admin/developer — acceso", () => {
     expect(
       screen.getByRole("heading", { name: "Recuperaciones excepcionales" }),
     ).toBeInTheDocument();
+    expect(
+      await screen.findByRole("heading", { name: "Eliminaciones de cuenta pendientes" }),
+    ).toBeInTheDocument();
     expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent(
       "Panel Developer",
     );
@@ -212,6 +216,7 @@ describe("/admin/developer — acceso", () => {
       expect(urls().sort()).toEqual(
         [
           "/api/admin/access",
+          "/api/admin/account-deletion-alerts",
           "/api/admin/developer-mfa-cleanups",
           "/api/admin/developer-mfa-recoveries",
         ].sort(),

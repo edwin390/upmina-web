@@ -44,6 +44,9 @@ export const RETURN_ROUTES: ReturnRoutes = Object.freeze({
   // código del correo NUNCA viaja en returnTo (se conserva en memoria, ver pending-recovery-code.ts).
   "/admin/mfa/recovery": Object.freeze({ allowsIntent: false }),
   "/account": Object.freeze({ allowsIntent: false }),
+  // DEL-3: tras iniciar sesión se vuelve a la eliminación de cuenta. Sin parámetros: el token del enlace NUNCA viaja en returnTo (se conserva
+  // en memoria, ver pending-deletion-token.ts).
+  "/account/delete": Object.freeze({ allowsIntent: false }),
   // COPY-1 fase 2B: tras iniciar sesión se vuelve a la apelación de copyright. Sin parámetros: el token del enlace NUNCA viaja en
   // returnTo (se conserva en memoria, ver pending-appeal-token.ts).
   "/copyright/appeal": Object.freeze({ allowsIntent: false }),

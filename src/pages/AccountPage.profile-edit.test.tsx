@@ -362,7 +362,8 @@ describe("autenticación", () => {
     expect(init.headers["Content-Type"]).toBe("application/json");
     expect(document.body.innerHTML).not.toContain(TOKEN);
     expect(setItem).not.toHaveBeenCalled();
-    expect(getItem).not.toHaveBeenCalled();
+    // DEL-3: la entrada «Eliminar cuenta» solo LEE la preferencia de idioma; el editor de perfil no usa almacenamiento.
+    expect(getItem.mock.calls.filter(([key]) => key !== "upmina:locale")).toEqual([]);
     expect(fetchMock.mock.calls.some((c) => String(c[0]).includes("/api/admin"))).toBe(
       false,
     );

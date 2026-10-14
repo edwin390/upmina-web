@@ -38,6 +38,7 @@ const CopyrightClaimPage = lazy(() => import("./pages/CopyrightClaimPage"));
 const CopyrightAppealPage = lazy(() => import("./pages/CopyrightAppealPage"));
 const ResetPasswordPage = lazy(() => import("./pages/ResetPasswordPage"));
 const AccountPage = lazy(() => import("./pages/AccountPage"));
+const AccountDeletionPage = lazy(() => import("./pages/AccountDeletionPage"));
 const AdminAuthLayout = lazy(() => import("./pages/admin/AdminAuthLayout"));
 const AdminLoginPage = lazy(() => import("./pages/admin/AdminLoginPage"));
 const AdminSignupPage = lazy(() => import("./pages/admin/AdminSignupPage"));
@@ -151,6 +152,8 @@ function AppShell() {
             <Route path="/forgot-password" element={<ForgotPasswordPage />} />
             <Route path="/reset-password" element={<ResetPasswordPage />} />
             <Route path="/account" element={<AccountPage />} />
+            {/* DEL-3: debe ir ANTES de /:usernameParam (que solo casa un segmento, pero así la ruta queda explícita). */}
+            <Route path="/account/delete" element={<AccountDeletionPage />} />
             {/* /@username (Fase 9J-2B): React Router v6 no admite mezclar texto literal ("@") y
                 un segmento dinámico dentro del MISMO segmento de ruta (matchPath("/@:username",
                 "/@edwin1") devuelve null, verificado) — solo admite segmentos ENTERAMENTE

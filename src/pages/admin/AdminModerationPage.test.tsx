@@ -689,6 +689,29 @@ describe("R4-B grouped decisions", () => {
       expect(notifyCommunityVisibility).not.toHaveBeenCalled();
     },
   );
+  it("DEL-3: un cierre author_deleted se presenta como cierre administrativo (no como decisión, sanción ni absolución) y sin acciones", async () => {
+    const item = makeCase();
+    item.caseStatus = "closed";
+    item.cycleStatus = "closed";
+    item.closureKind = "author_deleted";
+    item.reports[0]!.status = "resolved";
+    const { writes } = setupCases({ items: [item] });
+    renderPage();
+    await screen.findByText("Contenido 1");
+    fireEvent.click(screen.getByRole("button", { name: "Historial" }));
+    await screen.findByText("Cierre administrativo por eliminación de la cuenta");
+    fireEvent.click(card(1));
+    const detail = await screen.findByText(
+      /Cierre administrativo: la cuenta de la autora o del autor fue eliminada/,
+    );
+    expect(detail.textContent).toMatch(/No es una decisión de moderación/);
+    expect(screen.queryByText("Ciclo cerrado por decisión registrada")).toBeNull();
+    expect(screen.queryByText(/Cierre histórico/)).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: /Procede|No procede|strike/i }),
+    ).toBeNull();
+    expect(writes).toEqual([]);
+  });
   it.each(["closed", "stale", "removed", "attribution"])(
     "does not expose actions for %s context",
     async (state) => {

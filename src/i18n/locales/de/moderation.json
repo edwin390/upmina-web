@@ -267,7 +267,8 @@
         "removed": "Beitrag entfernt",
         "appeal_pending": "Einspruch offen",
         "restored": "Nach Einspruch wiederhergestellt",
-        "purged": "Endgültig gelöscht"
+        "purged": "Endgültig gelöscht",
+        "author_deleted": "Geschlossen: Konto der Autorin bzw. des Autors gelöscht"
       },
       "relationship": {
         "owner": "Rechteinhaber:in",
@@ -299,7 +300,8 @@
         "eventsTitle": "Verlauf der Beschwerde",
         "actor": {
           "claimant": "Beschwerdeführer:in",
-          "human": "Moderation"
+          "human": "Moderation",
+          "system": "System"
         }
       },
       "events": {
@@ -321,7 +323,8 @@
         "purged": "Beitrag endgültig gelöscht",
         "strike_applied": "Strike vergeben",
         "strike_notified": "Strike-Benachrichtigung an den Autor gesendet",
-        "strike_notification_failed": "Strike-Benachrichtigung an den Autor fehlgeschlagen"
+        "strike_notification_failed": "Strike-Benachrichtigung an den Autor fehlgeschlagen",
+        "author_deleted": "Technischer Abschluss: Konto gelöscht"
       },
       "actions": {
         "title": "Prüfung",
@@ -630,6 +633,8 @@
   },
   "caseDetail": {
     "title": "Details der Meldung",
-    "close": "Details schließen"
+    "close": "Details schließen",
+    "closureAuthorDeleted": "Administrativer Abschluss: Das Konto der Autorin bzw. des Autors wurde gelöscht. Dies ist keine Moderationsentscheidung: Es bedeutet weder, dass die Meldungen berechtigt noch dass sie unberechtigt waren, und erzeugt keinen Strike.",
+    "closureAuthorDeletedShort": "Administrativer Abschluss: Konto gelöscht"
   }
 }
