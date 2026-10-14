@@ -5,6 +5,8 @@ import Footer from "./components/layout/Footer";
 import HomePage from "./pages/HomePage";
 import TermsPage from "./pages/TermsPage";
 import PrivacyPage from "./pages/PrivacyPage";
+import CommunityRulesPage from "./pages/CommunityRulesPage";
+import { isSignupLegalConsentEnabled } from "./lib/legal-consent";
 import AmbientBackground from "./components/ui/AmbientBackground";
 import ScrollProgress from "./components/ui/ScrollProgress";
 import ScrollToTop from "./components/ui/ScrollToTop";
@@ -145,6 +147,9 @@ function AppShell() {
             )}
             <Route path="/terms" element={<TermsPage />} />
             <Route path="/privacy" element={<PrivacyPage />} />
+            {isSignupLegalConsentEnabled() ? (
+              <Route path="/community-rules" element={<CommunityRulesPage />} />
+            ) : null}
             <Route path="/copyright" element={<CopyrightClaimPage />} />
             <Route path="/copyright/appeal" element={<CopyrightAppealPage />} />
             <Route path="/login" element={<LoginPage />} />

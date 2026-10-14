@@ -7,6 +7,14 @@ import AdminAuthCard from "@/components/admin/AdminAuthCard";
 import AdminAuthField from "@/components/admin/AdminAuthField";
 import EmailVerificationPending from "@/components/auth/EmailVerificationPending";
 import { confirmationRedirectUrl } from "@/lib/auth-link-error";
+import SignupLegalConsent from "@/components/auth/SignupLegalConsent";
+import {
+  NO_CHECKS,
+  allAccepted,
+  buildLegalAcceptance,
+  isSignupLegalConsentEnabled,
+  type LegalChecks,
+} from "@/lib/legal-consent";
 
 // /signup (Bloque 6D). Registro público con email + contraseña sobre el MISMO cliente de
 // Supabase y el MISMO AuthProvider global (un solo listener). Crea exclusivamente una
@@ -23,6 +31,7 @@ import { confirmationRedirectUrl } from "@/lib/auth-link-error";
 const MISMATCH_MESSAGE = "Las contraseñas no coinciden.";
 const MISSING_FIELDS_MESSAGE = "Completa todos los campos.";
 const WEAK_PASSWORD_MESSAGE = "La contraseña no cumple los requisitos de seguridad.";
+const LEGAL_REQUIRED_MESSAGE = "Debes aceptar los documentos para crear tu cuenta.";
 const GENERIC_ERROR_MESSAGE = "No se pudo crear la cuenta. Inténtalo de nuevo.";
 
 function signupErrorMessage(error: unknown): string {
@@ -48,6 +57,9 @@ export default function SignupPage() {
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
+  // Desactivado por defecto (VITE_SIGNUP_LEGAL_CONSENT): los documentos aún no están aprobados.
+  const legalEnabled = isSignupLegalConsentEnabled();
+  const [legal, setLegal] = useState<LegalChecks>(NO_CHECKS);
   const [isSubmitting, setIsSubmitting] = useState(false);
   // Email con el que se registró (AUTH-1): no nulo = esperando confirmación. No es secreto y
   // no se persiste; la contraseña nunca se guarda en estado tras el envío.
@@ -77,6 +89,10 @@ export default function SignupPage() {
       setError(MISMATCH_MESSAGE);
       return;
     }
+    if (legalEnabled && !allAccepted(legal)) {
+      setError(LEGAL_REQUIRED_MESSAGE);
+      return;
+    }
     if (!supabase) {
       setError(GENERIC_ERROR_MESSAGE);
       return;
@@ -85,13 +101,19 @@ export default function SignupPage() {
     submittingRef.current = true;
     setIsSubmitting(true);
     try {
-      // Deliberadamente sin `options.data`: ningún metadata de rol viaja en el signup.
+      // Sin metadata de rol en el signup. Con el consentimiento activo viaja SOLO `legal_acceptance`
+      // (versiones de los documentos); nunca concede nada (ver legal-consent.ts).
       const trimmedEmail = email.trim();
       const { error: signUpError } = await supabase.auth.signUp({
         email: trimmedEmail,
         password,
         // Retorno del enlace de confirmación: /login (allow-list de Supabase; si no está, usa su Site URL).
-        options: { emailRedirectTo: confirmationRedirectUrl() },
+        options: {
+          emailRedirectTo: confirmationRedirectUrl(),
+          ...(legalEnabled
+            ? { data: { legal_acceptance: buildLegalAcceptance(legal) } }
+            : {}),
+        },
       });
       if (!isMountedRef.current) return;
       if (signUpError) {
@@ -176,6 +198,14 @@ export default function SignupPage() {
           errorId={error ? "public-signup-error" : undefined}
         />
 
+        {legalEnabled ? (
+          <SignupLegalConsent
+            checks={legal}
+            onChange={setLegal}
+            disabled={isSubmitting}
+          />
+        ) : null}
+
         {error ? (
           <p id="public-signup-error" role="alert" className="text-sm text-accent-live">
             {error}
@@ -184,7 +214,7 @@ export default function SignupPage() {
 
         <button
           type="submit"
-          disabled={isSubmitting}
+          disabled={isSubmitting || (legalEnabled && !allAccepted(legal))}
           className="mt-2 inline-flex min-h-11 items-center justify-center rounded-md border border-accent-primary/60 bg-accent-primary px-5 py-2.5 text-sm font-bold uppercase tracking-[0.18em] text-text-inverse shadow-glow-primary transition duration-200 ease-bounce hover:-translate-y-1 hover:bg-accent-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-secondary focus-visible:ring-offset-2 focus-visible:ring-offset-bg-surface disabled:pointer-events-none disabled:opacity-50"
         >
           {isSubmitting ? "Creando cuenta…" : "Crear cuenta"}
