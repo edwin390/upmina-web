@@ -107,3 +107,8 @@ Sin backup ni PITR hasta que se haga el dump (B8); migraciones sin ensayo sobre 
 5. `supabase db push --include-all` a Production (§3).
 6. Merge a `main` y push (despliega).
 7. (Aparte) programar `account-deletion-tick`.
+
+## 7. Registro de ejecución (2026-10-14)
+- **Respaldo previo**: `C:\Users\Edwin\upmina-backups\prod-20261014-092847\` (SHA-256 `3b031f57…`, 18/18 recuentos, 268 filas). Se conserva el anterior `prod-20261014-084902`.
+- **Migraciones en Production** (`dmtuvzfdaectvqczwfhx`): aplicadas las **42** (`20261007120000` … `20261116120000`) con `supabase db push --linked --include-all --workdir <dir aislado con project-ref de Production>` (sin tocar el enlace de DEV del repo). Preflight: historial = 21 versiones previas, 42 solo-locales exactas, 0 solo-remotas, `pg_cron`/`pg_net` disponibles, sin DDL destructivo de nivel superior.
+- **Resultado**: 63 migraciones (última `20261116120000`); extensiones `pg_cron 1.6.4` y `pg_net 0.20.4`; 45 tablas (0 sin RLS), 182 funciones, 62 triggers, 1 política (= DEV); datos intactos (1 usuario, 1 perfil, 1 publicación `published`, 12 assets `ready`, 1 `admin`). Cron: solo `community-media-purge-tick` (`*/5`, inerte sin Vault: 0 secretos); **sin** `account-deletion-tick`; 0 solicitudes de eliminación. El código vivo en Production sigue siendo el anterior (no se desplegó la web).
