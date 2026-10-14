@@ -23,10 +23,17 @@ if (-not ($u -eq "postgres.$ProdRef" -or ($u -eq "postgres" -and $h -eq "db.$Pro
 
 $env:PGHOST = $h; $env:PGPORT = $port; $env:PGUSER = $u; $env:PGPASSWORD = $pw; $env:PGDATABASE = $db; $env:PGSSLMODE = "require"
 Remove-Variable pw, conn -ErrorAction SilentlyContinue
+
+# Toda consulta de psql se ejecuta con la sesión en solo lectura (el pooler ignora PGOPTIONS, por eso se fija con SET).
+function Invoke-Ro([string]$Sql) {
+  $out = & psql -X -A -t -c ("set default_transaction_read_only = on; " + $Sql)
+  if ($LASTEXITCODE -ne 0) { throw "psql falló (código $LASTEXITCODE)." }
+  $out | Where-Object { $_ -ne "SET" -and $_ -ne "" }  # psql también devuelve la línea del SET
+}
 try {
   # 0. Comprobación del destino efectivo (solo metadatos, sin datos de usuario).
-  $meta = & psql -X -A -t -c "select current_database()||'|'||split_part(version(),',',1)||'|'||(select count(*) from auth.users)||'|'||(select count(*) from supabase_migrations.schema_migrations)"
-  $m = $meta.Trim().Split('|')
+  $meta = Invoke-Ro "select current_database()||'|'||split_part(version(),',',1)||'|'||(select count(*) from auth.users)||'|'||(select count(*) from supabase_migrations.schema_migrations)"
+  $m = (($meta | Where-Object { $_ -match '\|' }) | Select-Object -Last 1).Trim().Split('|')
   if ($m[3] -ne "21") { throw "El historial de migraciones no es el esperado de Production (21 aplicadas); encontrado: $($m[3]). Abortado." }
 
   $ts = Get-Date -Format "yyyyMMdd-HHmmss"
@@ -44,14 +51,13 @@ try {
   # 3. Verificación: TOC legible, secciones esperadas y recuentos de filas (sin mostrar datos).
   $toc = & pg_restore -l "$d\prod.dump"
   $dataEntries = ($toc | Where-Object { $_ -match "TABLE DATA" }).Count
-  $tables = & psql -X -A -t -c "select count(*) from pg_class c join pg_namespace n on n.oid=c.relnamespace where n.nspname in ('public','auth','storage','supabase_migrations') and c.relkind='r'"
-  $counts = & psql -X -A -t -F "," -c "select 'public.'||relname||','||n_live_tup from pg_stat_user_tables where schemaname='public' order by 1"
+  $tables = (Invoke-Ro "select count(*) from pg_class c join pg_namespace n on n.oid=c.relnamespace where n.nspname in ('public','auth','storage','supabase_migrations') and c.relkind='r'" | Select-Object -Last 1)
   $exact = @()
-  foreach ($t in (& psql -X -A -t -c "select tablename from pg_tables where schemaname='public' order by 1")) {
-    $exact += "public.$t," + (& psql -X -A -t -c "select count(*) from public.""$t""")
+  foreach ($t in (Invoke-Ro "select tablename from pg_tables where schemaname='public' order by 1")) {
+    $exact += "public.$t," + (Invoke-Ro "select count(*) from public.""$t""")
   }
-  $exact += "auth.users," + (& psql -X -A -t -c "select count(*) from auth.users")
-  $exact += "supabase_migrations.schema_migrations," + (& psql -X -A -t -c "select count(*) from supabase_migrations.schema_migrations")
+  $exact += "auth.users," + (Invoke-Ro "select count(*) from auth.users")
+  $exact += "supabase_migrations.schema_migrations," + (Invoke-Ro "select count(*) from supabase_migrations.schema_migrations")
   $exact | Set-Content "$d\row-counts.csv"
 
   # 4. Comprobación de restaurabilidad estructural sin base destino: pg_restore genera el SQL completo y se cuentan los COPY.

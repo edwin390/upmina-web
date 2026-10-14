@@ -19,7 +19,7 @@ Elaborado el 2026-10-14. Actualizado tras la integración local con `main`: rama
 - B2 · **Worker de entrega de Production inexistente** (solo `upmina-media-delivery-dev`). Hay que crearlo (§4.3).
 - B3 · **Variables de Production ausentes** para medios y eliminación (§4.2). **Vault de Production vacío.**
 - B4 · **Extensiones** `pg_cron` y `pg_net` no instaladas en Production (las exige `20261021`).
-- B8 · **Sin punto de restauración en Production**: `supabase backups list` → WAL-G activo, **PITR desactivado y 0 backups**. Antes de migrar hay que crear un `pg_dump` (§4.1).
+- ~~B8 · Sin punto de restauración en Production~~ · **Mitigado**: `supabase backups list` sigue sin backups ni PITR, pero existe un `pg_dump` verificado (2026-10-14, 18/18 recuentos, SHA-256 comprobado) fuera del repo y las 42 migraciones se ensayaron con sus datos reales en una base desechable (docs/PRODUCTION-INFRA-RUNBOOK.md §1). Repetir el dump justo antes de migrar; valorar activar PITR/backups diarios.
 - B5 · **Revisión jurídica** del texto de privacidad y de los plazos de retención (docs/DEL-3 §3). El texto dice que los plazos «no están definidos».
 - B6 · **Configuración de Auth de Production** (Site URL, Redirect URLs, plantillas, SMTP): no inspeccionable con las herramientas disponibles → comprobación manual en el panel.
 - B7 · **CORS del bucket de Production** (`upmina-media-prod-*`): no inspeccionable → debe admitir el origen de producción y exponer `ETag`.
