@@ -178,10 +178,6 @@ const changeRole = (body: unknown, token?: string | null) =>
   call(req({ action: "team-members-role", body, token }));
 const remove = (body: unknown, token?: string | null) =>
   call(req({ action: "team-members-remove", body, token }));
-const mfaCleanups = (token?: string | null, method = "GET") =>
-  call(req({ method, action: "team-members-mfa-cleanups", token }));
-const mfaRetry = (body: unknown, token?: string | null) =>
-  call(req({ action: "team-members-mfa-cleanup", body, token }));
 
 const memberRow = (over: Record<string, unknown> = {}) => ({
   out_user_id: TARGET_ID,
@@ -225,8 +221,6 @@ const ENDPOINTS: {
     run: (t) => changeRole({ user_id: TARGET_ID, role: "admin" }, t),
   },
   { name: "quitar acceso", run: (t) => remove({ user_id: TARGET_ID }, t) },
-  { name: "listado de limpiezas MFA", run: (t) => mfaCleanups(t) },
-  { name: "reintento de limpieza MFA", run: (t) => mfaRetry({ user_id: TARGET_ID }, t) },
 ];
 
 describe("autorización (team_admin + AAL2) — antes de cualquier RPC", () => {
@@ -696,116 +690,6 @@ describe("POST /api/admin/team-members-remove", () => {
   });
 });
 
-describe("GET /api/admin/team-members-mfa-cleanups", () => {
-  const row = (over: Record<string, unknown> = {}) => ({
-    out_user_id: TARGET_ID,
-    out_old_role: "moderator",
-    out_requested_at: "2026-10-11T10:00:00.000Z",
-    out_attempts: 1,
-    out_last_error_class: "auth_delete_failed",
-    out_factor_count: 1,
-    out_username: "mina",
-    out_email: "mina@example.invalid",
-    ...over,
-  });
-
-  it("solo ADMIN: llama con el actor del JWT y devuelve una lista blanca, sin caché", async () => {
-    fake.mfaRpc.admin_mfa_cleanups_pending = ok([
-      row({ out_factor_ids: ["x"], out_secret: "no-debe-salir" }),
-    ]);
-    const state = await mfaCleanups();
-    expect(state.status).toBe(200);
-    expect(state.headers["Cache-Control"]).toBe("no-store");
-    expect(fake.rpcCalls).toEqual([
-      { name: "admin_mfa_cleanups_pending", args: { p_actor_user_id: ADMIN_ID } },
-    ]);
-    expect(state.body).toEqual({
-      cleanups: [
-        {
-          user_id: TARGET_ID,
-          previous_role: "moderator",
-          requested_at: "2026-10-11T10:00:00.000Z",
-          attempts: 1,
-          last_error_class: "auth_delete_failed",
-          factor_count: 1,
-          username: "mina",
-          email: "mina@example.invalid",
-        },
-      ],
-    });
-    expect(JSON.stringify(state.body)).not.toMatch(/no-debe-salir/);
-  });
-
-  it.each([
-    ["forma inesperada", ok([row({ out_attempts: "1" })])],
-    ["no es un array", ok({})],
-  ])("%s → 500 genérico", async (_n, result) => {
-    fake.mfaRpc.admin_mfa_cleanups_pending = result;
-    expect((await mfaCleanups()).status).toBe(500);
-  });
-
-  it("solo admite GET", async () => {
-    const state = await mfaCleanups("jwt-admin-aal2", "POST");
-    expect(state.status).toBe(405);
-    expect(state.headers.Allow).toBe("GET");
-    expect(fake.rpcCalls).toHaveLength(0);
-  });
-});
-
-describe("POST /api/admin/team-members-mfa-cleanup (reintento autorizado)", () => {
-  const RESET_ID = "99999999-9999-4999-8999-999999999999";
-  const OLD_F1 = "aaaaaaaa-0000-4000-8000-000000000001";
-
-  it("reintenta SOLO los ids de la instantánea guardada en BD, aunque el body traiga otros", async () => {
-    fake.mfaRpc.admin_mfa_pending_reset = ok([
-      { out_reset_id: RESET_ID, out_factor_ids: [OLD_F1] },
-    ]);
-    fake.mfaRpc.admin_mfa_reset_record = ok("completed");
-    const state = await mfaRetry({
-      user_id: TARGET_ID,
-      factor_ids: ["cccccccc-0000-4000-8000-000000000001"],
-      reset_id: "dddddddd-0000-4000-8000-000000000001",
-    });
-    expect(state.status).toBe(200);
-    expect(state.body).toEqual({
-      user_id: TARGET_ID,
-      mfa_reset: { status: "completed", factors_deleted: 1 },
-    });
-    expect(fake.deleteCalls).toEqual([{ id: OLD_F1, userId: TARGET_ID }]);
-  });
-
-  it("sin limpieza pendiente → 404 y no se borra nada (repetir es inocuo)", async () => {
-    fake.mfaRpc.admin_mfa_pending_reset = ok([]);
-    const state = await mfaRetry({ user_id: TARGET_ID });
-    expect(state.status).toBe(404);
-    expect(fake.deleteCalls).toHaveLength(0);
-  });
-
-  it("si Auth sigue fallando → 200 con la limpieza todavía pendiente", async () => {
-    fake.mfaRpc.admin_mfa_pending_reset = ok([
-      { out_reset_id: RESET_ID, out_factor_ids: [OLD_F1] },
-    ]);
-    fake.authDelete = [{ error: { status: 503 } }];
-    const state = await mfaRetry({ user_id: TARGET_ID });
-    expect(state.status).toBe(200);
-    expect(state.body).toMatchObject({ mfa_reset: { status: "pending" } });
-  });
-
-  it.each([
-    ["sin body", undefined],
-    ["user_id no UUID", { user_id: "x" }],
-  ])("body inválido (%s) → 400", async (_n, body) => {
-    expect((await mfaRetry(body)).status).toBe(400);
-    expect(fake.rpcCalls).toHaveLength(0);
-  });
-
-  it("solo admite POST", async () => {
-    const state = await call(req({ method: "GET", action: "team-members-mfa-cleanup" }));
-    expect(state.status).toBe(405);
-    expect(state.headers.Allow).toBe("POST");
-  });
-});
-
 describe("matriz de errores de las mutaciones", () => {
   const mutations: {
     name: string;
@@ -905,4 +789,13 @@ describe("9G-1 — MFA reciente: rol y capacidad ANTES del step-up", () => {
       });
     });
   }
+});
+
+describe("limpiezas de MFA: ya no existen para Admin", () => {
+  it.each(["team-members-mfa-cleanups", "team-members-mfa-cleanup"])(
+    "%s → 404",
+    async (action) => {
+      expect((await call(req({ action, token: "t" }))).status).toBe(404);
+    },
+  );
 });

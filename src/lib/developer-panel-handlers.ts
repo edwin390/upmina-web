@@ -21,11 +21,13 @@ import {
   type RecoveryDeps,
   type Row,
 } from "./admin-mfa-recovery-handlers.js";
+import { readPendingMfaReset, runMfaResetCleanup } from "./admin-mfa-reset.js";
 import { DEVELOPER_APPROVAL_TOTP_WINDOW_SECONDS } from "./privileged-mfa.js";
 
 // Developer Panel V1 — endpoints del rol DEVELOPER (capacidad `developer_panel`, exclusiva de ese rol).
 //
-//   GET  /api/admin/developer-mfa-cleanups    limpiezas de MFA pendientes/recientes: SOLO LECTURA.
+//   GET  /api/admin/developer-mfa-cleanups    limpiezas de MFA pendientes/recientes.
+//   POST /api/admin/developer-mfa-cleanups    reintenta TODAS las limpiezas pendientes (sin cuerpo; idempotente).
 //   GET  /api/admin/developer-mfa-recoveries  solicitudes elegibles para aprobación excepcional + historial.
 //   POST /api/admin/developer-mfa-recoveries  {op: approve | deny | resend_notice, recovery_id, reason?}
 //
@@ -154,13 +156,35 @@ export async function handleDeveloperMfaCleanups(
   res: VercelResponse,
   deps: RecoveryDeps = defaultDeps(),
 ): Promise<VercelResponse> {
-  if (req.method !== "GET") {
-    res.setHeader("Allow", "GET");
+  if (req.method !== "GET" && req.method !== "POST") {
+    res.setHeader("Allow", "GET, POST");
     return res.status(405).json({ error: "Método no permitido" });
   }
   res.setHeader("Cache-Control", NO_STORE);
   try {
     const { userId } = await requireCapability(req, "developer_panel");
+    if (req.method === "POST") {
+      // Los ids salen de la base de datos (función restringida a developer), nunca del cliente; cada
+      // limpieza borra solo los factores de su instantánea y un factor ausente cuenta como resuelto.
+      const client = deps.client();
+      const ids = await rpcRows(
+        client,
+        "admin_mfa_cleanup_pending_ids_for_developer",
+        userId,
+      );
+      let completed = 0;
+      let pending = 0;
+      for (const row of ids) {
+        const target = row.out_user_id;
+        if (!isUuid(target)) throw new Error("list_shape");
+        const snapshot = await readPendingMfaReset(client, target);
+        if (!snapshot) continue;
+        const outcome = await runMfaResetCleanup(client, target, snapshot);
+        if (outcome.status === "completed") completed += 1;
+        else pending += 1;
+      }
+      return res.status(200).json({ retried: completed + pending, completed, pending });
+    }
     const rows = await rpcRows(deps.client(), "admin_mfa_cleanups_for_developer", userId);
     const cleanups: DeveloperCleanup[] = [];
     for (const raw of rows) {

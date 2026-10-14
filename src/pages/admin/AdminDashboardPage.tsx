@@ -11,7 +11,6 @@ import {
 import AdminAuthCard from "@/components/admin/AdminAuthCard";
 import SocialConnectionsSection from "@/components/admin/SocialConnectionsSection";
 import TeamInvitationsSection from "@/components/admin/TeamInvitationsSection";
-import MfaCleanupsSection from "@/components/admin/MfaCleanupsSection";
 import MfaRecoveriesSection from "@/components/admin/MfaRecoveriesSection";
 import BecomeDeveloperSection from "@/components/admin/BecomeDeveloperSection";
 import TeamMembersSection from "@/components/admin/TeamMembersSection";
@@ -75,7 +74,6 @@ function AdminDashboard() {
 
   const [panel, setPanel] = useState<PanelState>({ kind: "loading" });
   // MFA fase 1: se incrementa tras retirar un acceso para recargar los autenticadores pendientes.
-  const [mfaRefresh, setMfaRefresh] = useState(0);
 
   const role = access?.role ?? null;
   const mfaRecent = access?.mfaRecent ?? false;
@@ -342,12 +340,7 @@ function AdminDashboard() {
           <SocialConnectionsSection />
 
           {panel.capabilities.includes("team_admin") ? <TeamInvitationsSection /> : null}
-          {panel.capabilities.includes("team_admin") ? (
-            <TeamMembersSection onMfaChanged={() => setMfaRefresh((n) => n + 1)} />
-          ) : null}
-          {panel.capabilities.includes("team_admin") ? (
-            <MfaCleanupsSection refreshKey={mfaRefresh} />
-          ) : null}
+          {panel.capabilities.includes("team_admin") ? <TeamMembersSection /> : null}
           {panel.capabilities.includes("team_admin") ? <MfaRecoveriesSection /> : null}
           {/* Siempre visible para un Admin: transferir SU PROPIA cuenta a Developer (el servidor decide). */}
           <BecomeDeveloperSection />

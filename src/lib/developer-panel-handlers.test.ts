@@ -203,6 +203,7 @@ describe("autorización: Developer y Admin son roles independientes", () => {
   it("sin sesión 401; usuario sin rol, moderator y ADMIN reciben 403 en TODAS las rutas Developer y no llega ninguna RPC", async () => {
     for (const token of ["jwt-user-aal1", "jwt-mod-fresh", "jwt-admin-fresh"]) {
       expect((await cleanups(token)).status).toBe(403);
+      expect((await cleanups(token, "POST")).status).toBe(403);
       expect((await list(token)).status).toBe(403);
       expect((await decide({ op: "approve", recovery_id: REC_ID }, token)).status).toBe(
         403,
@@ -227,8 +228,6 @@ describe("autorización: Developer y Admin son roles independientes", () => {
       ["team-members", "GET", undefined],
       ["team-members-role", "POST", { user_id: OTHER_ID, role: "admin" }],
       ["team-members-remove", "POST", { user_id: OTHER_ID }],
-      ["team-members-mfa-cleanups", "GET", undefined],
-      ["team-members-mfa-cleanup", "POST", { user_id: OTHER_ID }],
     ] as const) {
       const r = await call({ action, method, body, token: "jwt-dev-fresh" });
       expect(r.status, `${method} ${action}`).toBe(403);
@@ -247,7 +246,7 @@ describe("autorización: Developer y Admin son roles independientes", () => {
   });
 
   it("método no admitido → 405", async () => {
-    expect((await cleanups("jwt-dev-fresh", "POST")).status).toBe(405);
+    expect((await cleanups("jwt-dev-fresh", "PUT")).status).toBe(405);
     expect((await cleanups("jwt-dev-fresh", "DELETE")).status).toBe(405);
     expect(
       (
@@ -287,7 +286,7 @@ describe("autorización reforzada: aprobar y rechazar exigen un TOTP de ≤ 5 mi
   });
 });
 
-describe("limpiezas de MFA: solo lectura", () => {
+describe("limpiezas de MFA: lectura", () => {
   it("devuelve el estado de cada operación sin ids de factores, hashes ni correos completos", async () => {
     fake.rpc.admin_mfa_cleanups_for_developer = ok([
       {
@@ -364,15 +363,13 @@ describe("limpiezas de MFA: solo lectura", () => {
     expect((await cleanups()).status).toBe(403);
   });
 
-  it("el módulo de Developer no contiene ninguna ruta hacia el borrado de factores", () => {
+  it("el módulo de Developer solo borra factores mediante el limpiador compartido (instantánea de la BD)", () => {
     // Solo el CÓDIGO: los comentarios pueden mencionar el mecanismo que NO se usa aquí.
     const src = readFileSync(
       resolve("src/lib/developer-panel-handlers.ts"),
       "utf8",
     ).replace(/\/\/.*$/gm, "");
-    expect(src).not.toMatch(
-      /deleteFactor|runMfaResetCleanup|runRecoveryDeletion|admin\.mfa/,
-    );
+    expect(src).not.toMatch(/deleteFactor|runRecoveryDeletion|admin\.mfa/);
     expect(src).not.toMatch(/mfa_reset_record|begin_execute|record_execution/);
   });
 });
@@ -787,5 +784,51 @@ describe("espera de seguridad tras la autotransferencia", () => {
     });
     expect(r.status).toBe(409);
     expect(rpcNames()).not.toContain("admin_mfa_recovery_approve_exceptional");
+  });
+});
+
+describe("reintento manual de limpiezas de MFA (solo Developer)", () => {
+  const FACTOR = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+  const RESET = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+  it("reintenta las pendientes con ids de la BD y es idempotente", async () => {
+    fake.rpc.admin_mfa_cleanup_pending_ids_for_developer = ok([
+      { out_user_id: OTHER_ID },
+    ]);
+    fake.rpc.admin_mfa_pending_reset = ok([
+      { out_reset_id: RESET, out_factor_ids: [FACTOR] },
+    ]);
+    fake.rpc.admin_mfa_reset_record = ok(null);
+    const r = await cleanups("jwt-dev-fresh", "POST");
+    expect(r.status).toBe(200);
+    expect(r.body).toEqual({ retried: 1, completed: 1, pending: 0 });
+    expect(fake.deleteCalls).toEqual([{ id: FACTOR, userId: OTHER_ID }]);
+    expect(fake.rpcCalls[0]).toEqual({
+      name: "admin_mfa_cleanup_pending_ids_for_developer",
+      args: { p_actor_user_id: DEV_ID },
+    });
+  });
+  it("sin pendientes no borra nada", async () => {
+    fake.rpc.admin_mfa_cleanup_pending_ids_for_developer = ok([]);
+    const r = await cleanups("jwt-dev-fresh", "POST");
+    expect(r.body).toEqual({ retried: 0, completed: 0, pending: 0 });
+    expect(fake.deleteCalls).toEqual([]);
+  });
+  it("el cuerpo del cliente se ignora: no puede elegir objetivo", async () => {
+    fake.rpc.admin_mfa_cleanup_pending_ids_for_developer = ok([]);
+    const r = await call({
+      action: "developer-mfa-cleanups",
+      token: "jwt-dev-fresh",
+      body: { user_id: USER_ID },
+    });
+    expect(r.status).toBe(200);
+    expect(rpcNames()).toEqual(["admin_mfa_cleanup_pending_ids_for_developer"]);
+  });
+  it("fallo de lectura → error genérico sin borrar", async () => {
+    fake.rpc.admin_mfa_cleanup_pending_ids_for_developer = {
+      data: null,
+      error: { code: "XX000" },
+    };
+    expect((await cleanups("jwt-dev-fresh", "POST")).status).toBeGreaterThanOrEqual(500);
+    expect(fake.deleteCalls).toEqual([]);
   });
 });

@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import DeveloperCleanupsSection from "./DeveloperCleanupsSection";
 
-// Limpiezas de MFA para Developer: SOLO LECTURA. Sintético.
+// Limpiezas de MFA para Developer: lectura y reintento manual. Sintético.
 
 const auth = vi.hoisted(() => ({ session: null as null | { access_token: string } }));
 vi.mock("@/lib/supabase", () => ({
@@ -72,17 +72,56 @@ describe("DeveloperCleanupsSection", () => {
     expect(screen.getByText("1 de 1 eliminados")).toBeInTheDocument();
   });
 
-  it("es de SOLO LECTURA: ninguna acción de reintento ni de borrado y una única petición GET con Bearer", async () => {
-    fetchMock.mockResolvedValue(res(200, { cleanups: [row()] }));
+  it("carga con un GET con Bearer y sin pendientes no ofrece reintento", async () => {
+    fetchMock.mockResolvedValue(
+      res(200, {
+        cleanups: [
+          row({
+            status: "completed",
+            factors_deleted: 2,
+            completed_at: "2026-11-01T11:00:00.000Z",
+          }),
+        ],
+      }),
+    );
     render(<DeveloperCleanupsSection />);
     await screen.findByText("@mina");
     expect(screen.queryByRole("button", { name: /reintentar/i })).toBeNull();
-    expect(screen.queryByRole("button", { name: /eliminar|borrar|limpiar/i })).toBeNull();
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const [url, init] = fetchMock.mock.calls[0];
     expect(url).toBe("/api/admin/developer-mfa-cleanups");
     expect(init).toEqual({ headers: { Authorization: "Bearer jwt-sintetico" } });
-    expect(init.method).toBeUndefined();
+  });
+
+  it("reintenta con un único POST sin cuerpo, muestra el resultado y recarga; no duplica el clic", async () => {
+    fetchMock
+      .mockResolvedValueOnce(res(200, { cleanups: [row()] }))
+      .mockResolvedValueOnce(res(200, { retried: 1, completed: 1, pending: 0 }))
+      .mockResolvedValueOnce(res(200, { cleanups: [] }));
+    render(<DeveloperCleanupsSection />);
+    await screen.findByText("@mina");
+    const btn = screen.getByRole("button", { name: "Reintentar pendientes" });
+    fireEvent.click(btn);
+    fireEvent.click(btn);
+    await screen.findByText(/1 completadas, 0 siguen pendientes/);
+    const posts = fetchMock.mock.calls.filter(([, i]) => i?.method === "POST");
+    expect(posts).toHaveLength(1);
+    expect(posts[0][1]).toEqual({
+      method: "POST",
+      headers: { Authorization: "Bearer jwt-sintetico" },
+    });
+  });
+
+  it("si el reintento falla muestra el error", async () => {
+    fetchMock
+      .mockResolvedValueOnce(res(200, { cleanups: [row()] }))
+      .mockResolvedValueOnce(res(500));
+    render(<DeveloperCleanupsSection />);
+    await screen.findByText("@mina");
+    fireEvent.click(screen.getByRole("button", { name: "Reintentar pendientes" }));
+    expect(
+      await screen.findByText("No se pudo reintentar la limpieza."),
+    ).toBeInTheDocument();
   });
 
   it("no muestra identificadores de factores, hashes ni correos completos aunque el servidor los enviara", async () => {

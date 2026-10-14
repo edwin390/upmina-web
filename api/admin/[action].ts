@@ -63,8 +63,6 @@ import {
 } from "../../src/lib/admin-mfa-recovery-handlers.js";
 import {
   handleAdminTeamMemberRemove,
-  handleAdminTeamMfaCleanups,
-  handleAdminTeamMfaCleanupRetry,
   handleAdminTeamMemberRole,
   handleAdminTeamMembers,
 } from "../../src/lib/admin-team-members.js";
@@ -231,10 +229,6 @@ export default function handler(req: VercelRequest, res: VercelResponse) {
       return handleDeveloperMfaCleanups(req, res);
     case "developer-mfa-recoveries":
       return handleDeveloperMfaRecoveries(req, res);
-    case "team-members-mfa-cleanups":
-      return handleAdminTeamMfaCleanups(req, res);
-    case "team-members-mfa-cleanup":
-      return handleAdminTeamMfaCleanupRetry(req, res);
     case "cosplay-post-save":
       return handleCosplayPostSave(req, res);
     case "cosplay-post-delete":

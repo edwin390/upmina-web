@@ -16,8 +16,7 @@ import {
 //   POST /api/admin/team-members-remove  quita el acceso privilegiado de OTRO miembro ({ user_id }) y,
 //                                        tras confirmar la retirada, invalida sus factores TOTP
 //                                        (MFA fase 1, ver admin-mfa-reset.ts).
-//   GET  /api/admin/team-members-mfa-cleanups  limpiezas de MFA pendientes (solo ADMIN).
-//   POST /api/admin/team-members-mfa-cleanup   reintenta una limpieza pendiente ({ user_id }).
+//   (Listado y reintento manual de limpiezas de MFA: solo DEVELOPER, ver developer-panel-handlers.ts.)
 //
 // Toda la escritura y la lectura de identidad pasan por RPC SECURITY DEFINER (migración
 // 20260928120000): list_admin_team_members, change_admin_member_role y remove_admin_member. El
@@ -356,111 +355,5 @@ export async function cleanupAfterRemoval(
     return summarize(await runMfaResetCleanup(client, targetId, pending));
   } catch {
     return { status: "pending", error_class: "cleanup_unavailable" };
-  }
-}
-
-interface MfaCleanupRow {
-  user_id: string;
-  previous_role: MemberRole;
-  requested_at: string;
-  attempts: number;
-  last_error_class: string | null;
-  factor_count: number;
-  username: string | null;
-  email: string | null;
-}
-
-function toCleanup(row: unknown): MfaCleanupRow | null {
-  if (!row || typeof row !== "object") return null;
-  const r = row as Record<string, unknown>;
-  const username = stringOrNull(r.out_username);
-  const email = stringOrNull(r.out_email);
-  const lastError = stringOrNull(r.out_last_error_class);
-  if (
-    !isUuid(r.out_user_id) ||
-    !isMemberRole(r.out_old_role) ||
-    !isIsoTimestamp(r.out_requested_at) ||
-    !Number.isInteger(r.out_attempts) ||
-    !Number.isInteger(r.out_factor_count) ||
-    username === undefined ||
-    email === undefined ||
-    lastError === undefined
-  ) {
-    return null;
-  }
-  return {
-    user_id: r.out_user_id,
-    previous_role: r.out_old_role,
-    requested_at: r.out_requested_at,
-    attempts: r.out_attempts as number,
-    last_error_class: lastError,
-    factor_count: r.out_factor_count as number,
-    username,
-    email,
-  };
-}
-
-export async function handleAdminTeamMfaCleanups(
-  req: VercelRequest,
-  res: VercelResponse,
-): Promise<VercelResponse> {
-  if (req.method !== "GET") {
-    res.setHeader("Allow", "GET");
-    return res.status(405).json({ error: "Método no permitido" });
-  }
-
-  const actorId = await authorizeTeamAdmin(req, res);
-  if (actorId === null) return res;
-
-  try {
-    const client = getServiceClient();
-    const { data, error } = await client.rpc("admin_mfa_cleanups_pending", {
-      p_actor_user_id: actorId,
-    });
-    if (error) return respondRpcError(res, error);
-    if (!Array.isArray(data)) return res.status(500).json(GENERIC_ERROR_BODY);
-    const cleanups: MfaCleanupRow[] = [];
-    for (const row of data) {
-      const parsed = toCleanup(row);
-      if (!parsed) return res.status(500).json(GENERIC_ERROR_BODY);
-      cleanups.push(parsed);
-    }
-    res.setHeader("Cache-Control", "no-store");
-    return res.status(200).json({ cleanups });
-  } catch {
-    return res.status(500).json(GENERIC_ERROR_BODY);
-  }
-}
-
-export async function handleAdminTeamMfaCleanupRetry(
-  req: VercelRequest,
-  res: VercelResponse,
-): Promise<VercelResponse> {
-  if (req.method !== "POST") {
-    res.setHeader("Allow", "POST");
-    return res.status(405).json({ error: "Método no permitido" });
-  }
-
-  // Misma autorización que la retirada: ADMIN con MFA reciente. El actor sale solo del JWT.
-  const actorId = await authorizeTeamAdmin(req, res);
-  if (actorId === null) return res;
-
-  const body = parseJsonBody(req);
-  const targetId = body?.user_id;
-  if (!isUuid(targetId)) {
-    return res.status(400).json(INVALID_BODY);
-  }
-
-  try {
-    const client = getServiceClient();
-    // Solo hay algo que reintentar si la BD tiene una limpieza PENDIENTE para esa persona; sus ids
-    // son los de la instantánea original, nunca los que envíe el cliente.
-    const pending = await readPendingMfaReset(client, targetId);
-    if (!pending) return res.status(404).json(NOT_FOUND_BODY);
-    const outcome = await runMfaResetCleanup(client, targetId, pending);
-    res.setHeader("Cache-Control", "no-store");
-    return res.status(200).json({ user_id: targetId, mfa_reset: summarize(outcome) });
-  } catch {
-    return res.status(500).json(GENERIC_ERROR_BODY);
   }
 }

@@ -2,9 +2,9 @@ import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { usePrivilegedFailureReporter } from "@/hooks/privileged-failure";
 import { supabase } from "@/lib/supabase";
 
-// Limpiezas de MFA pendientes (MFA fase 1) — SOLO LECTURA para Developer. Presenta lo que devuelve
-// GET /api/admin/developer-mfa-cleanups; no hay ninguna acción: el reintento manual sigue en el panel
-// de Admin y el procesamiento automático no se toca. Ocultar o mostrar esta sección NO es una frontera
+// Limpiezas de MFA pendientes (MFA fase 1) para Developer. Presenta lo que devuelve
+// GET /api/admin/developer-mfa-cleanups y permite SOLICITAR el reintento (POST sin cuerpo: el servidor
+// decide a quién; es idempotente). El procesamiento automático no se toca. Ocultar o mostrar esta sección NO es una frontera
 // de seguridad: el servidor exige rol Developer + MFA reciente en cada llamada. No se muestran ids de
 // factores, hashes, tokens ni correos completos (el servidor envía el correo ya enmascarado).
 
@@ -97,6 +97,8 @@ export default function DeveloperCleanupsSection() {
   const [items, setItems] = useState<Cleanup[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [retrying, setRetrying] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
   const mounted = useRef(true);
   const request = useRef(0);
 
@@ -145,6 +147,43 @@ export default function DeveloperCleanupsSection() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  const retry = useCallback(async () => {
+    if (retrying) return;
+    setRetrying(true);
+    setNotice(null);
+    try {
+      const jwt = await token();
+      if (!jwt) {
+        setError("Tu sesión ya no es válida. Inicia sesión de nuevo.");
+        return;
+      }
+      const response = await fetch(ENDPOINT, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${jwt}` },
+      });
+      if (!response.ok) {
+        reportFailure(response);
+        if (mounted.current) setError("No se pudo reintentar la limpieza.");
+        return;
+      }
+      const body = (await response.json().catch(() => null)) as {
+        completed?: unknown;
+        pending?: unknown;
+      } | null;
+      if (!mounted.current) return;
+      setNotice(
+        typeof body?.completed === "number" && typeof body?.pending === "number"
+          ? `Reintento terminado: ${body.completed} completadas, ${body.pending} siguen pendientes.`
+          : "Reintento terminado.",
+      );
+      await load();
+    } catch {
+      if (mounted.current) setError("No se pudo reintentar la limpieza.");
+    } finally {
+      if (mounted.current) setRetrying(false);
+    }
+  }, [retrying, reportFailure, load]);
 
   const pending = (items ?? []).filter((i) => i.status === "pending");
   const history = (items ?? []).filter((i) => i.status === "completed");
@@ -228,9 +267,24 @@ export default function DeveloperCleanupsSection() {
         </button>
       </div>
       <p className="mt-2 text-sm text-text-secondary">
-        Supervisión de solo lectura. El reintento manual sigue en el panel de Admin; esta
-        vista no ejecuta limpiezas ni modifica factores.
+        Supervisión y reintento manual. El reintento solo borra los factores guardados al
+        retirar el rol, nunca factores nuevos.
       </p>
+      {pending.length > 0 ? (
+        <button
+          type="button"
+          className={`${SECONDARY} mt-3`}
+          disabled={retrying || loading}
+          onClick={() => void retry()}
+        >
+          {retrying ? "Reintentando…" : "Reintentar pendientes"}
+        </button>
+      ) : null}
+      {notice ? (
+        <p role="status" className="mt-3 text-sm text-text-secondary">
+          {notice}
+        </p>
+      ) : null}
       {error ? (
         <p role="alert" className="mt-3 text-sm text-accent-live">
           {error}
