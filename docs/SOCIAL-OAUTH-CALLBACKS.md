@@ -30,3 +30,11 @@ Si algún nombre de menú difiere, busca «redirect URI» / «OAuth redirect» e
 2. En Supabase Production (solo lectura): `select provider, scope, updated_at from social_connections;` debe mostrar la fila del proveedor (sin leer los tokens).
 3. `GET /api/tiktok-videos` (o `/api/instagram-feed`) debe pasar de 503 a 200.
 Si la fila no aparece tras ver el mensaje de éxito, revisar los logs de la función (`tiktok-callback` / `instagram-callback`).
+
+## Desconexión y caché pública
+Una respuesta ya almacenada en el CDN de Vercel no ejecuta la función: ni borrar la conexión ni un `no-store` posterior la retiran. Medidas (`src/lib/social-public-cache.ts`):
+- Los endpoints públicos de TikTok/Instagram usan `public, s-maxage=60` **sin** `stale-while-revalidate` (snapshot de respaldo: `s-maxage=30`) y la cabecera `Vercel-Cache-Tag: social-<proveedor>`.
+- Antes de marcar una respuesta como cacheable se confirma que la conexión sigue vigente; si no, 503 `no-store` (cierra la carrera con una petición en vuelo).
+- Al desconectar se invalida por etiqueta (`POST /v1/edge-cache/invalidate-by-tags`) si existen `VERCEL_CACHE_PURGE_TOKEN` y `VERCEL_CACHE_PURGE_PROJECT_ID` (+ `VERCEL_CACHE_PURGE_TEAM_ID`). La respuesta de `social-disconnect` incluye `public_cache: "purged" | "not_configured" | "failed"`; si no es `purged`, la exposición máxima es 60 s y el panel lo avisa.
+- Navegador: el panel descarta el contenido de ese proveedor en la pestaña actual y en las demás del mismo navegador (BroadcastChannel).
+- Copias antiguas (sin etiqueta, creadas antes de este cambio): solo se retiran por su TTL anterior o con un despliegue nuevo / invalidación manual del proyecto.

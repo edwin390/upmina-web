@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { notifySocialDisconnected } from "@/lib/social-content-cache";
 import { supabase } from "@/lib/supabase";
 import { usePrivilegedFailureReporter } from "@/hooks/privileged-failure";
 
@@ -540,7 +541,19 @@ export default function SocialConnectionsSection({
         // Sin actualización optimista: se cierra la confirmación y se RELEE lo que el servidor
         // confirmó (si la relectura falla se muestra el error de carga, nunca "desconectado").
         setConfirming(null);
-        setNotice({ provider, message: `${name} desconectado.` });
+        // El contenido ya cargado (esta y otras pestañas) se descarta sin recargar.
+        notifySocialDisconnected(provider);
+        const body = (await response.json().catch(() => null)) as {
+          public_cache?: unknown;
+        } | null;
+        if (!isMountedRef.current) return;
+        const cleaned = body?.public_cache === "purged";
+        setNotice({
+          provider,
+          message: cleaned
+            ? `${name} desconectado.`
+            : `${name} desconectado. Las copias públicas pueden tardar hasta 1 minuto en desaparecer.`,
+        });
         void loadStatus();
         return;
       }

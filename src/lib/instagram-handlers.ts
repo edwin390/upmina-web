@@ -1,6 +1,11 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { getInstagramAccess } from "./instagram-connection.js";
 import {
+  SOCIAL_SNAPSHOT_CACHE_CONTROL,
+  setSocialPublicCache,
+  socialStillConnected,
+} from "./social-public-cache.js";
+import {
   InstagramPermissionError,
   getInstagramChildren,
   getInstagramComments,
@@ -36,6 +41,11 @@ import {
 // mismos códigos de estado y el mismo saneado de errores. Solo cambió dónde vive el
 // archivo y que ahora es una función nombrada en vez de un default export de api/.
 
+function notConnectedResponse(res: VercelResponse) {
+  res.setHeader("Cache-Control", "no-store");
+  return res.status(503).json({ error: "Instagram no disponible" });
+}
+
 export async function handleInstagramFeed(req: VercelRequest, res: VercelResponse) {
   if (req.method !== "GET") {
     res.setHeader("Allow", "GET");
@@ -52,23 +62,24 @@ export async function handleInstagramFeed(req: VercelRequest, res: VercelRespons
     const access = await getInstagramAccess();
     // La lectura del snapshot empieza ya (en paralelo con Meta), pero solo se servirá si Meta
     // falla de forma transitoria y la fuente sigue vigente.
-    snapshot = openSnapshot(
-      "instagram-feed",
-      access.source,
-      instagramSnapshotOptions(access.source),
-    );
+    const options = instagramSnapshotOptions(access.source);
+    snapshot = openSnapshot("instagram-feed", access.source, options);
     const items = await getInstagramMedia(access.accessToken);
 
     // `[]` (la cuenta no tiene publicaciones) es un vacío autoritativo y también se guarda.
     await snapshot.save(items);
 
-    res.setHeader("Cache-Control", "s-maxage=900, stale-while-revalidate=1800");
+    // Desconexión durante la petición: no se entrega ni se cachea contenido de una cuenta ya desconectada.
+    if (access.source !== undefined && !(await socialStillConnected(options.confirm)))
+      return notConnectedResponse(res);
+    setSocialPublicCache(res, "instagram");
     return res.status(200).json(items);
   } catch (err) {
     logInstagramError("instagram-feed", err);
     const stale = await snapshot.fallback(err);
     if (stale) {
       sendSnapshotHeaders(res);
+      setSocialPublicCache(res, "instagram", SOCIAL_SNAPSHOT_CACHE_CONTROL);
       return res.status(200).json(stale.value);
     }
     return res
@@ -92,22 +103,22 @@ export async function handleInstagramProfile(req: VercelRequest, res: VercelResp
 
   try {
     const access = await getInstagramAccess();
-    snapshot = openSnapshot(
-      "instagram-profile",
-      access.source,
-      instagramSnapshotOptions(access.source),
-    );
+    const options = instagramSnapshotOptions(access.source);
+    snapshot = openSnapshot("instagram-profile", access.source, options);
     const profile = await getInstagramProfile(access.accessToken);
 
     await snapshot.save(profile);
 
-    res.setHeader("Cache-Control", "s-maxage=3600, stale-while-revalidate=7200");
+    if (access.source !== undefined && !(await socialStillConnected(options.confirm)))
+      return notConnectedResponse(res);
+    setSocialPublicCache(res, "instagram");
     return res.status(200).json(profile);
   } catch (err) {
     logInstagramError("instagram-profile", err);
     const stale = await snapshot.fallback(err);
     if (stale) {
       sendSnapshotHeaders(res);
+      setSocialPublicCache(res, "instagram", SOCIAL_SNAPSHOT_CACHE_CONTROL);
       return res.status(200).json(stale.value);
     }
     return res
@@ -132,7 +143,7 @@ export async function handleInstagramMedia(req: VercelRequest, res: VercelRespon
   try {
     const children = await getInstagramChildren(id);
 
-    res.setHeader("Cache-Control", "s-maxage=900, stale-while-revalidate=1800");
+    setSocialPublicCache(res, "instagram");
     return res.status(200).json({ children });
   } catch (err) {
     logInstagramError("instagram-media", err);
@@ -161,7 +172,7 @@ export async function handleInstagramComments(req: VercelRequest, res: VercelRes
   try {
     const result = await getInstagramComments(id);
 
-    res.setHeader("Cache-Control", "s-maxage=300, stale-while-revalidate=600");
+    setSocialPublicCache(res, "instagram");
     return res.status(200).json(result);
   } catch (err) {
     logInstagramError("instagram-comments", err);

@@ -220,7 +220,7 @@ describe("api/tiktok-videos: conexión guardada", () => {
         createTime: new Date(1_790_000_000 * 1000).toISOString(),
       },
     ]);
-    expect(state.headers["Cache-Control"]).toMatch(/s-maxage=1800/);
+    expect(state.headers["Cache-Control"]).toMatch(/^public, s-maxage=60$/);
     expect(leaked(state)).toBe(false);
     expect(errorSpy).not.toHaveBeenCalled();
   });

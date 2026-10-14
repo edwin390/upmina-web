@@ -319,6 +319,7 @@ describe("desconexión: resultado", () => {
         provider: "instagram",
         status: "not_connected",
         was_connected: true,
+        public_cache: "purged",
       });
     };
 

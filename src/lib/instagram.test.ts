@@ -747,7 +747,7 @@ describe("api/instagram-profile", () => {
     expect(state.status).toBe(200);
     // Solo el contrato: no se reenvían campos extra de Meta.
     expect(state.body).toEqual({ username: "upminaa", profilePictureUrl: IMG });
-    expect(state.headers["Cache-Control"]).toMatch(/s-maxage=3600/);
+    expect(state.headers["Cache-Control"]).toMatch(/^public, s-maxage=60$/);
     expect(JSON.stringify(state.body)).not.toContain(TOKEN);
   });
 

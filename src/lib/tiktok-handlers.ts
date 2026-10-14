@@ -15,6 +15,11 @@ import {
   verifyTikTokState,
 } from "./tiktok-shared.js";
 import { socialPageKind } from "./social-oauth-page.js";
+import {
+  SOCIAL_SNAPSHOT_CACHE_CONTROL,
+  setSocialPublicCache,
+  socialStillConnected,
+} from "./social-public-cache.js";
 import { AdminAuthError, requireCapabilityForUser } from "./admin-auth.js";
 import { isProductionEnvironment } from "./instagram-oauth-shared.js";
 import { claimSocialOAuthFlow, isSocialOAuthFlowCurrent } from "./social-oauth-flow.js";
@@ -353,7 +358,15 @@ export async function handleTikTokVideos(req: VercelRequest, res: VercelResponse
     // `[]` (TikTok respondió sin videos) es un vacío autoritativo y también se guarda.
     await snapshot.save(videos);
 
-    res.setHeader("Cache-Control", "s-maxage=1800, stale-while-revalidate=3600");
+    // Desconexión durante la petición: no se entrega ni se cachea contenido de una cuenta ya desconectada.
+    if (
+      source !== undefined &&
+      !(await socialStillConnected(tiktokSnapshotOptions(source).confirm))
+    ) {
+      res.setHeader("Cache-Control", "no-store");
+      return res.status(503).json({ error: ERROR_MESSAGE });
+    }
+    setSocialPublicCache(res, "tiktok");
     return res.status(200).json(videos);
   } catch (err) {
     // TikTok rechazó el access token (401 access_token_invalid): se marca para que la siguiente
@@ -383,6 +396,7 @@ export async function handleTikTokVideos(req: VercelRequest, res: VercelResponse
     const stale = await snapshot.fallback(err);
     if (stale) {
       sendSnapshotHeaders(res);
+      setSocialPublicCache(res, "tiktok", SOCIAL_SNAPSHOT_CACHE_CONTROL);
       return res.status(200).json(stale.value);
     }
     return res.status(status).json({ error: ERROR_MESSAGE });

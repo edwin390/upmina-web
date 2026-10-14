@@ -3,6 +3,7 @@ import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { AdminAuthError, authErrorBody, requireCapability } from "./admin-auth.js";
 import { isProductionEnvironment } from "./instagram-oauth-shared.js";
 import { deleteSocialSnapshots } from "./public-snapshots.js";
+import { purgeSocialPublicCache } from "./social-public-cache.js";
 import { getTikTokCredentials, revokeTikTokToken } from "./tiktok-shared.js";
 
 // Handler HTTP de POST /api/admin/social-disconnect (Fase 9H-3): desconecta Instagram o TikTok.
@@ -17,7 +18,9 @@ import { getTikTokCredentials, revokeTikTokToken } from "./tiktok-shared.js";
 // Contrato:
 //   Request : POST, `Authorization: Bearer <access token>`, body JSON exactamente
 //             { "provider": "instagram" | "tiktok" }. Cualquier otra forma → 400.
-//   200     : { provider, status: "not_connected", was_connected } (Cache-Control: no-store).
+//   200     : { provider, status: "not_connected", was_connected, public_cache } (Cache-Control: no-store).
+//             public_cache: "purged" | "not_configured" | "failed" (copias del CDN; si no es "purged" pueden
+//             persistir hasta SOCIAL_CACHE_TTL_SECONDS).
 //             IDEMPOTENTE: si ya estaba desconectado (o una petición concurrente ganó) también es
 //             200 con was_connected=false. Nunca crea ni restaura credenciales.
 //   400 body/provider inválido · 401/403 auth · 403 fuera de Production · 405 método (Allow: POST)
@@ -139,6 +142,13 @@ export async function handleAdminSocialDisconnect(
     console.error("[social-disconnect] limpieza de snapshots no confirmada");
   }
 
+  // Copias públicas del borde (CDN): invalidación por etiqueta. Si no se puede confirmar, no se considera una
+  // limpieza completa: la respuesta lo indica y la exposición queda acotada por el TTL corto (sin stale).
+  const publicCache = await purgeSocialPublicCache(provider);
+  if (publicCache === "failed") {
+    console.error("[social-disconnect] invalidación de la caché pública no confirmada");
+  }
+
   // TikTok: revocación remota best effort tras el borrado local; nunca cambia el resultado.
   if (provider === "tiktok" && deleted.existed && deleted.accessToken) {
     let revoked = false;
@@ -157,5 +167,6 @@ export async function handleAdminSocialDisconnect(
     provider,
     status: "not_connected",
     was_connected: deleted.existed,
+    public_cache: publicCache,
   });
 }

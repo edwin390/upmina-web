@@ -6,6 +6,7 @@ import { HeroUIProvider } from "@heroui/react";
 import App from "./App";
 import ActionNotice from "./components/ActionNotice";
 import CommunityVisibilitySync from "./components/CommunityVisibilitySync";
+import { installSocialContentCacheListener } from "./lib/social-content-cache";
 import "./styles/globals.css";
 
 const queryClient = new QueryClient({
@@ -16,6 +17,8 @@ const queryClient = new QueryClient({
     },
   },
 });
+
+installSocialContentCacheListener(queryClient);
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>

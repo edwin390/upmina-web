@@ -53,9 +53,9 @@ const OTHER_CONNECTION_ID = "9c1d2e3f-4a5b-4c6d-8e7f-a0b1c2d3e4f5";
 const USER_ID = "17841400000000001";
 const SOURCE = socialSourceId("instagram", CONNECTION_ID, USER_ID)!;
 const TOKEN = "IGAA-token-ficticio-secreto";
-const SHORT_CACHE = "s-maxage=60, stale-while-revalidate=120";
-const FEED_CACHE = "s-maxage=900, stale-while-revalidate=1800";
-const PROFILE_CACHE = "s-maxage=3600, stale-while-revalidate=7200";
+const SHORT_CACHE = "public, s-maxage=30";
+const FEED_CACHE = "public, s-maxage=60";
+const PROFILE_CACHE = "public, s-maxage=60";
 
 const IMG =
   "https://scontent-iad3-2.cdninstagram.com/v/t51.29350-15/synthetic.jpg?oe=6A2C3D4E";

@@ -418,6 +418,7 @@ describe("desconexión de Instagram (solo local)", () => {
       provider: "instagram",
       status: "not_connected",
       was_connected: true,
+      public_cache: "not_configured",
     });
     expect(state.headers["Cache-Control"]).toBe("no-store");
     expect(db.rows.has("instagram")).toBe(false);
@@ -442,6 +443,7 @@ describe("desconexión de Instagram (solo local)", () => {
       provider: "instagram",
       status: "not_connected",
       was_connected: false,
+      public_cache: "not_configured",
     });
     expect(db.upserts).toBe(0);
     expect(fetchMock).not.toHaveBeenCalled();
@@ -480,6 +482,7 @@ describe("desconexión de TikTok (local + revocación remota best effort)", () =
       provider: "tiktok",
       status: "not_connected",
       was_connected: true,
+      public_cache: "not_configured",
     });
     expect(db.rows.has("tiktok")).toBe(false);
     expect(db.rows.has("instagram")).toBe(true);
@@ -660,6 +663,7 @@ describe("limpieza de snapshots (9H-4): secundaria, acotada y nunca deshace la d
         provider: "instagram",
         status: "not_connected",
         was_connected: true,
+        public_cache: "not_configured",
       });
       // La conexión ya no existe: es lo que impide servir el snapshot que quedó.
       expect(db.rows.has("instagram")).toBe(false);
@@ -792,5 +796,36 @@ describe("secretos", () => {
     ]) {
       expect(everything).not.toContain(secret);
     }
+  });
+});
+
+describe("invalidación de la caché pública del CDN al desconectar", () => {
+  const configure = () => {
+    vi.stubEnv("VERCEL_CACHE_PURGE_TOKEN", "tok_sintetico_no_real");
+    vi.stubEnv("VERCEL_CACHE_PURGE_PROJECT_ID", "prj_sintetico");
+  };
+  const purgeCalls = () =>
+    fetchMock.mock.calls.filter(([u]) => String(u).includes("invalidate-by-tags"));
+
+  it("configurada: invalida solo la etiqueta del proveedor y lo indica", async () => {
+    configure();
+    fetchMock.mockImplementation(async () => ({ ok: true, status: 200 }) as Response);
+    const state = await call(req({ body: { provider: "instagram" } }));
+    expect(state.status).toBe(200);
+    expect((state.body as { public_cache: string }).public_cache).toBe("purged");
+    expect(purgeCalls()).toHaveLength(1);
+    expect(JSON.parse(String((purgeCalls()[0][1] as RequestInit).body))).toEqual({
+      tags: ["social-instagram"],
+    });
+    expect(JSON.stringify(state.body)).not.toContain("tok_sintetico");
+  });
+
+  it("si la invalidación falla, la desconexión sigue siendo efectiva pero NO se declara limpia", async () => {
+    configure();
+    fetchMock.mockImplementation(async () => ({ ok: false, status: 500 }) as Response);
+    const state = await call(req({ body: { provider: "instagram" } }));
+    expect(state.status).toBe(200);
+    expect((state.body as { public_cache: string }).public_cache).toBe("failed");
+    expect(db.rows.has("instagram")).toBe(false);
   });
 });
