@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
-  INSTAGRAM_REDIRECT_URI,
+  instagramRedirectUri,
   INSTAGRAM_STATE_TTL_MS,
   InstagramOAuthError,
   buildInstagramAuthorizeUrl,
@@ -99,7 +99,7 @@ describe("buildInstagramAuthorizeUrl", () => {
 
     expect(url.origin + url.pathname).toBe("https://www.instagram.com/oauth/authorize");
     expect(url.searchParams.get("client_id")).toBe(APP_ID);
-    expect(url.searchParams.get("redirect_uri")).toBe(INSTAGRAM_REDIRECT_URI);
+    expect(url.searchParams.get("redirect_uri")).toBe(instagramRedirectUri());
     expect(url.searchParams.get("response_type")).toBe("code");
     expect(url.searchParams.get("state")).toBe("el-state");
     expect(url.searchParams.get("scope")).toBe(
@@ -232,7 +232,7 @@ describe("exchangeInstagramCode (code -> short-lived token)", () => {
     expect(body.get("client_id")).toBe(APP_ID);
     expect(body.get("client_secret")).toBe(APP_SECRET);
     expect(body.get("grant_type")).toBe("authorization_code");
-    expect(body.get("redirect_uri")).toBe(INSTAGRAM_REDIRECT_URI);
+    expect(body.get("redirect_uri")).toBe(instagramRedirectUri());
     expect(body.get("code")).toBe(CODE);
   });
 

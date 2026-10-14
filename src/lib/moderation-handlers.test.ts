@@ -887,6 +887,7 @@ describe("9K-2 authoritative HTTP contract", () => {
 
 beforeEach(() => {
   vi.stubEnv("VITE_SUPABASE_URL", "https://proyecto-ficticio.supabase.co");
+  vi.stubEnv("VITE_SUPABASE_ANON_KEY", "anon-ficticia");
   vi.stubEnv("SUPABASE_SERVICE_ROLE_KEY", "srk-service-role-ficticia");
   fake.roles = { [ADMIN_ID]: "admin", [MOD_ID]: "moderator", [DEV_ID]: "developer" };
   fake.reports = [];

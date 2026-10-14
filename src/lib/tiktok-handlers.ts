@@ -14,6 +14,7 @@ import {
   tikTokErrorStatus,
   verifyTikTokState,
 } from "./tiktok-shared.js";
+import { socialPageKind } from "./social-oauth-page.js";
 import { AdminAuthError, requireCapabilityForUser } from "./admin-auth.js";
 import { isProductionEnvironment } from "./instagram-oauth-shared.js";
 import { claimSocialOAuthFlow, isSocialOAuthFlowCurrent } from "./social-oauth-flow.js";
@@ -71,12 +72,13 @@ function callbackPage(
   title: string,
   message: string,
 ) {
+  const kind = socialPageKind(status, title);
   for (const [name, value] of Object.entries(TIKTOK_PAGE_HEADERS)) {
     res.setHeader(name, value);
   }
   // La cookie de state es de un solo uso: se borra en cualquier desenlace.
   res.setHeader("Set-Cookie", clearStateCookie());
-  return res.status(status).send(renderTikTokPage(title, message));
+  return res.status(status).send(renderTikTokPage(title, message, kind));
 }
 
 // Redirect URI del OAuth de TikTok. Valida `state`, intercambia el code por tokens y los
@@ -94,8 +96,8 @@ export async function handleTikTokCallback(req: VercelRequest, res: VercelRespon
     return callbackPage(
       res,
       403,
-      "No disponible",
-      "La conexión de TikTok solo puede completarse en Production.",
+      "Not available here",
+      "TikTok can only be connected from the official site.",
     );
   }
 
@@ -111,8 +113,8 @@ export async function handleTikTokCallback(req: VercelRequest, res: VercelRespon
       return callbackPage(
         res,
         400,
-        "Autorización no completada",
-        "La autorización de TikTok fue cancelada o rechazada.",
+        "Authorization cancelled",
+        "The TikTok authorization was cancelled or declined. You can try again whenever you like.",
       );
     }
 
@@ -174,16 +176,16 @@ export async function handleTikTokCallback(req: VercelRequest, res: VercelRespon
       return callbackPage(
         res,
         err instanceof TikTokStorageError ? err.status : 500,
-        "Autorización recibida, pero no guardada",
-        "TikTok autorizó la cuenta, pero no se pudo guardar la conexión. Inicia el proceso de nuevo más tarde.",
+        "We couldn't save the connection",
+        "TikTok approved the request, but we couldn't save the connection. Please try again later.",
       );
     }
 
     return callbackPage(
       res,
       200,
-      "Autorización completada",
-      "TikTok autorizó la cuenta y la conexión quedó guardada. Ya puedes cerrar esta ventana.",
+      "Account connected",
+      "TikTok account connected successfully. You can close this window.",
     );
   } catch (err) {
     if (err instanceof TikTokStorageError) {
@@ -191,8 +193,8 @@ export async function handleTikTokCallback(req: VercelRequest, res: VercelRespon
       return callbackPage(
         res,
         err.status,
-        "Almacenamiento no disponible",
-        "La integración con TikTok no está lista para guardar la conexión. Inténtalo más tarde.",
+        "Connection unavailable",
+        "The TikTok connection isn't ready right now. Please try again later.",
       );
     }
     logTikTokError("tiktok-callback", err);
@@ -200,10 +202,10 @@ export async function handleTikTokCallback(req: VercelRequest, res: VercelRespon
     return callbackPage(
       res,
       status,
-      "No se pudo completar la autorización",
+      "We couldn't connect your account",
       status === 400
-        ? "La solicitud de autorización no es válida o caducó. Inicia el proceso de nuevo."
-        : "No se pudo completar la autorización con TikTok. Inténtalo de nuevo más tarde.",
+        ? "Your authorization expired or is no longer valid. Please start again and try again."
+        : "We couldn't complete the connection with TikTok. Please try again later.",
     );
   }
 }

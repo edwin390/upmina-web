@@ -1,4 +1,10 @@
 import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
+import { socialRedirectUri } from "./social-oauth-config.js";
+import {
+  SOCIAL_PAGE_HEADERS,
+  renderSocialOAuthPage,
+  type SocialPageKind,
+} from "./social-oauth-page.js";
 
 // Infraestructura OAuth de Instagram compartida por el inicio protegido
 // (src/lib/social-connect-handlers.ts) y api/instagram-callback.ts. Vive en src/lib por la misma razón que tiktok-shared.ts:
@@ -35,8 +41,8 @@ export const INSTAGRAM_REFRESH_URL = "https://graph.instagram.com/refresh_access
 
 /** Redirect URI registrada en la app de Meta; debe coincidir exactamente y NUNCA derivarse
  *  del Host de la petición (evita que Preview genere un redirect_uri distinto). */
-export const INSTAGRAM_REDIRECT_URI =
-  "https://upmina-web.vercel.app/api/instagram-callback";
+export const instagramRedirectUri = (env?: NodeJS.ProcessEnv) =>
+  socialRedirectUri("/api/instagram-callback", env);
 
 /** Únicos scopes solicitados. */
 export const INSTAGRAM_OAUTH_SCOPES = [
@@ -97,7 +103,7 @@ export function safeCode(value: unknown): string | undefined {
 // Preview y Production comparten el mismo proyecto Supabase: un OAuth de prueba en
 // Preview podría sobreescribir la conexión de Instagram de Production. `VERCEL_ENV` lo
 // inyecta Vercel automáticamente (no se define en .env); combinado con el
-// INSTAGRAM_REDIRECT_URI fijo de arriba, ninguna petición desde Preview puede completar
+// origen explícito de social-oauth-config.ts, ninguna petición desde Preview puede completar
 // un OAuth real ni tocar Supabase.
 
 export function isProductionEnvironment(): boolean {
@@ -202,7 +208,7 @@ export function readStateCookie(cookieHeader: string | undefined): string | unde
 export function buildInstagramAuthorizeUrl(appId: string, state: string): string {
   const url = new URL(INSTAGRAM_AUTHORIZE_URL);
   url.searchParams.set("client_id", appId);
-  url.searchParams.set("redirect_uri", INSTAGRAM_REDIRECT_URI);
+  url.searchParams.set("redirect_uri", instagramRedirectUri());
   url.searchParams.set("response_type", "code");
   url.searchParams.set("scope", INSTAGRAM_OAUTH_SCOPES.join(","));
   url.searchParams.set("state", state);
@@ -282,7 +288,7 @@ export async function exchangeInstagramCode(
         client_id: appId,
         client_secret: appSecret,
         grant_type: "authorization_code",
-        redirect_uri: INSTAGRAM_REDIRECT_URI,
+        redirect_uri: instagramRedirectUri(),
         code,
       }),
       signal: AbortSignal.timeout(TOKEN_REQUEST_TIMEOUT_MS),
@@ -531,41 +537,14 @@ export function instagramOAuthErrorStatus(err: unknown): number {
   return err instanceof InstagramOAuthError ? err.status : 502;
 }
 
-function escapeHtml(text: string): string {
-  return text.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
-}
-
 /** Página HTML mínima y estática (sin datos del proveedor ni del usuario). */
-export function renderInstagramPage(title: string, message: string): string {
-  return `<!doctype html>
-<html lang="es">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="robots" content="noindex">
-<title>${escapeHtml(title)} · UPMINAA</title>
-<style>
-body{margin:0;min-height:100vh;display:grid;place-items:center;background:#0b0b12;color:#f4f4f8;font-family:system-ui,sans-serif}
-main{max-width:28rem;padding:2rem;text-align:center}
-a{color:#7dd3fc}
-</style>
-</head>
-<body>
-<main>
-<h1>${escapeHtml(title)}</h1>
-<p>${escapeHtml(message)}</p>
-<p><a href="/admin">Volver al panel</a></p>
-</main>
-</body>
-</html>
-`;
+export function renderInstagramPage(
+  title: string,
+  message: string,
+  kind: SocialPageKind = "error",
+): string {
+  return renderSocialOAuthPage(title, message, kind);
 }
 
 /** Cabeceras comunes de las respuestas HTML del flujo OAuth. */
-export const INSTAGRAM_PAGE_HEADERS: Record<string, string> = {
-  "Content-Type": "text/html; charset=utf-8",
-  "Cache-Control": "no-store",
-  "Referrer-Policy": "no-referrer",
-  "X-Content-Type-Options": "nosniff",
-  "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'",
-};
+export const INSTAGRAM_PAGE_HEADERS: Record<string, string> = SOCIAL_PAGE_HEADERS;

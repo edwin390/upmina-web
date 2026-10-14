@@ -434,17 +434,17 @@ describe("validación defensiva de la URL (antes de persistir)", () => {
     [
       "host ajeno",
       (_id, s) =>
-        `https://evil.example/oauth/authorize?redirect_uri=${encodeURIComponent("https://upmina-web.vercel.app/api/instagram-callback")}&state=${s}`,
+        `https://evil.example/oauth/authorize?redirect_uri=${encodeURIComponent("https://upminaa-web.com/api/instagram-callback")}&state=${s}`,
     ],
     [
       "http en vez de https",
       (_id, s) =>
-        `http://www.instagram.com/oauth/authorize?redirect_uri=${encodeURIComponent("https://upmina-web.vercel.app/api/instagram-callback")}&state=${s}`,
+        `http://www.instagram.com/oauth/authorize?redirect_uri=${encodeURIComponent("https://upminaa-web.com/api/instagram-callback")}&state=${s}`,
     ],
     [
       "ruta distinta",
       (_id, s) =>
-        `https://www.instagram.com/otra/ruta?redirect_uri=${encodeURIComponent("https://upmina-web.vercel.app/api/instagram-callback")}&state=${s}`,
+        `https://www.instagram.com/otra/ruta?redirect_uri=${encodeURIComponent("https://upminaa-web.com/api/instagram-callback")}&state=${s}`,
     ],
     [
       "redirect_uri distinto",
@@ -454,7 +454,7 @@ describe("validación defensiva de la URL (antes de persistir)", () => {
     [
       "credenciales en la URL",
       (_id, s) =>
-        `https://user:pass@www.instagram.com/oauth/authorize?redirect_uri=${encodeURIComponent("https://upmina-web.vercel.app/api/instagram-callback")}&state=${s}`,
+        `https://user:pass@www.instagram.com/oauth/authorize?redirect_uri=${encodeURIComponent("https://upminaa-web.com/api/instagram-callback")}&state=${s}`,
     ],
     ["no es una URL", () => "no-es-una-url"],
   ];
@@ -471,7 +471,7 @@ describe("validación defensiva de la URL (antes de persistir)", () => {
     [
       "host ajeno",
       (_id: string, s: string) =>
-        `https://evil.example/v2/auth/authorize/?redirect_uri=${encodeURIComponent("https://upmina-web.vercel.app/api/tiktok-callback")}&state=${s}`,
+        `https://evil.example/v2/auth/authorize/?redirect_uri=${encodeURIComponent("https://upminaa-web.com/api/tiktok-callback")}&state=${s}`,
     ],
     [
       "redirect_uri distinto",
@@ -481,7 +481,7 @@ describe("validación defensiva de la URL (antes de persistir)", () => {
     [
       "ruta distinta",
       (_id: string, s: string) =>
-        `https://www.tiktok.com/otra/?redirect_uri=${encodeURIComponent("https://upmina-web.vercel.app/api/tiktok-callback")}&state=${s}`,
+        `https://www.tiktok.com/otra/?redirect_uri=${encodeURIComponent("https://upminaa-web.com/api/tiktok-callback")}&state=${s}`,
     ],
   ])("TikTok: %s → 500, sin flujo ni cookie", async (_n, build) => {
     fake.ttUrl = build;
@@ -514,7 +514,7 @@ describe("éxito: Instagram", () => {
     );
     expect(url.searchParams.get("client_id")).toBe(IG_APP_ID);
     expect(url.searchParams.get("redirect_uri")).toBe(
-      "https://upmina-web.vercel.app/api/instagram-callback",
+      "https://upminaa-web.com/api/instagram-callback",
     );
     expect(url.searchParams.get("response_type")).toBe("code");
     expect(url.searchParams.get("scope")).toBe(
@@ -558,7 +558,7 @@ describe("éxito: TikTok", () => {
     );
     expect(url.searchParams.get("client_key")).toBe(TT_KEY);
     expect(url.searchParams.get("redirect_uri")).toBe(
-      "https://upmina-web.vercel.app/api/tiktok-callback",
+      "https://upminaa-web.com/api/tiktok-callback",
     );
     expect(url.searchParams.get("response_type")).toBe("code");
     expect(url.searchParams.get("scope")).toBe("user.info.basic,video.list");

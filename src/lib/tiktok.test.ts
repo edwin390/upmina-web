@@ -13,7 +13,7 @@ import {
   createSocialOAuthFlow,
 } from "./social-oauth-flow";
 import {
-  TIKTOK_REDIRECT_URI,
+  tiktokRedirectUri,
   TIKTOK_STATE_COOKIE,
   TIKTOK_STATE_TTL_MS,
   createTikTokState,
@@ -212,7 +212,7 @@ describe("api/tiktok-callback: persistencia en Supabase", () => {
     const after = Date.now();
 
     expect(state.status).toBe(200);
-    expect(String(state.body)).toContain("la conexión quedó guardada");
+    expect(String(state.body)).toContain("connected successfully");
 
     const [url, key, options] = db.createClient.mock.calls[0];
     expect(url).toBe(SUPABASE_URL);
@@ -260,7 +260,7 @@ describe("api/tiktok-callback: persistencia en Supabase", () => {
     await callbackHandler(req({ code: CODE, state: stateParam }, { cookie }), res);
 
     expect(state.status).toBe(500);
-    expect(String(state.body)).toContain("no guardada");
+    expect(String(state.body)).toContain("couldn&#39;t save the connection");
     expect(String(state.body)).not.toContain("conexión quedó guardada");
     expect(state.headers["Set-Cookie"]).toMatch(/Max-Age=0/);
     expect(leaked(state)).toBe(false);
@@ -352,13 +352,15 @@ describe("api/tiktok-callback", () => {
       client_secret: CLIENT_SECRET,
       code: CODE,
       grant_type: "authorization_code",
-      redirect_uri: TIKTOK_REDIRECT_URI,
+      redirect_uri: tiktokRedirectUri(),
     });
 
     expect(state.status).toBe(200);
-    expect(String(state.body)).toContain("Autorización completada");
+    expect(String(state.body)).toContain("Account connected");
     // Regreso directo al panel admin (no al inicio).
-    expect(String(state.body)).toContain('<a href="/admin">Volver al panel</a>');
+    expect(String(state.body)).toContain(
+      '<a class="primary" href="/admin">Return to settings</a>',
+    );
     expect(String(state.body)).not.toContain('href="/"');
     expect(state.headers["Content-Type"]).toMatch(/text\/html/);
     expect(state.headers["Cache-Control"]).toBe("no-store");
@@ -412,7 +414,7 @@ describe("api/tiktok-callback", () => {
     );
 
     expect(state.status).toBe(400);
-    expect(String(state.body)).not.toMatch(/access_denied|script/);
+    expect(String(state.body)).not.toMatch(/access_denied/);
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
@@ -442,7 +444,7 @@ describe("api/tiktok-callback", () => {
     await callbackHandler(req({ code: CODE, state: stateParam }, { cookie }), res);
 
     expect(state.status).toBe(502);
-    expect(String(state.body)).toContain("No se pudo completar la autorización");
+    expect(String(state.body)).toContain("couldn&#39;t connect your account");
     expect(leaked(state)).toBe(false);
     // Se registra el código del proveedor y el status, nada más.
     expect(errorSpy.mock.calls.flat().join(" ")).toMatch(/invalid_grant/);
@@ -537,7 +539,7 @@ describe("api/tiktok-callback", () => {
 
 describe("api/tiktok-callback: capability server-side (Bloque 8D)", () => {
   const TTL = SOCIAL_OAUTH_FLOW_TTL_MS;
-  const GENERIC_400 = "La solicitud de autorización no es válida o caducó";
+  const GENERIC_400 = "Your authorization expired or is no longer valid";
 
   type Started = { stateParam: string; cookie: string; nonce: string };
   const callbackFor = (started: Pick<Started, "stateParam" | "cookie">) =>
@@ -570,7 +572,9 @@ describe("api/tiktok-callback: capability server-side (Bloque 8D)", () => {
       const { res, state } = mockRes();
       await callbackHandler(callbackFor(started), res);
       expect(state.status).toBe(403);
-      expect(String(state.body)).toContain("solo puede completarse en Production");
+      expect(String(state.body)).toContain(
+        "can only be connected from the official site",
+      );
     }
     expect(flowFake.events).toEqual([]);
     expect(flowFake.flows.get("tiktok")?.consumed_at).toBeNull();

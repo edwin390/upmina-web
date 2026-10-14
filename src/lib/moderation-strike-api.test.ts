@@ -185,6 +185,7 @@ afterAll(async () => {
 });
 beforeEach(async () => {
   vi.stubEnv("VITE_SUPABASE_URL", "https://proyecto-ficticio.supabase.co");
+  vi.stubEnv("VITE_SUPABASE_ANON_KEY", "anon-ficticia");
   vi.stubEnv("SUPABASE_SERVICE_ROLE_KEY", "srk-service-role-ficticia");
   h.rpcLog.length = 0;
   h.tables.length = 0;

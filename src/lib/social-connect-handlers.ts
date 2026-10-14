@@ -2,7 +2,7 @@ import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { AdminAuthError, authErrorBody, requireCapability } from "./admin-auth.js";
 import {
   INSTAGRAM_AUTHORIZE_URL,
-  INSTAGRAM_REDIRECT_URI,
+  instagramRedirectUri,
   buildInstagramAuthorizeUrl,
   createInstagramState,
   getInstagramOAuthCredentials,
@@ -12,7 +12,7 @@ import {
 import { createSocialOAuthFlow, type SocialOAuthProvider } from "./social-oauth-flow.js";
 import {
   TIKTOK_AUTHORIZE_URL,
-  TIKTOK_REDIRECT_URI,
+  tiktokRedirectUri,
   buildTikTokAuthorizeUrl,
   createTikTokState,
   getTikTokCredentials,
@@ -49,7 +49,7 @@ const BAD_REQUEST_BODY = { error: "Solicitud inválida" };
 
 interface ProviderAdapter {
   authorizeUrl: string;
-  redirectUri: string;
+  redirectUri: () => string;
   /** Identificador público y secreto de la app; lanza si falta configuración. */
   credentials: () => { id: string; secret: string };
   createState: (secret: string) => { state: string; nonce: string };
@@ -60,7 +60,7 @@ interface ProviderAdapter {
 const PROVIDERS: Record<SocialOAuthProvider, ProviderAdapter> = {
   instagram: {
     authorizeUrl: INSTAGRAM_AUTHORIZE_URL,
-    redirectUri: INSTAGRAM_REDIRECT_URI,
+    redirectUri: instagramRedirectUri,
     credentials: () => {
       const { appId, appSecret } = getInstagramOAuthCredentials();
       return { id: appId, secret: appSecret };
@@ -71,7 +71,7 @@ const PROVIDERS: Record<SocialOAuthProvider, ProviderAdapter> = {
   },
   tiktok: {
     authorizeUrl: TIKTOK_AUTHORIZE_URL,
-    redirectUri: TIKTOK_REDIRECT_URI,
+    redirectUri: tiktokRedirectUri,
     credentials: () => {
       const { clientKey, clientSecret } = getTikTokCredentials();
       return { id: clientKey, secret: clientSecret };
@@ -119,13 +119,19 @@ function isExpectedAuthorizationUrl(url: string, adapter: ProviderAdapter): bool
     return false;
   }
   const expected = new URL(adapter.authorizeUrl);
+  let expectedRedirect: string;
+  try {
+    expectedRedirect = adapter.redirectUri();
+  } catch {
+    return false;
+  }
   return (
     parsed.protocol === "https:" &&
     parsed.host === expected.host &&
     parsed.pathname === expected.pathname &&
     parsed.username === "" &&
     parsed.password === "" &&
-    parsed.searchParams.get("redirect_uri") === adapter.redirectUri
+    parsed.searchParams.get("redirect_uri") === expectedRedirect
   );
 }
 

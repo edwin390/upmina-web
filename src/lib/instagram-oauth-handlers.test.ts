@@ -200,9 +200,11 @@ describe("api/instagram-callback", () => {
     await callbackHandler(await validCallbackReq(), res);
 
     expect(state.status).toBe(200);
-    expect(state.html).toContain("Instagram conectado correctamente");
+    expect(state.html).toContain("Instagram account connected successfully");
     // Regreso directo al panel admin (no al inicio).
-    expect(state.html).toContain('<a href="/admin">Volver al panel</a>');
+    expect(state.html).toContain(
+      '<a class="primary" href="/admin">Return to settings</a>',
+    );
     expect(state.html).not.toContain('href="/"');
     expect(state.headers["Set-Cookie"]).toContain("instagram_oauth_state=;");
     expect(state.headers["Set-Cookie"]).toContain("Max-Age=0");
@@ -507,7 +509,7 @@ describe("api/instagram-callback: capability server-side (Bloque 8D)", () => {
     expect(flowFake.events).not.toContain("persist");
   }
 
-  const GENERIC_400 = "La solicitud de autorización no es válida o caducó";
+  const GENERIC_400 = "Your authorization expired or is no longer valid";
 
   it("fuera de Production → 403 ANTES de reclamar el flujo (sin claim, roles, exchange ni escritura)", async () => {
     vi.stubEnv("VERCEL_ENV", "preview");

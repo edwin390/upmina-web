@@ -21,6 +21,7 @@ import {
   saveInstagramConnection,
 } from "../src/lib/instagram-connection.js";
 import { AdminAuthError, requireCapabilityForUser } from "../src/lib/admin-auth.js";
+import { socialPageKind } from "../src/lib/social-oauth-page.js";
 import {
   claimSocialOAuthFlow,
   isSocialOAuthFlowCurrent,
@@ -42,6 +43,7 @@ async function failClosed<T>(operation: () => Promise<T>): Promise<T> {
 }
 
 function page(res: VercelResponse, status: number, title: string, message: string) {
+  const kind = socialPageKind(status, title);
   for (const [name, value] of Object.entries(INSTAGRAM_PAGE_HEADERS)) {
     res.setHeader(name, value);
   }
@@ -50,7 +52,7 @@ function page(res: VercelResponse, status: number, title: string, message: strin
   // callback (mismo state reenviado con la cookie original) la da
   // claimInstagramOAuthNonce, no esta cookie por sí sola.
   res.setHeader("Set-Cookie", clearStateCookie());
-  return res.status(status).send(renderInstagramPage(title, message));
+  return res.status(status).send(renderInstagramPage(title, message, kind));
 }
 
 // Redirect URI del OAuth de Instagram (Instagram API with Instagram Login). Valida
@@ -68,8 +70,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return page(
       res,
       403,
-      "No disponible",
-      "La conexión de Instagram solo puede completarse en Production.",
+      "Not available here",
+      "Instagram can only be connected from the official site.",
     );
   }
 
@@ -85,8 +87,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return page(
         res,
         400,
-        "Autorización no completada",
-        "La autorización de Instagram fue cancelada o rechazada.",
+        "Authorization cancelled",
+        "The Instagram authorization was cancelled or declined. You can try again whenever you like.",
       );
     }
 
@@ -164,16 +166,16 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return page(
         res,
         err instanceof InstagramStorageError ? err.status : 500,
-        "Autorización recibida, pero no guardada",
-        "Instagram autorizó la cuenta, pero no se pudo guardar la conexión. Inicia el proceso de nuevo más tarde.",
+        "We couldn't save the connection",
+        "Instagram approved the request, but we couldn't save the connection. Please try again later.",
       );
     }
 
     return page(
       res,
       200,
-      "Autorización completada",
-      "Instagram conectado correctamente. Ya puedes cerrar esta ventana.",
+      "Account connected",
+      "Instagram account connected successfully. You can close this window.",
     );
   } catch (err) {
     if (err instanceof InstagramStorageError) {
@@ -181,18 +183,18 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return page(
         res,
         err.status,
-        "Almacenamiento no disponible",
-        "La integración con Instagram no está lista para guardar la conexión. Inténtalo más tarde.",
+        "Connection unavailable",
+        "The Instagram connection isn't ready right now. Please try again later.",
       );
     }
     logInstagramOAuthError("instagram-callback", err);
     const status = instagramOAuthErrorStatus(err);
     const message =
       status === 400
-        ? "La solicitud de autorización no es válida o caducó. Inicia el proceso de nuevo."
+        ? "Your authorization expired or is no longer valid. Please start again and try again."
         : status === 409
-          ? "Esta autorización ya se procesó. Si necesitas reconectar la cuenta, inicia el proceso de nuevo."
-          : "No se pudo completar la autorización con Instagram. Inténtalo de nuevo más tarde.";
-    return page(res, status, "No se pudo completar la autorización", message);
+          ? "This authorization was already used. If you need to reconnect, start again."
+          : "We couldn't complete the connection with Instagram. Please try again later.";
+    return page(res, status, "We couldn't connect your account", message);
   }
 }

@@ -1,4 +1,10 @@
 import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
+import { socialRedirectUri } from "./social-oauth-config.js";
+import {
+  SOCIAL_PAGE_HEADERS,
+  renderSocialOAuthPage,
+  type SocialPageKind,
+} from "./social-oauth-page.js";
 
 // Infraestructura OAuth de TikTok (Login Kit) compartida por el inicio protegido
 // (src/lib/social-connect-handlers.ts) y el callback (api/tiktok/[resource].ts). Vive en src/lib porque Vercel despliega cada archivo de api/
@@ -11,7 +17,8 @@ export const TIKTOK_AUTHORIZE_URL = "https://www.tiktok.com/v2/auth/authorize/";
 export const TIKTOK_TOKEN_URL = "https://open.tiktokapis.com/v2/oauth/token/";
 
 /** Redirect URI registrada en la app de TikTok; debe coincidir exactamente. */
-export const TIKTOK_REDIRECT_URI = "https://upmina-web.vercel.app/api/tiktok-callback";
+export const tiktokRedirectUri = (env?: NodeJS.ProcessEnv) =>
+  socialRedirectUri("/api/tiktok-callback", env);
 
 /** Únicos scopes solicitados. */
 export const TIKTOK_SCOPES = ["user.info.basic", "video.list"] as const;
@@ -137,7 +144,7 @@ export function buildTikTokAuthorizeUrl(clientKey: string, state: string): strin
   url.searchParams.set("client_key", clientKey);
   url.searchParams.set("scope", TIKTOK_SCOPES.join(","));
   url.searchParams.set("response_type", "code");
-  url.searchParams.set("redirect_uri", TIKTOK_REDIRECT_URI);
+  url.searchParams.set("redirect_uri", tiktokRedirectUri());
   url.searchParams.set("state", state);
   return url.toString();
 }
@@ -261,7 +268,7 @@ export function exchangeTikTokCode(
 ): Promise<TikTokTokenSet> {
   return requestTikTokTokens(
     "exchange",
-    { code, grant_type: "authorization_code", redirect_uri: TIKTOK_REDIRECT_URI },
+    { code, grant_type: "authorization_code", redirect_uri: tiktokRedirectUri() },
     credentials,
   );
 }
@@ -345,41 +352,14 @@ export function tikTokErrorStatus(err: unknown): number {
   return err instanceof TikTokOAuthError ? err.status : 502;
 }
 
-function escapeHtml(text: string): string {
-  return text.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
-}
-
 /** Página HTML mínima y estática (sin datos del proveedor ni del usuario). */
-export function renderTikTokPage(title: string, message: string): string {
-  return `<!doctype html>
-<html lang="es">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="robots" content="noindex">
-<title>${escapeHtml(title)} · UPMINAA</title>
-<style>
-body{margin:0;min-height:100vh;display:grid;place-items:center;background:#0b0b12;color:#f4f4f8;font-family:system-ui,sans-serif}
-main{max-width:28rem;padding:2rem;text-align:center}
-a{color:#7dd3fc}
-</style>
-</head>
-<body>
-<main>
-<h1>${escapeHtml(title)}</h1>
-<p>${escapeHtml(message)}</p>
-<p><a href="/admin">Volver al panel</a></p>
-</main>
-</body>
-</html>
-`;
+export function renderTikTokPage(
+  title: string,
+  message: string,
+  kind: SocialPageKind = "error",
+): string {
+  return renderSocialOAuthPage(title, message, kind);
 }
 
 /** Cabeceras comunes de las respuestas HTML del flujo OAuth. */
-export const TIKTOK_PAGE_HEADERS: Record<string, string> = {
-  "Content-Type": "text/html; charset=utf-8",
-  "Cache-Control": "no-store",
-  "Referrer-Policy": "no-referrer",
-  "X-Content-Type-Options": "nosniff",
-  "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'",
-};
+export const TIKTOK_PAGE_HEADERS: Record<string, string> = SOCIAL_PAGE_HEADERS;
