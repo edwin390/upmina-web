@@ -58,7 +58,9 @@
 }
 
 /* Corazones decorativos: capa estática (SVG en un fondo repetido), detrás de todo el contenido. */
-/* Tres capas independientes (mismos corazones repartidos 1/3 cada una) que flotan con trayectorias cerradas distintas.
+/* Las tres capas comparten origen (sin desfases de fondo): la separación entre corazones de capas distintas está
+   calculada sobre una sola malla de 1000px (con vuelta toroidal) más la amplitud máxima de movimiento.
+   Tres capas independientes (mismos corazones repartidos 1/3 cada una) que flotan con trayectorias cerradas distintas.
    Sólo transform; las capas sobresalen 40px por cada lado para no dejar bordes al moverse (el contenedor recorta). */
 :root { --amp: 1; }
 @media (max-width: 640px) { :root { --amp: 0.6; } }
@@ -69,8 +71,8 @@
   pointer-events: none;
 }
 .hearts-layer-a { background-image: var(--hearts-a); animation: hearts-float-a 14s ease-in-out infinite; }
-.hearts-layer-b { background-image: var(--hearts-b); background-position: 340px 210px; animation: hearts-float-b 11s ease-in-out infinite; }
-.hearts-layer-c { background-image: var(--hearts-c); background-position: 120px 460px; animation: hearts-float-c 16s ease-in-out infinite; }
+.hearts-layer-b { background-image: var(--hearts-b); animation: hearts-float-b 11s ease-in-out infinite; }
+.hearts-layer-c { background-image: var(--hearts-c); animation: hearts-float-c 16s ease-in-out infinite; }
 @keyframes hearts-float-a {
   0%, 100% { transform: translate3d(0, 0, 0); }
   33% { transform: translate3d(calc(14px * var(--amp)), calc(-18px * var(--amp)), 0); }
