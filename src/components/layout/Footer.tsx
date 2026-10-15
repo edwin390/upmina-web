@@ -14,6 +14,10 @@ export default function Footer() {
   return (
     <footer className="relative overflow-hidden border-t border-accent-primary/20 bg-bg-surface/90 py-14">
       <div
+        className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-accent-primary/40 via-accent-pink/50 to-accent-primary/40"
+        aria-hidden="true"
+      />
+      <div
         className="absolute inset-x-0 bottom-0 h-48 bg-[radial-gradient(ellipse_at_bottom_left,rgb(var(--c-accent-primary)/0.2),transparent_65%),radial-gradient(ellipse_at_bottom_right,rgb(var(--c-accent-pink)/0.16),transparent_60%)]"
         aria-hidden="true"
       />
@@ -29,7 +33,7 @@ export default function Footer() {
               href={link.href}
               target="_blank"
               rel="noreferrer noopener"
-              className="transition-colors duration-200 ease-smooth hover:text-accent-secondary"
+              className="transition-colors duration-200 ease-smooth hover:text-accent-pink"
             >
               {link.label}
             </a>

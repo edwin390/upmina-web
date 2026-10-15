@@ -26,7 +26,7 @@ export default function ExploreSection() {
               to={item.to}
               className="group flex min-h-16 items-center gap-4 rounded-lg border border-border-subtle bg-bg-surface p-4 transition-[transform,box-shadow,border-color] duration-350 ease-bounce hover:-translate-y-1 hover:border-accent-pink/60 hover:shadow-glow-primary focus-visible:-translate-y-1 focus-visible:border-accent-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-secondary lg:h-full lg:flex-col lg:items-start lg:gap-5 lg:p-5"
             >
-              <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-accent-primary/10 text-accent-primary transition-colors duration-200 group-hover:bg-accent-primary group-hover:text-text-inverse">
+              <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-accent-primary/10 text-accent-primary ring-1 ring-accent-pink/25 transition-colors duration-200 group-hover:bg-accent-primary group-hover:text-text-inverse">
                 <PlatformIcon platform={item.platform} className="h-6 w-6" />
               </span>
               <span className="min-w-0 flex-1">
