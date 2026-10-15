@@ -1,6 +1,7 @@
 import { lazy, Suspense, useEffect, useState } from "react";
 import { lazyPage } from "./i18n/lazyPage";
-import { Navigate, Route, Routes } from "react-router-dom";
+import { Navigate, Route, Routes, useLocation } from "react-router-dom";
+import RouteErrorBoundary from "./components/RouteErrorBoundary";
 import Header from "./components/layout/Header";
 import Footer from "./components/layout/Footer";
 import HomePage from "./pages/HomePage";
@@ -101,6 +102,7 @@ function SectionFallback() {
 }
 
 function AppShell() {
+  const location = useLocation();
   const [sukunaMode, setSukunaMode] = useState(false);
   const [easterEgg, setEasterEgg] = useState<{
     message: string;
@@ -170,6 +172,7 @@ function AppShell() {
       <ScrollToTop />
       <Header onLogoDoubleClick={activateSukunaMode} />
       <main className="flex-1">
+        <RouteErrorBoundary key={location.pathname}>
         <Suspense fallback={<SectionFallback />}>
           <Routes>
             <Route path="/" element={<HomePage />} />
@@ -229,6 +232,7 @@ function AppShell() {
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </Suspense>
+        </RouteErrorBoundary>
       </main>
       <Footer />
       {easterEgg?.kind === "echidna" ? (
