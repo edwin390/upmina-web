@@ -149,7 +149,7 @@ function AppShell() {
 
   return (
     <div
-      className={`relative flex min-h-screen flex-col bg-bg-base ${sukunaMode ? "sukuna-mode" : ""}`}
+      className={`relative flex min-h-screen flex-col ${sukunaMode ? "sukuna-mode" : ""}`}
     >
       <AmbientBackground
         onStarClick={() => {

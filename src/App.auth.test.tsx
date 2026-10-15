@@ -249,7 +249,7 @@ describe("/login público (Bloque 6C)", () => {
         user: { id: "u1", email: "x@y.z" },
       }),
     );
-    expect(await screen.findByText("Perfil")).toBeInTheDocument();
+    expect(await screen.findByRole("link", { name: "Perfil" })).toBeInTheDocument();
     expect(screen.queryByRole("link", { name: /iniciar sesión/i })).toBeNull();
 
     expect(authFakes.onAuthStateChangeCalls).toBe(1);

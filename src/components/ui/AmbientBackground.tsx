@@ -45,7 +45,7 @@ export default function AmbientBackground({ onStarClick }: AmbientBackgroundProp
     <>
       <div className="pointer-events-none fixed inset-0 -z-10 overflow-hidden bg-bg-base">
         <div
-          className="ambient-gradient absolute inset-0 opacity-70"
+          className="ambient-gradient absolute inset-0 opacity-40"
           aria-hidden="true"
         />
         <div className="ambient-grid absolute inset-0 opacity-30" aria-hidden="true" />

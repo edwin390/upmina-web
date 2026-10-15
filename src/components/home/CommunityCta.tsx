@@ -20,7 +20,7 @@ export default function CommunityCta() {
             className="font-display text-4xl tracking-wide text-text-primary md:text-6xl"
           >
             {t.rich("title", {
-              heart: (chunks) => <span className="text-accent-primary">{chunks}</span>,
+              heart: (chunks) => <span className="text-accent-pink">{chunks}</span>,
             })}
           </h2>
           <p className="mx-auto mt-4 max-w-xl text-text-secondary">{t("text")}</p>

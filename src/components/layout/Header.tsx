@@ -158,7 +158,7 @@ export default function Header({ onLogoDoubleClick }: HeaderProps) {
                   {t(link.key)}
                   <span
                     className={clsx(
-                      "absolute -bottom-2 left-1/2 h-px -translate-x-1/2 bg-accent-primary transition-all duration-200 ease-bounce group-hover:w-full",
+                      "absolute -bottom-2 left-1/2 h-px -translate-x-1/2 bg-gradient-accent transition-all duration-200 ease-bounce group-hover:w-full",
                       isActive ? "w-full" : "w-0",
                     )}
                   />

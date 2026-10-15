@@ -24,7 +24,7 @@ export default function ExploreSection() {
           <li key={item.to}>
             <Link
               to={item.to}
-              className="group flex min-h-16 items-center gap-4 rounded-lg border border-border-subtle bg-bg-surface p-4 transition-[transform,box-shadow,border-color] duration-350 ease-bounce hover:-translate-y-1 hover:border-accent-primary/70 hover:shadow-glow-primary focus-visible:-translate-y-1 focus-visible:border-accent-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-secondary lg:h-full lg:flex-col lg:items-start lg:gap-5 lg:p-5"
+              className="group flex min-h-16 items-center gap-4 rounded-lg border border-border-subtle bg-bg-surface p-4 transition-[transform,box-shadow,border-color] duration-350 ease-bounce hover:-translate-y-1 hover:border-accent-pink/60 hover:shadow-glow-primary focus-visible:-translate-y-1 focus-visible:border-accent-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-secondary lg:h-full lg:flex-col lg:items-start lg:gap-5 lg:p-5"
             >
               <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-accent-primary/10 text-accent-primary transition-colors duration-200 group-hover:bg-accent-primary group-hover:text-text-inverse">
                 <PlatformIcon platform={item.platform} className="h-6 w-6" />
@@ -40,7 +40,7 @@ export default function ExploreSection() {
               </span>
               <span
                 aria-hidden="true"
-                className="text-sm font-semibold text-accent-primary transition-transform duration-200 group-hover:translate-x-1 lg:mt-auto"
+                className="text-sm font-semibold text-accent-pink transition-transform duration-200 group-hover:translate-x-1 lg:mt-auto"
               >
                 {t("go")}
               </span>

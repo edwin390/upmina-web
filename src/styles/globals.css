@@ -25,8 +25,7 @@
   --amb-2: #0c1a2e;
   --amb-3: #0d1024;
   --amb-grid: 116 184 244;
-  --hearts-opacity: 0.07;
-  --hearts-img: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140' viewBox='0 0 140 140'%3E%3Cpath fill='%2374b8f4' d='M30 52c-9-8-4-20 5-20 4 0 7 3 8 5 1-2 4-5 8-5 9 0 14 12 5 20l-13 12z'/%3E%3Cpath fill='%2374b8f4' d='M100 120c-6-5-3-13 3-13 3 0 4 2 5 3 1-1 2-3 5-3 6 0 9 8 3 13l-8 8z'/%3E%3C/svg%3E");
+  --hearts-img: url("/images/hearts-dark.svg");
 }
 
 :root[data-theme="light"] {
@@ -38,7 +37,7 @@
   --c-border-strong: 165 189 219;
   --c-accent-primary: 79 115 159;
   --c-accent-secondary: 56 94 143;
-  --c-accent-pink: 214 112 168;
+  --c-accent-pink: 190 70 135;
   --c-accent-live: 207 0 41;
   --c-accent-success: 11 133 80;
   --c-accent-warning: 150 98 0;
@@ -51,15 +50,13 @@
   --amb-2: #dce9f8;
   --amb-3: #f1f6fd;
   --amb-grid: 120 159 203;
-  --hearts-opacity: 0.2;
-  --hearts-img: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140' viewBox='0 0 140 140'%3E%3Cpath fill='%23789fcb' d='M30 52c-9-8-4-20 5-20 4 0 7 3 8 5 1-2 4-5 8-5 9 0 14 12 5 20l-13 12z'/%3E%3Cpath fill='%23789fcb' d='M100 120c-6-5-3-13 3-13 3 0 4 2 5 3 1-1 2-3 5-3 6 0 9 8 3 13l-8 8z'/%3E%3C/svg%3E");
+  --hearts-img: url("/images/hearts-light.svg");
 }
 
 /* Corazones decorativos: capa estática (SVG en un fondo repetido), detrás de todo el contenido. */
 .hearts-pattern {
   background-image: var(--hearts-img);
-  background-size: 140px 140px;
-  opacity: var(--hearts-opacity);
+  background-size: min(1000px, 150vw) auto;
 }
 
 :root {
@@ -89,6 +86,11 @@
 @keyframes ambient-grid-drift {
   from { transform: translate3d(0, 0, 0); }
   to { transform: translate3d(80px, 80px, 0); }
+}
+
+@keyframes ambient-halo-float {
+  0%, 100% { transform: translate3d(0, 0, 0); opacity: 0.06; }
+  50% { transform: translate3d(12px, -24px, 0); opacity: 0.26; }
 }
 
 @keyframes ambient-float {
@@ -175,8 +177,8 @@
   height: 520px;
   border-radius: 9999px;
   filter: blur(120px);
-  opacity: 0.14;
-  animation: ambient-float 14s var(--ease-soft) infinite;
+  opacity: 0.08;
+  animation: ambient-halo-float 14s var(--ease-soft) infinite;
 }
 
 .ambient-halo-pink { background: rgb(var(--c-accent-primary)); }

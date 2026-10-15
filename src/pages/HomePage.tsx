@@ -13,7 +13,7 @@ export default function HomePage() {
     <>
       <section className="relative mx-auto flex min-h-[min(480px,65vh)] max-w-6xl flex-col items-center justify-center overflow-hidden px-4 py-16 text-center">
         <div className="hero-kicker mb-5 inline-flex items-center gap-2 rounded-full border border-accent-primary/30 bg-accent-primary/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.28em] text-accent-primary">
-          <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-accent-primary" />
+          <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-accent-pink" />
           {t("badge")}
         </div>
         <h1 className="hero-title hero-logo w-[min(86vw,30rem)] md:w-[min(60vw,38rem)]">

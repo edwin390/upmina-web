@@ -60,7 +60,7 @@ export default function PreviewCard({
       <div className="flex flex-1 flex-col p-3">
         <p className="line-clamp-2 text-sm font-medium text-text-primary">{title}</p>
         {meta && <p className="mt-1 text-xs text-text-muted">{meta}</p>}
-        <span className="mt-auto pt-3 text-sm font-semibold text-accent-primary transition-transform duration-200 group-hover:translate-x-1">
+        <span className="mt-auto pt-3 text-sm font-semibold text-accent-pink transition-transform duration-200 group-hover:translate-x-1">
           {cta} →
         </span>
       </div>

@@ -14,7 +14,7 @@ export default function Footer() {
   return (
     <footer className="relative overflow-hidden border-t border-accent-primary/20 bg-bg-surface/90 py-14">
       <div
-        className="absolute inset-x-0 bottom-0 h-48 bg-[radial-gradient(ellipse_at_bottom,rgb(var(--c-accent-primary)/0.2),transparent_70%)]"
+        className="absolute inset-x-0 bottom-0 h-48 bg-[radial-gradient(ellipse_at_bottom_left,rgb(var(--c-accent-primary)/0.2),transparent_65%),radial-gradient(ellipse_at_bottom_right,rgb(var(--c-accent-pink)/0.16),transparent_60%)]"
         aria-hidden="true"
       />
       <div className="relative mx-auto flex max-w-6xl flex-col gap-6 px-4 text-sm text-text-secondary">
