@@ -1,0 +1,150 @@
+{
+  "page": {
+    "title": "Developer panel",
+    "checking": "Checking your session…",
+    "invalidSession": "Your session is no longer valid. Sign out and sign in again.",
+    "signOut": "Sign out",
+    "accessError": "Couldn't check your access. Please try again.",
+    "retry": "Try again",
+    "accessLost": "Your Developer access is no longer available.",
+    "noAccess": "You don't have access to the Developer panel.",
+    "goToAccount": "Go to my account",
+    "mfaUnconfirmed": "We couldn't confirm your recent two-step verification.",
+    "verifyAgain": "Verify again",
+    "intro": "Technical Developer tools: supervision of MFA cleanups and exceptional approval of recoveries. It doesn't grant Admin permissions."
+  },
+  "cleanups": {
+    "heading": "Pending MFA cleanups",
+    "refresh": "Refresh",
+    "refreshing": "Refreshing…",
+    "intro": "Supervision and manual retry. The retry only deletes the factors saved when the role was removed, never new factors.",
+    "retryPending": "Retry pending",
+    "retrying": "Retrying…",
+    "retryDone": "Retry finished: {completed} completed, {pending} still pending.",
+    "retryDoneSimple": "Retry finished.",
+    "pendingHeading": "Pending ({count})",
+    "noPending": "There are no pending cleanups.",
+    "historyHeading": "Recent history ({count})",
+    "noHistory": "No completed cleanups.",
+    "noProfile": "Account without profile",
+    "previousRole": "previous {role}",
+    "role": {
+      "admin": "ADMIN",
+      "moderator": "MODERATOR",
+      "developer": "DEVELOPER"
+    },
+    "state": "Status: ",
+    "statePending": "Pending cleanup",
+    "stateCompleted": "Completed",
+    "factors": "Factors: ",
+    "factorsDone": "{done} of {total} deleted",
+    "factorsTodo": "{total} to delete",
+    "attempts": "Attempts: ",
+    "lastAttempt": "Last attempt: ",
+    "requested": "Requested: ",
+    "completed": "Completed: ",
+    "lastError": "Last error: {error}",
+    "errors": {
+      "auth_delete_failed": "Deletion failed at the authentication provider",
+      "auth_list_failed": "Couldn't check the list of factors",
+      "auth_unavailable": "Authentication provider unavailable",
+      "factor_still_present": "The factor was still present after deletion",
+      "record_failed": "The factors were deleted but it couldn't be recorded"
+    },
+    "msg": {
+      "session": "Your session is no longer valid. Sign in again.",
+      "listError": "Couldn't load the list of cleanups.",
+      "retryError": "Couldn't retry the cleanup."
+    }
+  },
+  "recoveries": {
+    "heading": "Exceptional recoveries",
+    "intro": "Requests from an administrator who is the only eligible administrator. Approve only if you recognize the request through another channel; you can't decide on your own. If another eligible administrator exists, the request disappears from this list and they approve it.",
+    "cooldown": "You have just become a Developer. For security, you'll be able to approve exceptional recoveries in {remaining}{at}. In the meantime you can review and reject them.",
+    "atTime": "(at {time})",
+    "minutes": "{count, plural, one {# minute} other {# minutes}}",
+    "hours": "{count, plural, one {# hour} other {# hours}}",
+    "hoursAndMinutes": "{hours} and {minutes}",
+    "status": {
+      "pending_approval": "Pending approval",
+      "approved": "Approved, waiting",
+      "executing": "Invalidating authenticator",
+      "factors_deleted": "Authenticator invalidated, the new one still has to be registered",
+      "completed": "Completed",
+      "denied": "Rejected",
+      "cancelled": "Cancelled",
+      "expired": "Expired"
+    },
+    "notice": {
+      "pending": "notice pending delivery",
+      "accepted": "notice sent, delivery unconfirmed",
+      "delivered": "notice delivered",
+      "failed": "notice NOT delivered"
+    },
+    "noticeUnregistered": "notice not recorded",
+    "emailVerified": "email verified",
+    "requestedOn": "requested {date}",
+    "exceptionalApproval": "exceptional approval ({date})",
+    "exceptionalApprovalBy": "exceptional approval by @{approver} ({date})",
+    "deniedByDeveloper": "rejected by a Developer",
+    "noProfile": "Account without profile",
+    "reverify": {
+      "invalid_format": "Enter the 6-digit code from your authenticator.",
+      "no_factor": "We couldn't find a verified authenticator on your account.",
+      "invalid_code": "Incorrect or expired code.",
+      "failed": "Couldn't verify the code. Please try again."
+    },
+    "codes": {
+      "cooldown_active": "You can't approve yet: your account recently became a Developer. We updated the remaining time.",
+      "peer_available": "Another eligible administrator now exists: this request must be approved by another administrator. We updated the list.",
+      "not_eligible": "This request doesn't allow exceptional approval. We updated the list.",
+      "self_approval": "You can't decide on your own recovery.",
+      "not_pending": "The request no longer accepts this action. We updated the list.",
+      "expired": "The request expired. We updated the list.",
+      "email_changed": "The account's email changed: the request was cancelled.",
+      "role_changed": "The account's role changed: the request was cancelled.",
+      "no_request": "This request is no longer available. We updated the list.",
+      "reason_required": "Write the reason for the rejection.",
+      "too_soon": "Wait at least a minute before sending another reminder.",
+      "reminder_limit": "The 3 reminders allowed for this request have already been sent.",
+      "notice_not_delivered": "The original notice isn't recorded as delivered yet. We updated the list.",
+      "mail_unavailable": "Sending emails isn't available right now.",
+      "step_up_required": "Your two-step verification isn't recent enough. Enter the code again."
+    },
+    "generic": "The operation couldn't be completed. Please try again.",
+    "done": {
+      "approve": "Recovery approved exceptionally.",
+      "deny": "Recovery rejected.",
+      "resend_notice": "Notice resent.",
+      "reminder": "Reminder sent to the person."
+    },
+    "failedNotice": "Notice: the notice to the person couldn't be sent; without confirmed delivery they won't be able to carry it out. You can resend it.",
+    "msg": {
+      "session": "Your session is no longer valid. Sign in again.",
+      "listError": "Couldn't load the list of requests."
+    },
+    "confirmWith": "Confirm with your authenticator to {action}.",
+    "action": {
+      "approve": "exceptionally approve the recovery of {name}",
+      "deny": "reject the recovery of {name}",
+      "resend_notice": "resend the notice to {name}"
+    },
+    "reasonLabel": "Reason for rejection",
+    "totpLabel": "Authenticator code",
+    "verifying": "Verifying…",
+    "confirm": "Confirm",
+    "cancel": "Cancel",
+    "pendingHeading": "Pending decision ({count})",
+    "noEligible": "There are no requests eligible for exceptional approval.",
+    "historyHeading": "History ({count})",
+    "noHistory": "No recent decisions.",
+    "approveButton": "Approve exceptionally",
+    "approveAria": "Exceptionally approve the recovery of {name}",
+    "reject": "Reject",
+    "rejectAria": "Reject the recovery of {name}",
+    "resend": "Resend notice",
+    "resendAria": "Resend the notice to {name}",
+    "revert": "Revert approval",
+    "revertAria": "Revert the approval of {name}"
+  }
+}

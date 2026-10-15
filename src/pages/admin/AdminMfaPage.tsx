@@ -18,6 +18,7 @@ import AdminAuthField from "@/components/admin/AdminAuthField";
 import { buildTotpQrImageSrc } from "@/lib/mfa-qr";
 import { useEffect, useRef } from "react";
 import { showActionSuccess } from "@/lib/action-notice";
+import { useTranslations } from "use-intl";
 
 // /admin/mfa (Bloque 3B). Enrolamiento y verificación TOTP mediante la API oficial de
 // MFA de Supabase Auth (`supabase.auth.mfa`). Este contexto solo importa para UX y
@@ -67,6 +68,8 @@ function resolveReturnTo(raw: string) {
 }
 
 export default function AdminMfaPage() {
+  const t = useTranslations("admin.mfa");
+
   const { signOut } = useAuth();
   const [searchParams] = useSearchParams();
   const location = useLocation();
@@ -102,11 +105,9 @@ export default function AdminMfaPage() {
     if (step.kind !== "verified" || !didVerify || announced.current) return;
     announced.current = true;
     if (destination?.split("?")[0] === cancelTo.split("?")[0]) {
-      showActionSuccess(
-        "Verificación completada. Ya puedes realizar acciones de administrador.",
-      );
+      showActionSuccess(t("completed"));
     }
-  }, [step.kind, didVerify, destination, cancelTo]);
+  }, [step.kind, didVerify, destination, cancelTo, t]);
   const cancelLink = (
     <Link
       to={cancelTo}
@@ -114,15 +115,15 @@ export default function AdminMfaPage() {
       state={{ mfaCancelled: true }}
       className="mt-4 inline-flex min-h-11 items-center text-sm text-text-secondary underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent-primary"
     >
-      Cancelar
+      {t("cancel")}
     </Link>
   );
 
   if (step.kind === "checking") {
     return (
-      <AdminAuthCard title="Verificación en dos pasos">
+      <AdminAuthCard title={t("title")}>
         <p className="text-sm text-text-secondary" role="status">
-          Comprobando tu sesión…
+          {t("checking")}
         </p>
         {cancelLink}
       </AdminAuthCard>
@@ -132,20 +133,18 @@ export default function AdminMfaPage() {
   if (step.kind === "no-session") {
     return (
       <AdminAuthCard
-        title="Verificación en dos pasos"
+        title={t("title")}
         footer={
           <Link
             to={safeReturnTo ? `/login?returnTo=${safeReturnTo}` : "/login"}
             state={{ cancelTo }}
             className="font-medium text-accent-primary hover:underline"
           >
-            Iniciar sesión
+            {t("signIn")}
           </Link>
         }
       >
-        <p className="text-sm text-text-secondary">
-          Inicia sesión para configurar o completar la verificación en dos pasos.
-        </p>
+        <p className="text-sm text-text-secondary">{t("signInPrompt")}</p>
         {cancelLink}
       </AdminAuthCard>
     );
@@ -153,16 +152,16 @@ export default function AdminMfaPage() {
 
   if (step.kind === "session-invalid") {
     return (
-      <AdminAuthCard title="Verificación en dos pasos">
+      <AdminAuthCard title={t("title")}>
         <p role="alert" className="text-sm text-accent-live">
-          Tu sesión ya no es válida. Cierra sesión e inicia sesión de nuevo.
+          {t("invalidSession")}
         </p>
         <button
           type="button"
           onClick={() => void signOut()}
           className="mt-6 inline-flex min-h-11 items-center rounded-md border border-border-subtle px-5 py-2.5 text-sm font-semibold text-text-secondary transition-colors duration-200 ease-smooth hover:border-accent-primary/60 hover:text-text-primary"
         >
-          Cerrar sesión
+          {t("signOut")}
         </button>
         {cancelLink}
       </AdminAuthCard>
@@ -171,7 +170,7 @@ export default function AdminMfaPage() {
 
   if (step.kind === "fatal") {
     return (
-      <AdminAuthCard title="Verificación en dos pasos">
+      <AdminAuthCard title={t("title")}>
         <p role="alert" className="text-sm text-accent-live">
           {step.message}
         </p>
@@ -187,13 +186,13 @@ export default function AdminMfaPage() {
       return <Navigate to={destination} replace state={{ fromMfa: true, cancelTo }} />;
     }
     return (
-      <AdminAuthCard title="Verificación en dos pasos">
+      <AdminAuthCard title={t("title")}>
         <p className="text-sm text-text-secondary" role="status">
-          Tu verificación en dos pasos está vigente.
+          {t("valid")}
         </p>
         <p className="mt-4 text-sm text-text-secondary">
           <Link to="/account" className="font-medium text-accent-primary hover:underline">
-            Ir a mi cuenta
+            {t("goToAccount")}
           </Link>
         </p>
         <button
@@ -201,7 +200,7 @@ export default function AdminMfaPage() {
           onClick={() => void signOut()}
           className="mt-6 inline-flex min-h-11 items-center rounded-md border border-accent-primary/60 bg-accent-primary px-5 py-2.5 text-sm font-bold uppercase tracking-[0.18em] text-text-inverse shadow-glow-primary transition duration-200 ease-bounce hover:-translate-y-1 hover:bg-accent-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-secondary focus-visible:ring-offset-2 focus-visible:ring-offset-bg-surface"
         >
-          Cerrar sesión
+          {t("signOut")}
         </button>
       </AdminAuthCard>
     );
@@ -209,10 +208,8 @@ export default function AdminMfaPage() {
 
   if (step.kind === "need-factor") {
     return (
-      <AdminAuthCard title="Verificación en dos pasos">
-        <p className="text-sm text-text-secondary">
-          Todavía no configuraste una app autenticadora para tu cuenta.
-        </p>
+      <AdminAuthCard title={t("title")}>
+        <p className="text-sm text-text-secondary">{t("noFactor")}</p>
         {formError ? (
           <p role="alert" className="mt-4 text-sm text-accent-live">
             {formError}
@@ -224,7 +221,7 @@ export default function AdminMfaPage() {
           disabled={isSubmitting}
           className="mt-6 inline-flex min-h-11 items-center rounded-md border border-accent-primary/60 bg-accent-primary px-5 py-2.5 text-sm font-bold uppercase tracking-[0.18em] text-text-inverse shadow-glow-primary transition duration-200 ease-bounce hover:-translate-y-1 hover:bg-accent-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-secondary focus-visible:ring-offset-2 focus-visible:ring-offset-bg-surface disabled:pointer-events-none disabled:opacity-50"
         >
-          {isSubmitting ? "Iniciando…" : "Configurar autenticador"}
+          {isSubmitting ? t("starting") : t("configure")}
         </button>
         {!isSubmitting && cancelLink}
       </AdminAuthCard>
@@ -234,10 +231,7 @@ export default function AdminMfaPage() {
   if (step.kind === "enrolling") {
     const { factorId, qrCode, secret } = step;
     return (
-      <AdminAuthCard
-        title="Configurar autenticador"
-        subtitle="Escanea el código con tu app autenticadora (Google Authenticator, 1Password, Authy…) o introduce la clave manual."
-      >
+      <AdminAuthCard title={t("enrollTitle")} subtitle={t("enrollSubtitle")}>
         {/* La documentación instalada de @supabase/auth-js es internamente inconsistente
             sobre el formato de qr_code (ver comentario de buildTotpQrImageSrc en
             src/lib/mfa-qr.ts): puede llegar como data URI ya completa, como SVG crudo
@@ -246,21 +240,21 @@ export default function AdminMfaPage() {
             doble encoding como una data URI anidada inválida. */}
         <img
           src={buildTotpQrImageSrc(qrCode)}
-          alt="Código QR para configurar tu app autenticadora"
+          alt={t("qrAlt")}
           className="mx-auto h-40 w-40 rounded-md border border-border-subtle bg-bg-base p-2"
         />
 
         <div className="mt-4">
           <div className="mb-1 flex items-center justify-between">
             <label htmlFor="mfa-secret" className="block text-sm text-text-secondary">
-              Clave manual
+              {t("secretLabel")}
             </label>
             <button
               type="button"
               onClick={() => setIsSecretVisible((visible) => !visible)}
               className="text-xs font-medium text-accent-primary hover:underline"
             >
-              {isSecretVisible ? "Ocultar" : "Mostrar"}
+              {isSecretVisible ? t("hide") : t("show")}
             </button>
           </div>
           <input
@@ -272,9 +266,7 @@ export default function AdminMfaPage() {
             className="w-full rounded-md border border-border-subtle bg-bg-base px-3 py-2 font-mono text-sm text-text-primary outline-none"
           />
           <p id="mfa-secret-help" className="mt-1 text-xs text-text-secondary">
-            Es la clave de tu autenticador, no un código de recuperación. Úsala solo para
-            configurar tu app si no puedes escanear el QR; no sirve para recuperar el
-            acceso si pierdes la app. Mantenla en privado.
+            {t("secretHelp")}
           </p>
         </div>
 
@@ -283,7 +275,7 @@ export default function AdminMfaPage() {
           className="mt-6 flex flex-col gap-4"
         >
           <AdminAuthField
-            label="Código de verificación"
+            label={t("codeLabel")}
             id="mfa-enroll-code"
             name="code"
             type="text"
@@ -309,7 +301,7 @@ export default function AdminMfaPage() {
               disabled={isSubmitting}
               className="inline-flex min-h-11 items-center justify-center rounded-md border border-accent-primary/60 bg-accent-primary px-5 py-2.5 text-sm font-bold uppercase tracking-[0.18em] text-text-inverse shadow-glow-primary transition duration-200 ease-bounce hover:-translate-y-1 hover:bg-accent-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-secondary focus-visible:ring-offset-2 focus-visible:ring-offset-bg-surface disabled:pointer-events-none disabled:opacity-50"
             >
-              {isSubmitting ? "Verificando…" : "Verificar y activar"}
+              {isSubmitting ? t("verifying") : t("verifyActivate")}
             </button>
             <button
               type="button"
@@ -321,7 +313,7 @@ export default function AdminMfaPage() {
               disabled={isSubmitting}
               className="inline-flex min-h-11 items-center justify-center rounded-md border border-border-subtle px-5 py-2.5 text-sm font-semibold text-text-secondary transition-colors duration-200 ease-smooth hover:border-accent-primary/60 hover:text-text-primary disabled:pointer-events-none disabled:opacity-50"
             >
-              Cancelar
+              {t("cancel")}
             </button>
           </div>
         </form>
@@ -331,16 +323,14 @@ export default function AdminMfaPage() {
 
   // step.kind === "challenge"
   return (
-    <AdminAuthCard title="Verificación en dos pasos">
-      <p className="text-sm text-text-secondary">
-        Introduce el código de tu app autenticadora.
-      </p>
+    <AdminAuthCard title={t("title")}>
+      <p className="text-sm text-text-secondary">{t("challengeIntro")}</p>
       <form
         onSubmit={(event) => void submitCode(event, step.factorId)}
         className="mt-6 flex flex-col gap-4"
       >
         <AdminAuthField
-          label="Código de verificación"
+          label={t("codeLabel")}
           id="mfa-code"
           name="code"
           type="text"
@@ -365,17 +355,17 @@ export default function AdminMfaPage() {
           disabled={isSubmitting}
           className="mt-2 inline-flex min-h-11 items-center justify-center rounded-md border border-accent-primary/60 bg-accent-primary px-5 py-2.5 text-sm font-bold uppercase tracking-[0.18em] text-text-inverse shadow-glow-primary transition duration-200 ease-bounce hover:-translate-y-1 hover:bg-accent-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-secondary focus-visible:ring-offset-2 focus-visible:ring-offset-bg-surface disabled:pointer-events-none disabled:opacity-50"
         >
-          {isSubmitting ? "Verificando…" : "Verificar"}
+          {isSubmitting ? t("verifying") : t("verify")}
         </button>
       </form>
       {!isSubmitting && (
         <p className="mt-4 text-sm text-text-secondary">
-          ¿Perdiste tu autenticador?{" "}
+          {t("lost")}{" "}
           <Link
             to="/admin/mfa/recovery"
             className="font-medium text-accent-primary hover:underline"
           >
-            Perdí mi autenticador
+            {t("lostLink")}
           </Link>
         </p>
       )}

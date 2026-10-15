@@ -1,0 +1,160 @@
+{
+  "common": {
+    "viewProfile": "View @{username}'s profile",
+    "retry": "Try again",
+    "backToCommunity": "Back to Community"
+  },
+  "profile": {
+    "loading": "Loading profile…",
+    "loadError": "Couldn't load this profile.",
+    "notFoundTitle": "This profile doesn't exist",
+    "notFoundBody": "We couldn't find any account with that @username.",
+    "posts": "{count, plural, one {# post} other {# posts}}",
+    "likes": "{count, plural, one {# like} other {# likes}}",
+    "editProfile": "Edit profile",
+    "newPost": "New post",
+    "adminPanel": "Admin panel",
+    "moderationPanel": "Moderation panel",
+    "developerPanel": "Developer panel",
+    "ownPostsError": "Couldn't load your posts.",
+    "emptyTitle": "There are no posts yet",
+    "emptyOwn": "When you post, your posts will appear here.",
+    "emptyOther": "When @{username} posts, their posts will appear here.",
+    "loadMore": "Load more",
+    "loadingMore": "Loading…",
+    "paused": "Post paused",
+    "removed": "Removed",
+    "resolved": "Case resolved",
+    "tileImages": "{count, plural, one {# image} other {# images}}",
+    "tileVideos": "{count, plural, one {# video} other {# videos}}",
+    "tileAnd": "{a} and {b}",
+    "tileWithMedia": "Post with {parts}",
+    "tileWithMediaDate": "Post with {parts}, {date}",
+    "tileText": "Text post: {preview}",
+    "tileTextDate": "Text post from {date}: {preview}"
+  },
+  "post": {
+    "loading": "Loading post…",
+    "loadError": "Couldn't load this post.",
+    "notFoundTitle": "This post doesn't exist",
+    "notFoundBody": "It may have been deleted or may not be available."
+  },
+  "section": {
+    "heading": "Community",
+    "recent": "Recent",
+    "popular": "Popular",
+    "loading": "Loading posts…",
+    "loadError": "Couldn't load the posts.",
+    "emptyTitle": "There are no posts yet",
+    "emptyBody": "When the community starts posting, their posts will appear here.",
+    "loadMore": "Load more",
+    "loadingMore": "Loading…"
+  },
+  "like": {
+    "like": "Like ({count})",
+    "unlike": "Remove like ({count})"
+  },
+  "feed": {
+    "viewFull": "View full post"
+  },
+  "media": {
+    "navigation": "Media navigation",
+    "previous": "Previous",
+    "next": "Next"
+  },
+  "menu": {
+    "manage": "Manage this post",
+    "edit": "Edit",
+    "delete": "Delete",
+    "confirmTitle": "Delete this post?",
+    "confirmBody": "This action can't be undone.",
+    "cancel": "Cancel",
+    "deleted": "Post deleted successfully",
+    "deleteFailed": "Couldn't delete the post",
+    "deleteConflict": "Couldn't delete the post. It changed in the meantime. Please try again."
+  },
+  "editor": {
+    "titleNew": "New post",
+    "titleEdit": "Edit post",
+    "close": "Close",
+    "checking": "Checking your account status…",
+    "checkError": "We couldn't check your account status, so we didn't open the editor. Please try again.",
+    "retry": "Try again"
+  },
+  "form": {
+    "textLabel": "Post text",
+    "placeholder": "What do you want to share?",
+    "mediaLabel": "Media (up to {max}, up to {videos, plural, one {# video} other {# videos}})",
+    "addMedia": "Add photos or videos",
+    "helper": "Photos and videos (MP4, MOV or WebM, up to 100 MB, at most {videos, plural, one {# video} other {# videos}} per post).",
+    "attachedVideo": "Attached video",
+    "processing": "Processing…",
+    "removeVideo": "Remove video",
+    "removeImage": "Remove image",
+    "itemError": "Error",
+    "itemVideo": "Video",
+    "itemImage": "Image",
+    "publish": "Post",
+    "publishing": "Posting…",
+    "cancel": "Cancel",
+    "pickerMax": "Up to {max} photos or videos per post.",
+    "pickerMaxVideos": "At most {videos, plural, one {# video} other {# videos}} per post.",
+    "pickerSize": "Videos can't exceed 100 MB.",
+    "created": "Post created successfully",
+    "updated": "Post updated successfully",
+    "createFailed": "Couldn't create the post",
+    "updateFailed": "Couldn't update the post",
+    "errors": {
+      "session": "Your session is no longer valid. Sign out and sign in again.",
+      "empty": "A post needs text or at least one image.",
+      "conflict": "This post changed while you were editing. Please try again.",
+      "tooManyMedia": "Up to {max} photos or videos.",
+      "tooManyVideos": "At most {videos, plural, one {# video} other {# videos}} per post.",
+      "invalidText": "Up to {max} characters.",
+      "invalidAsset": "Some photo or video is no longer available. Remove the files that don't show and upload them again.",
+      "operation": "The operation couldn't be completed.",
+      "operationRetry": "The operation couldn't be completed. Please try again."
+    },
+    "uploadErrors": {
+      "unsupported_type": "Unsupported file type",
+      "too_large": "The file is too large",
+      "processing_failed": "Processing couldn't be completed",
+      "heic_unsupported_profile": "This HEIC image couldn't be processed",
+      "verification_failed": "The file couldn't be verified",
+      "upload_incomplete": "The upload wasn't completed",
+      "duration": "The video exceeds the allowed duration"
+    }
+  },
+  "author": {
+    "loading": "Loading post…",
+    "signInPrompt": "Sign in to access your post.",
+    "signIn": "Sign in",
+    "loadError": "Couldn't load this post.",
+    "retry": "Try again",
+    "unavailable": "This post isn't available.",
+    "backToProfile": "Back to my profile",
+    "statusLabel": "Post status",
+    "pausedTitle": "Post paused",
+    "removedTitle": "Post removed",
+    "pausedBody": "This post was temporarily hidden while the moderation team reviews reports.",
+    "removedBody": "This post was removed by moderation.",
+    "deleteAfter": "It will be permanently deleted after <time>{date}</time>. The initial retention period is 72 hours (3 days).",
+    "moderationMessage": "Moderation message",
+    "noProcede": "The case was reviewed and no violation of the community rules was found."
+  },
+  "restriction": {
+    "reason": "Reason:",
+    "changed": "The status of your restriction changed. Please try again.",
+    "title": "Posting restricted",
+    "deleteHint": "You can still delete your own posts.",
+    "noDetailHeadline": "Your account has an active restriction in Community.",
+    "noDetailDuration": "You can't create or edit Community posts for now.",
+    "levelHeadline": "Your account has an active Strike {level} in Community.",
+    "permanentDuration": "You can't create or edit Community posts permanently.",
+    "until": "You can't create or edit posts until {date}.",
+    "firstHeadline": "You have received your first strike for breaking the community rules.",
+    "firstWarning": "Warning: strikes keep counting even after their temporary restriction ends, unless they are revoked. A second strike means a one-month restriction and a third, the permanent loss of the permission to post.",
+    "secondHeadline": "You have received your second strike.",
+    "secondWarning": "Final warning: if you receive a third strike, you will permanently lose the permission to create and edit posts in the community. Previous strikes keep counting even after their restriction ends, unless they are revoked."
+  }
+}

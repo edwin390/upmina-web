@@ -7,6 +7,8 @@ import {
   type ReactNode,
 } from "react";
 import { Link } from "react-router-dom";
+import { useTranslations } from "use-intl";
+import { useLongDate } from "@/i18n/useFormat";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/lib/auth-context";
 import AdminAuthField from "@/components/admin/AdminAuthField";
@@ -49,15 +51,13 @@ import {
 const NAME_INPUT_ID = "account-profile-display-name";
 const USERNAME_EDIT_INPUT_ID = "account-profile-username-edit";
 
-const USERNAME_HELP = "3–24 caracteres: minúsculas, números, guion bajo (_) y punto (.).";
-const USERNAME_INVALID =
-  "Usa 3–24 caracteres: minúsculas, números, guion bajo (_) y punto (.).";
-const USERNAME_EDIT_INVALID =
-  "3–24 caracteres: minúsculas, números, guion bajo (_) y punto (.). No puede empezar ni terminar en punto, ni tener puntos seguidos.";
-const READ_ERROR_MESSAGE = "No se pudo cargar tu perfil.";
-const MSG_BAD_REQUEST = "No se pudo procesar la solicitud. Revisa el username.";
-const MSG_TAKEN = "Este username no está disponible.";
-const MSG_CHOOSE_OTHER = "Elige otro username.";
+// Los mensajes de formulario se guardan como marcadores `key:<clave>` (o `cooldown:<ISO>`) y se
+// traducen al renderizar con renderFormError (namespace `account.profile`).
+const USERNAME_INVALID = "key:usernameInvalid";
+const USERNAME_EDIT_INVALID = "key:usernameEditInvalid";
+const MSG_BAD_REQUEST = "key:errors.badRequest";
+const MSG_TAKEN = "key:errors.taken";
+const MSG_CHOOSE_OTHER = "key:errors.chooseOther";
 // AUTH-2: el username solo se configura con el email verificado (autoridad: servidor + BD). El
 // texto vive en el namespace `auth` (EN/ES/DE); aquí solo se guarda un marcador y se renderiza
 // <VerifyEmailFirstMessage /> en su lugar.
@@ -65,7 +65,21 @@ const MSG_VERIFY_EMAIL_FIRST = "__account_incomplete__";
 // Nombres protegidos (suplantación de Mina/Upmina): mensaje localizado es/en/de (namespace `auth`).
 const MSG_USERNAME_RESERVED = "__username_reserved__";
 const MSG_DISPLAY_RESERVED = "__display_name_reserved__";
-function renderFormError(message: string): ReactNode {
+type ProfileT = ReturnType<typeof useTranslations<"account.profile">>;
+function renderFormError(
+  message: string,
+  t: ProfileT,
+  longDate: (value: Date) => string,
+): ReactNode {
+  if (message.startsWith("key:")) {
+    return t(message.slice(4) as Parameters<ProfileT>[0]);
+  }
+  if (message.startsWith("cooldown:")) {
+    const parsed = new Date(message.slice(9));
+    return Number.isNaN(parsed.getTime())
+      ? t("errors.cooldownLater")
+      : t("errors.cooldown", { when: longDate(parsed) });
+  }
   if (message === MSG_VERIFY_EMAIL_FIRST) return <VerifyEmailFirstMessage />;
   if (message === MSG_USERNAME_RESERVED)
     return <ReservedIdentityMessage field="username" />;
@@ -74,25 +88,17 @@ function renderFormError(message: string): ReactNode {
   }
   return message;
 }
-const MSG_SESSION = "Tu sesión ya no es válida. Cierra sesión e inicia de nuevo.";
-const MSG_GENERIC = "No se pudo crear tu perfil. Inténtalo de nuevo.";
+const MSG_SESSION = "key:errors.session";
+const MSG_GENERIC = "key:errors.generic";
 const DISPLAY_NAME_MAX = 40;
 const BIO_MAX = 280;
-const MSG_EDIT_BAD_REQUEST = "Los datos enviados no son válidos.";
-const MSG_EDIT_INVALID = "Revisa el nombre visible y la bio.";
-const MSG_EDIT_GENERIC = "No se pudo guardar tu perfil. Inténtalo de nuevo.";
-const MSG_NAME_TOO_LONG = `El nombre visible admite hasta ${DISPLAY_NAME_MAX} caracteres.`;
-const MSG_BIO_TOO_LONG = `La bio admite hasta ${BIO_MAX} caracteres.`;
-const MSG_USERNAME_TAKEN = "Ese username ya lo tiene otra cuenta.";
-const USERNAME_PUBLIC_NOTICE =
-  "Tu username es público y formará tu dirección de perfil (/@username). Cambiarlo cambia esa dirección pública. Solo puedes cambiarlo una vez cada 30 días.";
+const MSG_EDIT_BAD_REQUEST = "key:errors.editBadRequest";
+const MSG_EDIT_INVALID = "key:errors.editInvalid";
+const MSG_EDIT_GENERIC = "key:errors.editGeneric";
+const MSG_USERNAME_TAKEN = "key:errors.usernameTaken";
 
 function cooldownMessage(nextChangeAllowedAt: string): string {
-  const parsed = new Date(nextChangeAllowedAt);
-  const when = Number.isNaN(parsed.getTime())
-    ? "más adelante"
-    : parsed.toLocaleDateString();
-  return `Ya cambiaste tu username hace poco. Podrás cambiarlo de nuevo el ${when}.`;
+  return `cooldown:${nextChangeAllowedAt}`;
 }
 
 interface PublicProfile {
@@ -175,6 +181,8 @@ const SECONDARY_BUTTON_CLASS =
   "inline-flex min-h-11 items-center rounded-md border border-border-subtle px-5 py-2.5 text-sm font-semibold text-text-secondary transition-colors duration-200 ease-smooth hover:border-accent-primary/60 hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-secondary";
 
 export default function ProfileSection() {
+  const t = useTranslations("account.profile");
+  const longDate = useLongDate();
   const { session } = useAuth();
   const userId = session?.user.id ?? null;
 
@@ -467,26 +475,26 @@ export default function ProfileSection() {
         id="account-profile-heading"
         className="font-display text-xl tracking-wide text-text-primary"
       >
-        Tu perfil público
+        {t("heading")}
       </h2>
 
       {state.status === "loading" ? (
         <p className="mt-3 text-sm text-text-secondary" aria-live="polite">
-          Cargando tu perfil…
+          {t("loading")}
         </p>
       ) : null}
 
       {state.status === "error" ? (
         <div className="mt-3">
           <p role="alert" className="text-sm text-accent-live">
-            {READ_ERROR_MESSAGE}
+            {t("readError")}
           </p>
           <button
             type="button"
             onClick={() => setReloadKey((key) => key + 1)}
             className={`${SECONDARY_BUTTON_CLASS} mt-3`}
           >
-            Reintentar
+            {t("retry")}
           </button>
         </div>
       ) : null}
@@ -519,13 +527,13 @@ export default function ProfileSection() {
               onClick={startEdit}
               className={SECONDARY_BUTTON_CLASS}
             >
-              Editar perfil
+              {t("edit")}
             </button>
             {/* Fase 9J-2B.1: el perfil público /@username es ahora la experiencia social
                   primaria — un usuario ya configurado necesita un camino claro hacia allí desde
                   /account, sin inventar un username: el suyo ya existe (state.profile.username). */}
             <Link to={`/@${state.profile.username}`} className={PRIMARY_BUTTON_CLASS}>
-              Ver mi perfil
+              {t("view")}
             </Link>
           </div>
         </div>
@@ -533,13 +541,11 @@ export default function ProfileSection() {
 
       {state.status === "present" && mode === "edit" ? (
         <form onSubmit={(e) => void handleSave(e)} noValidate className="mt-3 min-w-0">
-          <p className="mt-2 text-xs text-text-secondary">
-            Tu nombre visible, tu bio y tu username serán públicos.
-          </p>
+          <p className="mt-2 text-xs text-text-secondary">{t("publicNote")}</p>
 
           <div className="mt-4">
             <AdminAuthField
-              label="Username"
+              label={t("username")}
               id={USERNAME_EDIT_INPUT_ID}
               name="username"
               type="text"
@@ -557,16 +563,16 @@ export default function ProfileSection() {
               className={`mt-2 text-xs ${usernameShowInvalid ? "text-accent-live" : "text-text-secondary"}`}
             >
               {usernameEditReserved
-                ? renderFormError(MSG_USERNAME_RESERVED)
+                ? renderFormError(MSG_USERNAME_RESERVED, t, longDate)
                 : usernameShowInvalid
-                  ? USERNAME_EDIT_INVALID
-                  : USERNAME_PUBLIC_NOTICE}
+                  ? renderFormError(USERNAME_EDIT_INVALID, t, longDate)
+                  : t("usernamePublicNotice")}
             </p>
           </div>
 
           <div className="mt-4">
             <AdminAuthField
-              label="Nombre visible"
+              label={t("displayName")}
               id={NAME_INPUT_ID}
               name="display_name"
               type="text"
@@ -584,12 +590,12 @@ export default function ProfileSection() {
             </p>
             {nameTooLong ? (
               <p role="alert" className="mt-1 text-sm text-accent-live">
-                {MSG_NAME_TOO_LONG}
+                {t("nameTooLong", { max: DISPLAY_NAME_MAX })}
               </p>
             ) : null}
             {nameReserved ? (
               <p role="alert" className="mt-1 text-sm text-accent-live">
-                {renderFormError(MSG_DISPLAY_RESERVED)}
+                {renderFormError(MSG_DISPLAY_RESERVED, t, longDate)}
               </p>
             ) : null}
           </div>
@@ -599,7 +605,7 @@ export default function ProfileSection() {
               htmlFor="account-profile-bio"
               className="mb-1 block text-sm text-text-secondary"
             >
-              Bio
+              {t("bio")}
             </label>
             <textarea
               id="account-profile-bio"
@@ -619,14 +625,14 @@ export default function ProfileSection() {
             </p>
             {bioTooLong ? (
               <p role="alert" className="mt-1 text-sm text-accent-live">
-                {MSG_BIO_TOO_LONG}
+                {t("bioTooLong", { max: BIO_MAX })}
               </p>
             ) : null}
           </div>
 
           {editError ? (
             <p role="alert" className="mt-4 text-sm text-accent-live">
-              {renderFormError(editError)}
+              {renderFormError(editError, t, longDate)}
             </p>
           ) : null}
 
@@ -636,7 +642,7 @@ export default function ProfileSection() {
               disabled={isSaving || !canSave}
               className={PRIMARY_BUTTON_CLASS}
             >
-              {isSaving ? "Guardando…" : "Guardar"}
+              {isSaving ? t("saving") : t("save")}
             </button>
             <button
               type="button"
@@ -644,7 +650,7 @@ export default function ProfileSection() {
               disabled={isSaving}
               className={SECONDARY_BUTTON_CLASS}
             >
-              Cancelar
+              {t("cancel")}
             </button>
           </div>
         </form>
@@ -652,11 +658,9 @@ export default function ProfileSection() {
 
       {state.status === "absent" ? (
         <form onSubmit={(e) => void handleSubmit(e)} noValidate className="mt-3">
-          <p className="mb-4 text-sm text-text-secondary">
-            Elige tu username para crear tu perfil.
-          </p>
+          <p className="mb-4 text-sm text-text-secondary">{t("chooseUsername")}</p>
           <AdminAuthField
-            label="Username"
+            label={t("username")}
             id="account-profile-username"
             name="username"
             type="text"
@@ -674,15 +678,15 @@ export default function ProfileSection() {
             className={`mt-2 text-xs ${showInvalid ? "text-accent-live" : "text-text-secondary"}`}
           >
             {isReserved
-              ? renderFormError(MSG_USERNAME_RESERVED)
+              ? renderFormError(MSG_USERNAME_RESERVED, t, longDate)
               : showInvalid
-                ? USERNAME_INVALID
-                : USERNAME_HELP}
+                ? renderFormError(USERNAME_INVALID, t, longDate)
+                : t("usernameHelp")}
           </p>
 
           {submitError ? (
             <p role="alert" className="mt-4 text-sm text-accent-live">
-              {renderFormError(submitError)}
+              {renderFormError(submitError, t, longDate)}
             </p>
           ) : null}
 
@@ -691,7 +695,7 @@ export default function ProfileSection() {
             disabled={isSubmitting || !isValid}
             className={`${PRIMARY_BUTTON_CLASS} mt-4`}
           >
-            {isSubmitting ? "Creando perfil…" : "Crear perfil"}
+            {isSubmitting ? t("creating") : t("create")}
           </button>
         </form>
       ) : null}

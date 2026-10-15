@@ -2,6 +2,8 @@ import { useCallback, useEffect, useId, useRef, useState, type FormEvent } from 
 import { supabase } from "@/lib/supabase";
 import { usePrivilegedFailureReporter } from "@/hooks/privileged-failure";
 import { buildActivationUrl } from "@/lib/admin-invitation-link";
+import { useTranslations } from "use-intl";
+import { useLocaleCode } from "@/i18n/useFormat";
 
 // Sección "Invitaciones del equipo" de /admin (Bloque 9E). Solo PRESENTACIÓN: el dashboard la
 // monta únicamente cuando GET /api/admin/me declara la capacidad `team_admin`, pero la autoridad
@@ -34,18 +36,6 @@ export interface TeamInvitation {
 const LIST_ENDPOINT = "/api/admin/team-invitations";
 const REVOKE_ENDPOINT = "/api/admin/team-invitations-revoke";
 
-const ROLE_LABEL: Record<InvitableRole, string> = {
-  admin: "Administrador",
-  moderator: "Moderador",
-};
-
-const STATUS_LABEL: Record<InvitationStatus, string> = {
-  pending: "Pendiente",
-  consumed: "Consumida",
-  revoked: "Revocada",
-  expired: "Expirada",
-};
-
 const STATUS_DOT: Record<InvitationStatus, string> = {
   pending: "bg-accent-warning",
   consumed: "bg-accent-success",
@@ -53,16 +43,15 @@ const STATUS_DOT: Record<InvitationStatus, string> = {
   expired: "bg-text-muted",
 };
 
-const MSG_SESSION = "Tu sesión ya no es válida. Inicia sesión de nuevo.";
-const MSG_FORBIDDEN =
-  "No se pudo autorizar esta acción. Comprueba tu verificación en dos pasos e inténtalo de nuevo.";
-const MSG_LOAD = "No se pudieron cargar las invitaciones.";
-const MSG_CREATE = "No pudimos crear la invitación. Inténtalo de nuevo.";
-const MSG_REVOKE = "No pudimos revocar la invitación. Inténtalo de nuevo.";
-const MSG_REVOKE_GONE = "Esta invitación ya no se puede revocar. Actualizamos la lista.";
-const MSG_COPY_OK = "Enlace copiado.";
-const MSG_COPY_FAIL =
-  "No se pudo copiar automáticamente. Selecciona el enlace y cópialo manualmente.";
+// Mensajes como marcadores `i18n:<clave>`; se traducen al renderizar (resolveMessage).
+const MSG_SESSION = "i18n:session";
+const MSG_FORBIDDEN = "i18n:forbidden";
+const MSG_LOAD = "i18n:load";
+const MSG_CREATE = "i18n:create";
+const MSG_REVOKE = "i18n:revoke";
+const MSG_REVOKE_GONE = "i18n:revokeGone";
+const MSG_COPY_OK = "i18n:copyOk";
+const MSG_COPY_FAIL = "i18n:copyFail";
 
 const PRIMARY_BUTTON_CLASS =
   "inline-flex min-h-11 items-center justify-center rounded-md border border-accent-primary/60 bg-accent-primary px-5 py-2.5 text-sm font-bold uppercase tracking-[0.18em] text-text-inverse shadow-glow-primary transition duration-200 ease-bounce hover:-translate-y-1 hover:bg-accent-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-secondary focus-visible:ring-offset-2 focus-visible:ring-offset-bg-surface disabled:pointer-events-none disabled:opacity-50";
@@ -132,10 +121,18 @@ function isRevocable(invitation: TeamInvitation): boolean {
   return invitation.invitation_type === "standard" && invitation.status === "pending";
 }
 
-function formatDate(iso: string): string {
+type InvitationsT = ReturnType<typeof useTranslations<"admin.invitations">>;
+
+/** Traduce un marcador `i18n:<clave>`; cualquier otro texto se muestra tal cual. */
+function resolveMessage(message: string, t: InvitationsT): string {
+  if (!message.startsWith("i18n:")) return message;
+  return (t as unknown as (k: string) => string)(`msg.${message.slice(5)}`);
+}
+
+function formatDate(iso: string, locale: string): string {
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return "—";
-  return new Intl.DateTimeFormat("es", {
+  return new Intl.DateTimeFormat(locale, {
     dateStyle: "medium",
     timeStyle: "short",
   }).format(date);
@@ -169,6 +166,9 @@ interface CreatedLink {
 }
 
 export default function TeamInvitationsSection() {
+  const t = useTranslations("admin.invitations");
+  const locale = useLocaleCode();
+
   const reportFailure = usePrivilegedFailureReporter();
   const headingId = useId();
   const roleId = useId();
@@ -399,12 +399,9 @@ export default function TeamInvitationsSection() {
   return (
     <section aria-labelledby={headingId} className="mt-8">
       <h2 id={headingId} className="font-display text-xl tracking-wide text-text-primary">
-        Invitaciones del equipo
+        {t("heading")}
       </h2>
-      <p className="mt-2 text-sm text-text-secondary">
-        Invita a nuevas personas al equipo. Cada invitación se puede usar una sola vez y
-        caduca a los 7 días.
-      </p>
+      <p className="mt-2 text-sm text-text-secondary">{t("intro")}</p>
 
       <form
         onSubmit={(e) => void create(e)}
@@ -412,7 +409,7 @@ export default function TeamInvitationsSection() {
       >
         <div className="min-w-0 sm:w-64">
           <label htmlFor={roleId} className="block text-sm font-medium text-text-primary">
-            Rol de la invitación
+            {t("roleLabel")}
           </label>
           <select
             id={roleId}
@@ -421,8 +418,8 @@ export default function TeamInvitationsSection() {
             disabled={creating}
             className={`${FIELD_CLASS} mt-1`}
           >
-            <option value="moderator">{ROLE_LABEL.moderator}</option>
-            <option value="admin">{ROLE_LABEL.admin}</option>
+            <option value="moderator">{t("role.moderator")}</option>
+            <option value="admin">{t("role.admin")}</option>
           </select>
         </div>
         <button
@@ -432,13 +429,14 @@ export default function TeamInvitationsSection() {
           aria-busy={creating}
           className={PRIMARY_BUTTON_CLASS}
         >
-          {creating ? "Creando…" : "Crear invitación"}
+          {creating ? t("creating") : t("create")}
         </button>
       </form>
 
       {createError ? (
         <p role="alert" className="mt-3 text-sm text-accent-live">
-          {createError}
+          {" "}
+          {resolveMessage(createError, t)}
         </p>
       ) : null}
 
@@ -447,23 +445,22 @@ export default function TeamInvitationsSection() {
           ref={resultRef}
           tabIndex={-1}
           role="region"
-          aria-label="Invitación creada"
+          aria-label={t("createdRegion")}
           className="mt-4 rounded-md border border-accent-warning/60 bg-bg-base p-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-secondary"
         >
-          <p className="font-semibold text-text-primary">Invitación creada</p>
+          <p className="font-semibold text-text-primary">{t("createdTitle")}</p>
           <p className="mt-1 text-sm text-text-secondary">
-            Rol: {ROLE_LABEL[created.role]} · Expira: {formatDate(created.expiresAt)}
+            {t("createdSummary", {
+              role: t(`role.${created.role}`),
+              date: formatDate(created.expiresAt, locale),
+            })}
           </p>
-          <p className="mt-3 text-sm text-accent-warning">
-            Este enlace es sensible: quien lo tenga puede activar la invitación.
-            Compártelo únicamente con la persona invitada. No se volverá a mostrar: si lo
-            pierdes, revoca la invitación y crea otra.
-          </p>
+          <p className="mt-3 text-sm text-accent-warning">{t("sensitive")}</p>
           <label
             htmlFor={linkId}
             className="mt-3 block text-sm font-medium text-text-primary"
           >
-            Enlace de activación
+            {t("linkLabel")}
           </label>
           <input
             id={linkId}
@@ -479,14 +476,14 @@ export default function TeamInvitationsSection() {
               onClick={() => void copyLink()}
               className={PRIMARY_BUTTON_CLASS}
             >
-              Copiar enlace
+              {t("copy")}
             </button>
             <button
               type="button"
               onClick={discardLink}
               className={SECONDARY_BUTTON_CLASS}
             >
-              Cerrar y descartar enlace
+              {t("discard")}
             </button>
           </div>
           {copyFeedback ? (
@@ -494,7 +491,7 @@ export default function TeamInvitationsSection() {
               role={copyFeedback.ok ? "status" : "alert"}
               className={`mt-3 text-sm ${copyFeedback.ok ? "text-accent-success" : "text-accent-live"}`}
             >
-              {copyFeedback.message}
+              {resolveMessage(copyFeedback.message, t)}
             </p>
           ) : null}
         </div>
@@ -505,32 +502,32 @@ export default function TeamInvitationsSection() {
         tabIndex={-1}
         className="mt-8 font-semibold text-text-primary focus-visible:outline-none"
       >
-        Invitaciones existentes
+        {t("existing")}
       </h3>
 
       {list.kind === "loading" ? (
         <p className="mt-3 text-sm text-text-secondary" role="status">
-          Cargando invitaciones…
+          {t("loading")}
         </p>
       ) : null}
 
       {list.kind === "error" ? (
         <div className="mt-3">
           <p role="alert" className="text-sm text-accent-live">
-            {list.message}
+            {resolveMessage(list.message, t)}
           </p>
           <button
             type="button"
             onClick={() => void loadList(true)}
             className={`${SECONDARY_BUTTON_CLASS} mt-3`}
           >
-            Reintentar
+            {t("retry")}
           </button>
         </div>
       ) : null}
 
       {list.kind === "ready" && list.invitations.length === 0 ? (
-        <p className="mt-3 text-sm text-text-secondary">Todavía no hay invitaciones.</p>
+        <p className="mt-3 text-sm text-text-secondary">{t("empty")}</p>
       ) : null}
 
       {list.kind === "ready" && list.invitations.length > 0 ? (
@@ -543,10 +540,10 @@ export default function TeamInvitationsSection() {
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div className="min-w-0">
                   <p className="font-semibold text-text-primary">
-                    {ROLE_LABEL[invitation.role]}
+                    {t(`role.${invitation.role}`)}
                     {invitation.invitation_type === "bootstrap_admin" ? (
                       <span className="ml-2 text-xs font-normal text-text-muted">
-                        (invitación inicial)
+                        {t("initial")}
                       </span>
                     ) : null}
                   </p>
@@ -555,19 +552,29 @@ export default function TeamInvitationsSection() {
                       aria-hidden="true"
                       className={`inline-block h-2 w-2 shrink-0 rounded-full ${STATUS_DOT[invitation.status]}`}
                     />
-                    <span>{STATUS_LABEL[invitation.status]}</span>
+                    <span>{t(`status.${invitation.status}`)}</span>
                   </p>
                   <p className="mt-1 text-xs text-text-muted">
-                    Creada: {formatDate(invitation.created_at)}
-                    {invitation.status === "pending" || invitation.status === "expired"
-                      ? ` · Expira: ${formatDate(invitation.expires_at)}`
-                      : null}
-                    {invitation.consumed_at
-                      ? ` · Consumida: ${formatDate(invitation.consumed_at)}`
-                      : null}
-                    {invitation.revoked_at
-                      ? ` · Revocada: ${formatDate(invitation.revoked_at)}`
-                      : null}
+                    {[
+                      t("createdOn", { date: formatDate(invitation.created_at, locale) }),
+                      invitation.status === "pending" || invitation.status === "expired"
+                        ? t("expiresOn", {
+                            date: formatDate(invitation.expires_at, locale),
+                          })
+                        : null,
+                      invitation.consumed_at
+                        ? t("consumedOn", {
+                            date: formatDate(invitation.consumed_at, locale),
+                          })
+                        : null,
+                      invitation.revoked_at
+                        ? t("revokedOn", {
+                            date: formatDate(invitation.revoked_at, locale),
+                          })
+                        : null,
+                    ]
+                      .filter(Boolean)
+                      .join(" · ")}
                   </p>
                 </div>
                 {isRevocable(invitation) && confirmingId !== invitation.id ? (
@@ -581,10 +588,13 @@ export default function TeamInvitationsSection() {
                       setConfirmingId(invitation.id);
                     }}
                     disabled={revokingId !== null}
-                    aria-label={`Revocar invitación de ${ROLE_LABEL[invitation.role]} creada el ${formatDate(invitation.created_at)}`}
+                    aria-label={t("revokeAria", {
+                      role: t(`role.${invitation.role}`),
+                      date: formatDate(invitation.created_at, locale),
+                    })}
                     className={DANGER_BUTTON_CLASS}
                   >
-                    Revocar
+                    {t("revoke")}
                   </button>
                 ) : null}
               </div>
@@ -592,13 +602,10 @@ export default function TeamInvitationsSection() {
               {confirmingId === invitation.id ? (
                 <div
                   role="group"
-                  aria-label="Confirmar revocación"
+                  aria-label={t("confirmGroup")}
                   className="mt-3 rounded-md border border-accent-live/40 p-3"
                 >
-                  <p className="text-sm text-text-primary">
-                    ¿Revocar esta invitación? El enlace dejará de funcionar y no se puede
-                    deshacer.
-                  </p>
+                  <p className="text-sm text-text-primary">{t("confirmText")}</p>
                   <div className="mt-3 flex flex-wrap gap-3">
                     <button
                       type="button"
@@ -607,7 +614,7 @@ export default function TeamInvitationsSection() {
                       aria-busy={revokingId === invitation.id}
                       className={DANGER_BUTTON_CLASS}
                     >
-                      {revokingId === invitation.id ? "Revocando…" : "Sí, revocar"}
+                      {revokingId === invitation.id ? t("revoking") : t("confirmRevoke")}
                     </button>
                     <button
                       ref={cancelButtonRef}
@@ -619,7 +626,7 @@ export default function TeamInvitationsSection() {
                       disabled={revokingId !== null}
                       className={SECONDARY_BUTTON_CLASS}
                     >
-                      Cancelar
+                      {t("cancel")}
                     </button>
                   </div>
                 </div>
@@ -627,7 +634,7 @@ export default function TeamInvitationsSection() {
 
               {revokeError?.id === invitation.id ? (
                 <p role="alert" className="mt-3 text-sm text-accent-live">
-                  {revokeError.message}
+                  {resolveMessage(revokeError.message, t)}
                 </p>
               ) : null}
             </li>

@@ -1,29 +1,16 @@
 import { Link } from "react-router-dom";
+import { useTranslations } from "use-intl";
 import {
   LEGAL_DOCUMENTS,
   LEGAL_LINKS,
   allAccepted,
   type LegalChecks,
-  type LegalDocument,
 } from "@/lib/legal-consent";
 
 // Casillas del registro. Orden fijo: mayoría de edad (18+), Términos, Privacidad (lectura), Normas, separador y
 // «Aceptar todo» AL FINAL. Ninguna viene marcada. «Aceptar todo» es DERIVADO (las tres marcadas) y
 // solo marca/desmarca las tres: no incluye ningún tratamiento opcional (hoy no existe ninguno; si se
 // añade, necesita su propio control fuera de este grupo).
-const LABEL: Record<
-  Exclude<LegalDocument, "adult_declaration">,
-  { before: string; link: string; after: string }
-> = {
-  terms: { before: "Acepto los ", link: "Términos y condiciones", after: "." },
-  privacy: {
-    before: "He leído el ",
-    link: "Aviso de privacidad",
-    after: ".",
-  },
-  community_rules: { before: "Acepto las ", link: "Normas de Community", after: "." },
-};
-
 const BOX =
   "mt-0.5 h-5 w-5 shrink-0 rounded border-border-subtle accent-[var(--color-accent-primary,#a855f7)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-secondary";
 
@@ -34,19 +21,17 @@ interface Props {
 }
 
 export default function SignupLegalConsent({ checks, onChange, disabled }: Props) {
+  const t = useTranslations("auth.consent");
   const all = allAccepted(checks);
   return (
     <fieldset className="flex flex-col gap-3" disabled={disabled}>
       <legend className="mb-1 text-sm font-semibold text-text-primary">
-        Antes de crear tu cuenta
+        {t("legend")}
       </legend>
       <p className="text-sm text-text-secondary">
-        El registro es{" "}
-        <strong className="text-text-primary">
-          exclusivo para personas mayores de 18 años
-        </strong>
-        . Es una declaración tuya: no verificamos tu edad ni pedimos documentos. Tu perfil
-        y tus publicaciones serán públicos.
+        {t.rich("intro", {
+          strong: (chunks) => <strong className="text-text-primary">{chunks}</strong>,
+        })}
       </p>
       {LEGAL_DOCUMENTS.map((doc) => (
         <label key={doc} className="flex items-start gap-3 text-sm text-text-secondary">
@@ -57,20 +42,22 @@ export default function SignupLegalConsent({ checks, onChange, disabled }: Props
             onChange={(e) => onChange({ ...checks, [doc]: e.target.checked })}
           />
           {doc === "adult_declaration" ? (
-            <span>Declaro que tengo 18 años o más.</span>
+            <span>{t("adult")}</span>
           ) : (
             <span>
-              {LABEL[doc].before}
-              <Link
-                to={LEGAL_LINKS[doc]}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="font-medium text-accent-primary hover:underline"
-              >
-                {LABEL[doc].link}
-                <span className="sr-only"> (se abre en una pestaña nueva)</span>
-              </Link>
-              {LABEL[doc].after}
+              {t.rich(doc, {
+                link: (chunks) => (
+                  <Link
+                    to={LEGAL_LINKS[doc]}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="font-medium text-accent-primary hover:underline"
+                  >
+                    {chunks}
+                    <span className="sr-only"> {t("newTab")}</span>
+                  </Link>
+                ),
+              })}
             </span>
           )}
         </label>
@@ -86,7 +73,7 @@ export default function SignupLegalConsent({ checks, onChange, disabled }: Props
             onChange({ adult_declaration: v, terms: v, privacy: v, community_rules: v });
           }}
         />
-        <span>Aceptar todo</span>
+        <span>{t("all")}</span>
       </label>
     </fieldset>
   );

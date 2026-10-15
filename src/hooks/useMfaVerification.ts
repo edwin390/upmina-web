@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { supabase } from "@/lib/supabase";
 import { useAdminAccess } from "@/hooks/useAdminAccess";
+import { useTranslations } from "use-intl";
 
 const INVALID_OR_EXPIRED_CODES = new Set([
   "mfa_verification_failed",
@@ -11,16 +12,26 @@ const INVALID_OR_EXPIRED_CODES = new Set([
 /** Traduce un AuthError de Supabase MFA a un mensaje seguro y entendible. Usa
  *  `error.code` (campo estable de la API, ver @supabase/auth-js/lib/error-codes) en vez
  *  de inspeccionar `error.message`: nunca se propaga el texto interno del proveedor. */
-function mfaErrorMessage(error: unknown, fallback: string): string {
+function mfaErrorKey(error: unknown, fallback: MfaFormErrorKey): MfaFormErrorKey {
   const code =
     error && typeof error === "object" ? (error as { code?: unknown }).code : undefined;
   if (typeof code === "string" && INVALID_OR_EXPIRED_CODES.has(code)) {
-    return "Código incorrecto o expirado.";
+    return "invalidCode";
   }
   return fallback;
 }
 
-const UNEXPECTED_ERROR = "Ocurrió un error inesperado. Inténtalo de nuevo.";
+const UNEXPECTED_ERROR: MfaFormErrorKey = "unexpected";
+
+type MfaFormErrorKey =
+  | "invalidCode"
+  | "unexpected"
+  | "verifyFailed"
+  | "cleanupFailed"
+  | "enrollFailed"
+  | "challengeFailed"
+  | "confirmFailed";
+type MfaFatalReason = "notConfigured" | "factorsLoad" | "statusCheck";
 
 type MfaStep =
   | { kind: "checking" }
@@ -30,7 +41,7 @@ type MfaStep =
   | { kind: "need-factor"; abandonedFactorId: string | null }
   | { kind: "enrolling"; factorId: string; qrCode: string; secret: string }
   | { kind: "challenge"; factorId: string }
-  | { kind: "fatal"; message: string };
+  | { kind: "fatal"; reason: MfaFatalReason };
 
 export function useMfaVerification(
   options: { explicit?: boolean; isCurrent?: () => Promise<boolean> } = {},
@@ -58,7 +69,8 @@ export function useMfaVerification(
   const mfaRecent = access?.mfaRecent ?? false;
   const [step, setStep] = useState<MfaStep>({ kind: "checking" });
   const [code, setCode] = useState("");
-  const [formError, setFormError] = useState<string | null>(null);
+  const t = useTranslations("admin.mfaHook");
+  const [formErrorKey, setFormError] = useState<MfaFormErrorKey | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSecretVisible, setIsSecretVisible] = useState(false);
   const [didVerify, setDidVerify] = useState(false);
@@ -67,7 +79,7 @@ export function useMfaVerification(
   // decisión "¿hace falta MFA?" ya la tomó el servidor (MFA reciente vía /access).
   const loadFactors = useCallback(async (isCurrent: () => boolean) => {
     if (!supabase) {
-      setStep({ kind: "fatal", message: "El acceso admin no está configurado todavía." });
+      setStep({ kind: "fatal", reason: "notConfigured" });
       return;
     }
 
@@ -78,7 +90,7 @@ export function useMfaVerification(
       if (isCurrent()) {
         setStep({
           kind: "fatal",
-          message: "No se pudieron cargar tus factores de verificación.",
+          reason: "factorsLoad",
         });
       }
       return;
@@ -88,7 +100,7 @@ export function useMfaVerification(
     if (factorsError) {
       setStep({
         kind: "fatal",
-        message: "No se pudieron cargar tus factores de verificación.",
+        reason: "factorsLoad",
       });
       return;
     }
@@ -133,7 +145,7 @@ export function useMfaVerification(
     } else if (accessStatus === "error") {
       setStep({
         kind: "fatal",
-        message: "No se pudo comprobar tu estado de verificación en dos pasos.",
+        reason: "statusCheck",
       });
     } else if (mfaRecent && !options.explicit) {
       setStep({ kind: "verified" });
@@ -164,9 +176,7 @@ export function useMfaVerification(
         });
         if (!(await current())) return;
         if (cleanupError) {
-          setFormError(
-            "No se pudo limpiar un enrolamiento anterior incompleto. Inténtalo de nuevo.",
-          );
+          setFormError("cleanupFailed");
           return;
         }
       }
@@ -174,7 +184,7 @@ export function useMfaVerification(
       const { data, error } = await supabase.auth.mfa.enroll({ factorType: "totp" });
       if (!(await current())) return;
       if (error) {
-        setFormError("No se pudo iniciar el enrolamiento. Inténtalo de nuevo.");
+        setFormError("enrollFailed");
         return;
       }
       // Solo en memoria: qr_code/secret/uri nunca se guardan en localStorage,
@@ -234,7 +244,7 @@ export function useMfaVerification(
       const { data: challengeData, error: challengeError } =
         await supabase.auth.mfa.challenge({ factorId });
       if (challengeError) {
-        setFormError("No se pudo iniciar la verificación. Inténtalo de nuevo.");
+        setFormError("challengeFailed");
         return;
       }
 
@@ -249,12 +259,7 @@ export function useMfaVerification(
       });
       if (!(await current())) return;
       if (verifyError) {
-        setFormError(
-          mfaErrorMessage(
-            verifyError,
-            "No se pudo verificar el código. Inténtalo de nuevo.",
-          ),
-        );
+        setFormError(mfaErrorKey(verifyError, "verifyFailed"));
         return;
       }
 
@@ -274,7 +279,7 @@ export function useMfaVerification(
         setDidVerify(true);
         setStep({ kind: "verified" });
       } else {
-        setFormError("No se pudo confirmar la verificación. Inténtalo de nuevo.");
+        setFormError("confirmFailed");
       }
     } catch {
       if (mounted.current) setFormError(UNEXPECTED_ERROR);
@@ -283,14 +288,15 @@ export function useMfaVerification(
       if (mounted.current) setIsSubmitting(false);
     }
   }
-
+  const publicStep =
+    step.kind === "fatal" ? { kind: "fatal" as const, message: t(step.reason) } : step;
   return {
-    step,
+    step: publicStep,
     didVerify,
     code,
     setCode,
-    formError,
-    invalidCode: formError === "Código incorrecto o expirado.",
+    formError: formErrorKey ? t(formErrorKey) : null,
+    invalidCode: formErrorKey === "invalidCode",
     isSubmitting,
     isSecretVisible,
     setIsSecretVisible,

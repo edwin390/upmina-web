@@ -1,3 +1,4 @@
+import { useTranslations } from "use-intl";
 import type { InstagramMediaItem } from "@/types";
 import { rememberAspectRatio } from "@/lib/media-ratio";
 import { CommentIcon, HeartIcon } from "./InstagramIcons";
@@ -7,25 +8,20 @@ interface InstagramGridProps {
   onSelect: (item: InstagramMediaItem, trigger: HTMLElement) => void;
 }
 
-const TYPE_LABEL: Record<InstagramMediaItem["mediaType"], string> = {
-  IMAGE: "Foto",
-  VIDEO: "Video",
-  CAROUSEL_ALBUM: "Carrusel",
-};
-
 const TYPE_ICON: Partial<Record<InstagramMediaItem["mediaType"], string>> = {
   VIDEO: "▶",
   CAROUSEL_ALBUM: "❐",
 };
 
 export default function InstagramGrid({ items, onSelect }: InstagramGridProps) {
+  const t = useTranslations("site.instagram");
   return (
     <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4">
       {items.map((item) => {
         const icon = TYPE_ICON[item.mediaType];
         const isReel = item.productType === "REELS";
-        const label = isReel ? "Reel" : TYPE_LABEL[item.mediaType];
-        const description = item.caption ?? "Publicación de Instagram";
+        const label = isReel ? t("type.reel") : t(`type.${item.mediaType}`);
+        const description = item.caption ?? t("defaultCaption");
         const hasStats = item.likeCount !== undefined || item.commentsCount !== undefined;
 
         return (
@@ -34,7 +30,7 @@ export default function InstagramGrid({ items, onSelect }: InstagramGridProps) {
             type="button"
             onClick={(event) => onSelect(item, event.currentTarget)}
             aria-haspopup="dialog"
-            aria-label={`${label}: ${description}. Abrir publicación`}
+            aria-label={t("openPost", { label, description })}
             className="group relative aspect-[4/5] overflow-hidden rounded-md border border-transparent bg-bg-surface text-left transition-[border-color,box-shadow] hover:border-accent-primary/70 hover:shadow-glow-primary focus-visible:border-accent-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-secondary"
           >
             <img
@@ -56,7 +52,7 @@ export default function InstagramGrid({ items, onSelect }: InstagramGridProps) {
                 aria-hidden="true"
                 className="absolute right-2 top-2 rounded bg-black/60 px-1.5 py-0.5 text-xs text-white"
               >
-                {isReel ? "Reel ▶" : icon}
+                {isReel ? t("type.reelBadge") : icon}
               </span>
             )}
             {(hasStats || item.caption) && (

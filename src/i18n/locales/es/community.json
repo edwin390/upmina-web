@@ -1,0 +1,160 @@
+{
+  "common": {
+    "viewProfile": "Ver el perfil de @{username}",
+    "retry": "Reintentar",
+    "backToCommunity": "Volver a Comunidad"
+  },
+  "profile": {
+    "loading": "Cargando perfil…",
+    "loadError": "No se pudo cargar este perfil.",
+    "notFoundTitle": "Este perfil no existe",
+    "notFoundBody": "No encontramos ninguna cuenta con ese @username.",
+    "posts": "{count, plural, one {# publicación} other {# publicaciones}}",
+    "likes": "{count, plural, one {# Me gusta} other {# Me gusta}}",
+    "editProfile": "Editar perfil",
+    "newPost": "Nueva publicación",
+    "adminPanel": "Panel de administración",
+    "moderationPanel": "Panel de moderación",
+    "developerPanel": "Panel Developer",
+    "ownPostsError": "No se pudieron cargar tus publicaciones.",
+    "emptyTitle": "Todavía no hay publicaciones",
+    "emptyOwn": "Cuando publiques, tus publicaciones aparecerán aquí.",
+    "emptyOther": "Cuando @{username} publique, sus publicaciones aparecerán aquí.",
+    "loadMore": "Cargar más",
+    "loadingMore": "Cargando…",
+    "paused": "Publicación pausada",
+    "removed": "Retirada",
+    "resolved": "Caso resuelto",
+    "tileImages": "{count, plural, one {# imagen} other {# imágenes}}",
+    "tileVideos": "{count, plural, one {# video} other {# videos}}",
+    "tileAnd": "{a} y {b}",
+    "tileWithMedia": "Publicación con {parts}",
+    "tileWithMediaDate": "Publicación con {parts}, {date}",
+    "tileText": "Publicación de texto: {preview}",
+    "tileTextDate": "Publicación de texto del {date}: {preview}"
+  },
+  "post": {
+    "loading": "Cargando publicación…",
+    "loadError": "No se pudo cargar esta publicación.",
+    "notFoundTitle": "Esta publicación no existe",
+    "notFoundBody": "Puede haberse borrado o no estar disponible."
+  },
+  "section": {
+    "heading": "Comunidad",
+    "recent": "Recientes",
+    "popular": "Populares",
+    "loading": "Cargando publicaciones…",
+    "loadError": "No se pudieron cargar las publicaciones.",
+    "emptyTitle": "Todavía no hay publicaciones",
+    "emptyBody": "Cuando la comunidad empiece a publicar, sus publicaciones aparecerán aquí.",
+    "loadMore": "Cargar más",
+    "loadingMore": "Cargando…"
+  },
+  "like": {
+    "like": "Me gusta ({count})",
+    "unlike": "Quitar me gusta ({count})"
+  },
+  "feed": {
+    "viewFull": "Ver publicación completa"
+  },
+  "media": {
+    "navigation": "Navegación multimedia",
+    "previous": "Anterior",
+    "next": "Siguiente"
+  },
+  "menu": {
+    "manage": "Gestionar esta publicación",
+    "edit": "Editar",
+    "delete": "Eliminar",
+    "confirmTitle": "¿Borrar esta publicación?",
+    "confirmBody": "Esta acción no se puede deshacer.",
+    "cancel": "Cancelar",
+    "deleted": "Publicación eliminada correctamente",
+    "deleteFailed": "No se pudo eliminar la publicación",
+    "deleteConflict": "No se pudo eliminar la publicación. Esta publicación cambió mientras tanto. Vuelve a intentarlo."
+  },
+  "editor": {
+    "titleNew": "Nueva publicación",
+    "titleEdit": "Editar publicación",
+    "close": "Cerrar",
+    "checking": "Comprobando el estado de tu cuenta…",
+    "checkError": "No pudimos comprobar el estado de tu cuenta, así que no abrimos el editor. Inténtalo de nuevo.",
+    "retry": "Reintentar"
+  },
+  "form": {
+    "textLabel": "Texto de la publicación",
+    "placeholder": "¿Qué quieres compartir?",
+    "mediaLabel": "Multimedia (máximo {max}, hasta {videos, plural, one {# video} other {# videos}})",
+    "addMedia": "Añadir fotos o videos",
+    "helper": "Fotos y videos (MP4, MOV o WebM, hasta 100 MB, máximo {videos, plural, one {# video} other {# videos}} por publicación).",
+    "attachedVideo": "Video adjunto",
+    "processing": "Procesando…",
+    "removeVideo": "Quitar video",
+    "removeImage": "Quitar imagen",
+    "itemError": "Error",
+    "itemVideo": "Video",
+    "itemImage": "Imagen",
+    "publish": "Publicar",
+    "publishing": "Publicando…",
+    "cancel": "Cancelar",
+    "pickerMax": "Máximo {max} fotos o videos por publicación.",
+    "pickerMaxVideos": "Máximo {videos, plural, one {# video} other {# videos}} por publicación.",
+    "pickerSize": "Los videos no pueden superar 100 MB.",
+    "created": "Publicación creada correctamente",
+    "updated": "Publicación actualizada correctamente",
+    "createFailed": "No se pudo crear la publicación",
+    "updateFailed": "No se pudo actualizar la publicación",
+    "errors": {
+      "session": "Tu sesión ya no es válida. Cierra sesión e inicia de nuevo.",
+      "empty": "Una publicación necesita texto o al menos una imagen.",
+      "conflict": "Esta publicación cambió mientras editabas. Vuelve a intentarlo.",
+      "tooManyMedia": "Máximo {max} fotos o videos.",
+      "tooManyVideos": "Máximo {videos, plural, one {# video} other {# videos}} por publicación.",
+      "invalidText": "Máximo {max} caracteres.",
+      "invalidAsset": "Alguna foto o video ya no está disponible. Quita los archivos que no se vean y vuelve a subirlos.",
+      "operation": "No se pudo completar la operación.",
+      "operationRetry": "No se pudo completar la operación. Inténtalo de nuevo."
+    },
+    "uploadErrors": {
+      "unsupported_type": "Tipo de archivo no compatible",
+      "too_large": "El archivo es demasiado grande",
+      "processing_failed": "El procesado no pudo completarse",
+      "heic_unsupported_profile": "No se pudo procesar esta imagen HEIC",
+      "verification_failed": "No se pudo verificar el archivo",
+      "upload_incomplete": "La subida no se completó",
+      "duration": "El video supera la duración permitida"
+    }
+  },
+  "author": {
+    "loading": "Cargando publicación…",
+    "signInPrompt": "Inicia sesión para acceder a tu publicación.",
+    "signIn": "Iniciar sesión",
+    "loadError": "No se pudo cargar esta publicación.",
+    "retry": "Reintentar",
+    "unavailable": "Esta publicación no está disponible.",
+    "backToProfile": "Volver a mi perfil",
+    "statusLabel": "Estado de la publicación",
+    "pausedTitle": "Publicación pausada",
+    "removedTitle": "Publicación retirada",
+    "pausedBody": "Esta publicación fue ocultada temporalmente mientras el equipo de moderación revisa reportes.",
+    "removedBody": "Esta publicación fue retirada por moderación.",
+    "deleteAfter": "Se eliminará permanentemente después del <time>{date}</time>. La retención inicial es de 72 horas (3 días).",
+    "moderationMessage": "Mensaje de moderación",
+    "noProcede": "El caso se revisó y no se encontró ningún incumplimiento de las reglas de la comunidad."
+  },
+  "restriction": {
+    "reason": "Motivo:",
+    "changed": "El estado de tu restricción cambió. Vuelve a intentarlo.",
+    "title": "Publicación restringida",
+    "deleteHint": "Puedes seguir eliminando tus propias publicaciones.",
+    "noDetailHeadline": "Tu cuenta tiene una restricción activa en Community.",
+    "noDetailDuration": "No puedes crear ni editar publicaciones de Community por ahora.",
+    "levelHeadline": "Tu cuenta tiene un Strike {level} activo en Community.",
+    "permanentDuration": "No puedes crear ni editar publicaciones de Community de forma permanente.",
+    "until": "No puedes crear ni editar publicaciones hasta {date}.",
+    "firstHeadline": "Has recibido tu primer strike por incumplir las normas de la comunidad.",
+    "firstWarning": "Advertencia: los strikes siguen contando aunque termine su restricción temporal, salvo que sean revocados. Un segundo strike supondrá una restricción de un mes y un tercero, la pérdida permanente del permiso para publicar.",
+    "secondHeadline": "Has recibido tu segundo strike.",
+    "secondWarning": "Última advertencia: si recibes un tercer strike, perderás permanentemente el permiso para crear y editar publicaciones en la comunidad. Los strikes anteriores siguen contando incluso después de cumplir su restricción, salvo que sean revocados."
+  }
+}

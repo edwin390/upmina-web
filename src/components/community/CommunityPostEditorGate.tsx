@@ -2,6 +2,7 @@ import CommunityPostEditorForm from "./CommunityPostEditorForm";
 import CommunityRestrictionNotice from "./CommunityRestrictionNotice";
 import { useAuthorRestriction } from "@/hooks/useAuthorRestriction";
 import type { CommunityOwnPost } from "@/lib/community-client";
+import { useTranslations } from "use-intl";
 
 // R5-F: compuerta ÚNICA de apertura de los editores de Community (crear y editar). Antes de montar
 // el formulario consulta la restricción de publicación vigente (GET autenticado, sin caché):
@@ -19,12 +20,13 @@ interface Props {
 }
 
 export default function CommunityPostEditorGate(props: Props) {
+  const t = useTranslations("community.editor");
   const state = useAuthorRestriction();
 
   if (state.status === "loading") {
     return (
       <p role="status" className="mt-4 text-sm text-text-secondary">
-        Comprobando el estado de tu cuenta…
+        {t("checking")}
       </p>
     );
   }
@@ -32,16 +34,13 @@ export default function CommunityPostEditorGate(props: Props) {
   if (state.status === "error") {
     return (
       <div role="alert" className="mt-4 space-y-3 text-sm text-text-secondary">
-        <p>
-          No pudimos comprobar el estado de tu cuenta, así que no abrimos el editor.
-          Inténtalo de nuevo.
-        </p>
+        <p>{t("checkError")}</p>
         <button
           type="button"
           onClick={state.retry}
           className="inline-flex min-h-11 items-center justify-center rounded-md border border-border-subtle px-4 py-2 text-sm font-semibold text-text-primary transition-colors hover:border-accent-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-secondary"
         >
-          Reintentar
+          {t("retry")}
         </button>
       </div>
     );
@@ -56,7 +55,7 @@ export default function CommunityPostEditorGate(props: Props) {
           onClick={props.onCancel}
           className="mt-4 inline-flex min-h-11 items-center justify-center rounded-md border border-border-subtle px-4 py-2 text-sm font-semibold text-text-primary transition-colors hover:border-accent-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-secondary"
         >
-          Cerrar
+          {t("close")}
         </button>
       </div>
     );

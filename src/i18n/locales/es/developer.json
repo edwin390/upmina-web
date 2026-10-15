@@ -1,0 +1,150 @@
+{
+  "page": {
+    "title": "Panel Developer",
+    "checking": "Comprobando tu sesión…",
+    "invalidSession": "Tu sesión ya no es válida. Cierra sesión e inicia sesión de nuevo.",
+    "signOut": "Cerrar sesión",
+    "accessError": "No se pudo comprobar tu acceso. Inténtalo de nuevo.",
+    "retry": "Reintentar",
+    "accessLost": "Tu acceso Developer ya no está disponible.",
+    "noAccess": "No tienes acceso al panel Developer.",
+    "goToAccount": "Ir a mi cuenta",
+    "mfaUnconfirmed": "No pudimos confirmar tu verificación en dos pasos reciente.",
+    "verifyAgain": "Verificar de nuevo",
+    "intro": "Herramientas técnicas de Developer: supervisión de limpiezas de MFA y aprobación excepcional de recuperaciones. No concede permisos de Admin."
+  },
+  "cleanups": {
+    "heading": "Limpiezas de MFA pendientes",
+    "refresh": "Actualizar",
+    "refreshing": "Actualizando…",
+    "intro": "Supervisión y reintento manual. El reintento solo borra los factores guardados al retirar el rol, nunca factores nuevos.",
+    "retryPending": "Reintentar pendientes",
+    "retrying": "Reintentando…",
+    "retryDone": "Reintento terminado: {completed} completadas, {pending} siguen pendientes.",
+    "retryDoneSimple": "Reintento terminado.",
+    "pendingHeading": "Pendientes ({count})",
+    "noPending": "No hay limpiezas pendientes.",
+    "historyHeading": "Historial reciente ({count})",
+    "noHistory": "Sin limpiezas completadas.",
+    "noProfile": "Cuenta sin perfil",
+    "previousRole": "{role} anterior",
+    "role": {
+      "admin": "ADMIN",
+      "moderator": "MODERADOR",
+      "developer": "DEVELOPER"
+    },
+    "state": "Estado: ",
+    "statePending": "Pendiente de limpiar",
+    "stateCompleted": "Completada",
+    "factors": "Factores: ",
+    "factorsDone": "{done} de {total} eliminados",
+    "factorsTodo": "{total} por eliminar",
+    "attempts": "Intentos: ",
+    "lastAttempt": "Último intento: ",
+    "requested": "Solicitada: ",
+    "completed": "Completada: ",
+    "lastError": "Último error: {error}",
+    "errors": {
+      "auth_delete_failed": "Falló el borrado en el proveedor de autenticación",
+      "auth_list_failed": "No se pudo comprobar la lista de factores",
+      "auth_unavailable": "Proveedor de autenticación no disponible",
+      "factor_still_present": "El factor seguía presente tras el borrado",
+      "record_failed": "Los factores se borraron pero no se pudo registrar"
+    },
+    "msg": {
+      "session": "Tu sesión ya no es válida. Inicia sesión de nuevo.",
+      "listError": "No se pudo cargar la lista de limpiezas.",
+      "retryError": "No se pudo reintentar la limpieza."
+    }
+  },
+  "recoveries": {
+    "heading": "Recuperaciones excepcionales",
+    "intro": "Solicitudes de un administrador que es el único administrador elegible. Aprueba solo si reconoces la petición por otro canal; no puedes decidir sobre la tuya. Si existe otro administrador elegible, la solicitud desaparece de esta lista y la aprueba él.",
+    "cooldown": "Acabas de convertirte en Developer. Por seguridad, podrás aprobar recuperaciones excepcionales dentro de {remaining}{at}. Mientras tanto puedes revisarlas y rechazarlas.",
+    "atTime": "(a las {time})",
+    "minutes": "{count, plural, one {# minuto} other {# minutos}}",
+    "hours": "{count, plural, one {# hora} other {# horas}}",
+    "hoursAndMinutes": "{hours} y {minutes}",
+    "status": {
+      "pending_approval": "Pendiente de aprobación",
+      "approved": "Aprobada, en espera",
+      "executing": "Invalidando autenticador",
+      "factors_deleted": "Autenticador invalidado, falta registrar el nuevo",
+      "completed": "Completada",
+      "denied": "Rechazada",
+      "cancelled": "Cancelada",
+      "expired": "Caducada"
+    },
+    "notice": {
+      "pending": "aviso pendiente de envío",
+      "accepted": "aviso enviado, sin confirmar entrega",
+      "delivered": "aviso entregado",
+      "failed": "aviso NO entregado"
+    },
+    "noticeUnregistered": "aviso no registrado",
+    "emailVerified": "correo verificado",
+    "requestedOn": "solicitada {date}",
+    "exceptionalApproval": "aprobación excepcional ({date})",
+    "exceptionalApprovalBy": "aprobación excepcional de @{approver} ({date})",
+    "deniedByDeveloper": "rechazada por un Developer",
+    "noProfile": "Cuenta sin perfil",
+    "reverify": {
+      "invalid_format": "Introduce el código de 6 dígitos de tu autenticador.",
+      "no_factor": "No encontramos un autenticador verificado en tu cuenta.",
+      "invalid_code": "Código incorrecto o expirado.",
+      "failed": "No se pudo verificar el código. Inténtalo de nuevo."
+    },
+    "codes": {
+      "cooldown_active": "Todavía no puedes aprobar: tu cuenta se convirtió en Developer hace poco. Actualizamos el tiempo restante.",
+      "peer_available": "Ahora existe otro administrador elegible: esta solicitud debe aprobarla otro administrador. Actualizamos la lista.",
+      "not_eligible": "Esta solicitud no admite aprobación excepcional. Actualizamos la lista.",
+      "self_approval": "No puedes decidir sobre tu propia recuperación.",
+      "not_pending": "La solicitud ya no admite esta acción. Actualizamos la lista.",
+      "expired": "La solicitud caducó. Actualizamos la lista.",
+      "email_changed": "El correo de la cuenta cambió: la solicitud se canceló.",
+      "role_changed": "El rol de la cuenta cambió: la solicitud se canceló.",
+      "no_request": "Esta solicitud ya no está disponible. Actualizamos la lista.",
+      "reason_required": "Escribe el motivo del rechazo.",
+      "too_soon": "Espera al menos un minuto antes de enviar otro recordatorio.",
+      "reminder_limit": "Ya se enviaron los 3 recordatorios permitidos para esta solicitud.",
+      "notice_not_delivered": "El aviso original todavía no consta como entregado. Actualizamos la lista.",
+      "mail_unavailable": "El envío de correos no está disponible ahora mismo.",
+      "step_up_required": "Tu verificación en dos pasos no es lo bastante reciente. Vuelve a introducir el código."
+    },
+    "generic": "No se pudo completar la operación. Inténtalo de nuevo.",
+    "done": {
+      "approve": "Recuperación aprobada de forma excepcional.",
+      "deny": "Recuperación rechazada.",
+      "resend_notice": "Aviso reenviado.",
+      "reminder": "Recordatorio enviado a la persona."
+    },
+    "failedNotice": "Atención: el aviso a la persona no se pudo enviar; sin entrega confirmada no podrá ejecutarlo. Puedes reenviarlo.",
+    "msg": {
+      "session": "Tu sesión ya no es válida. Inicia sesión de nuevo.",
+      "listError": "No se pudo cargar la lista de solicitudes."
+    },
+    "confirmWith": "Confirma con tu autenticador para {action}.",
+    "action": {
+      "approve": "aprobar de forma excepcional la recuperación de {name}",
+      "deny": "rechazar la recuperación de {name}",
+      "resend_notice": "reenviar el aviso a {name}"
+    },
+    "reasonLabel": "Motivo del rechazo",
+    "totpLabel": "Código del autenticador",
+    "verifying": "Verificando…",
+    "confirm": "Confirmar",
+    "cancel": "Cancelar",
+    "pendingHeading": "Pendientes de decisión ({count})",
+    "noEligible": "No hay solicitudes elegibles para aprobación excepcional.",
+    "historyHeading": "Historial ({count})",
+    "noHistory": "Sin decisiones recientes.",
+    "approveButton": "Aprobar excepcionalmente",
+    "approveAria": "Aprobar de forma excepcional la recuperación de {name}",
+    "reject": "Rechazar",
+    "rejectAria": "Rechazar la recuperación de {name}",
+    "resend": "Reenviar aviso",
+    "resendAria": "Reenviar el aviso a {name}",
+    "revert": "Revertir aprobación",
+    "revertAria": "Revertir la aprobación de {name}"
+  }
+}

@@ -1,10 +1,13 @@
 import { useCallback, useState } from "react";
+import { useTranslations } from "use-intl";
+import PermissionPendingNotice from "@/components/ui/PermissionPendingNotice";
 import { useTikTokVideos } from "@/hooks/useTikTokVideos";
 import { wrapIndex } from "@/lib/media-ratio";
 import TikTokCard from "./TikTokCard";
 import TikTokViewer from "./TikTokViewer";
 
 export default function TikTokSection() {
+  const t = useTranslations("site.tiktok");
   const { data: videos, isLoading, isError } = useTikTokVideos();
   // Se guarda el id (no el índice): si el feed se refresca, el visor sigue en el mismo vídeo.
   const [selected, setSelected] = useState<{ id: string; trigger: HTMLElement } | null>(
@@ -29,18 +32,9 @@ export default function TikTokSection() {
     <section className="mx-auto max-w-6xl px-4 py-16">
       <h2 className="mb-6 font-display text-3xl tracking-wide">TIKTOK</h2>
 
-      {isLoading && <p className="text-text-muted">Cargando videos…</p>}
+      {isLoading && <p className="text-text-muted">{t("loading")}</p>}
 
-      {isError && (
-        <p role="status" className="text-text-muted">
-          No se pudieron cargar los videos de TikTok ahora mismo. Inténtalo de nuevo más
-          tarde.
-        </p>
-      )}
-
-      {videos && videos.length === 0 && (
-        <p className="text-text-muted">Todavía no hay videos para mostrar.</p>
-      )}
+      {(isError || (videos && videos.length === 0)) && <PermissionPendingNotice />}
 
       {/* Portadas verticales 9:16: 2 columnas en móvil (como el perfil de TikTok) y hasta
           4 en escritorio, para que las tarjetas no crezcan de más. */}

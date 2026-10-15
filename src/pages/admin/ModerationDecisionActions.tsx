@@ -1,6 +1,7 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useQueryClient } from "@tanstack/react-query";
+import { useTranslations } from "use-intl";
 import { decideModerationCase, ModerationClientError } from "@/lib/moderation-client";
 import {
   groupedDecisionInputFromCase,
@@ -35,6 +36,7 @@ export default function ModerationDecisionActions({
   onStepUp,
   onAccessError,
 }: Props) {
+  const t = useTranslations("moderation.decision");
   const client = useQueryClient();
   let canProceed = false;
   try {
@@ -94,8 +96,8 @@ export default function ModerationDecisionActions({
     } catch {
       setError(
         decision === "content_actioned"
-          ? "Escribe un mensaje de resolución de hasta 1000 caracteres."
-          : "No se pudo preparar la decisión. Actualiza el contexto.",
+          ? t("errors.messageRequired")
+          : t("errors.prepare"),
       );
       return;
     }
@@ -122,31 +124,23 @@ export default function ModerationDecisionActions({
         }
         if (err.status === 401 || err.status === 403) {
           onAccessError(err);
-          setError(
-            err.status === 401
-              ? "Inicia sesión de nuevo para continuar."
-              : "Tu acceso a moderación ya no está disponible.",
-          );
+          setError(err.status === 401 ? t("errors.signIn") : t("errors.noAccess"));
           return;
         }
         if (err.code === "invalid_response") {
           setUncertain(true);
-          setError(
-            "No pudimos confirmar el resultado. Cierra este diálogo y actualiza el contexto antes de actuar de nuevo.",
-          );
+          setError(t("errors.uncertain"));
           return;
         }
         if (
           err.code === "resolution_message_required" ||
           err.code === "invalid_argument"
         ) {
-          setError("Revisa el mensaje y actualiza el contexto antes de confirmar.");
+          setError(t("errors.reviewMessage"));
           return;
         }
       }
-      setError(
-        "No se pudo completar la decisión. Revisa tu conexión y actualiza el contexto antes de volver a intentarlo.",
-      );
+      setError(t("errors.generic"));
       return;
     } finally {
       flight.current = false;
@@ -156,15 +150,11 @@ export default function ModerationDecisionActions({
     if (mounted.current) {
       setDecision(null);
       setMessage("");
-      onSuccess(
-        decision === "reports_not_valid"
-          ? "El caso se cerró como No procede."
-          : "Se retiró la publicación y se cerró el caso.",
-      );
+      onSuccess(decision === "reports_not_valid" ? t("done.notValid") : t("done.valid"));
     }
   };
   return (
-    <section aria-label="Decisión del caso" className="space-y-3">
+    <section aria-label={t("section")} className="space-y-3">
       <div className="flex flex-wrap gap-3">
         <button
           type="button"
@@ -175,7 +165,7 @@ export default function ModerationDecisionActions({
             setDecision("reports_not_valid");
           }}
         >
-          No procede
+          {t("notValid")}
         </button>
         {canProceed && (
           <button
@@ -187,15 +177,12 @@ export default function ModerationDecisionActions({
               setDecision("content_actioned");
             }}
           >
-            Procede
+            {t("valid")}
           </button>
         )}
       </div>
       {!canProceed && item.post === null && (
-        <p className="text-sm text-text-muted">
-          La publicación ya no existe (fue eliminada), así que no hay contenido que
-          retirar: este caso solo puede cerrarse como «No procede».
-        </p>
+        <p className="text-sm text-text-muted">{t("deletedNote")}</p>
       )}
       {decision &&
         createPortal(
@@ -210,18 +197,14 @@ export default function ModerationDecisionActions({
             className="m-auto max-h-[calc(100dvh-2rem)] w-[calc(100%-2rem)] max-w-lg overflow-y-auto rounded-xl border border-border-subtle bg-bg-surface p-4 text-text-primary backdrop:bg-black/70 sm:p-6"
           >
             <h2 id={titleId} className="text-xl font-semibold">
-              {decision === "content_actioned"
-                ? "Confirmar Procede"
-                : "Confirmar No procede"}
+              {decision === "content_actioned" ? t("confirmValid") : t("confirmNotValid")}
             </h2>
             <p className="mt-3">
-              {decision === "content_actioned"
-                ? "Se cerrará el caso y se retirará la publicación. Su contenido se conservará durante 72 horas. Esta decisión no aplica un strike."
-                : "Se cerrará el caso y se descartarán sus reportes pendientes. Si la publicación está oculta preventivamente por este caso, se restaurará según las reglas de moderación."}
+              {decision === "content_actioned" ? t("bodyValid") : t("bodyNotValid")}
             </p>
             {resume && (
               <p role="status" className="mt-3">
-                Revisa el contexto y confirma nuevamente. No se ha repetido la decisión.
+                {t("resumed")}
               </p>
             )}
             <form
@@ -233,7 +216,7 @@ export default function ModerationDecisionActions({
             >
               {decision === "content_actioned" && (
                 <label className="block">
-                  Mensaje de resolución para el autor
+                  {t("messageLabel")}
                   <textarea
                     required
                     rows={5}
@@ -245,7 +228,7 @@ export default function ModerationDecisionActions({
                     className="mt-2 block w-full min-w-0 rounded border border-border-subtle bg-bg-base p-3"
                   />
                   <span className="text-sm">
-                    {[...message.trim()].length}/1000 caracteres
+                    {t("count", { count: [...message.trim()].length })}
                   </span>
                 </label>
               )}
@@ -254,7 +237,7 @@ export default function ModerationDecisionActions({
                   {error}
                 </p>
               )}
-              {pending && <p role="status">Guardando decisión…</p>}
+              {pending && <p role="status">{t("saving")}</p>}
               <div className="flex flex-wrap gap-3">
                 <button
                   type="button"
@@ -263,7 +246,7 @@ export default function ModerationDecisionActions({
                   disabled={pending}
                   onClick={close}
                 >
-                  Cancelar
+                  {t("cancel")}
                 </button>
                 <button
                   type="submit"
@@ -272,7 +255,7 @@ export default function ModerationDecisionActions({
                   }
                   disabled={pending || uncertain}
                 >
-                  Confirmar decisión
+                  {t("confirm")}
                 </button>
               </div>
             </form>

@@ -99,7 +99,9 @@ describe("/cosplay — estados", () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(json({}, 500)));
     renderSection();
     await waitFor(() =>
-      expect(screen.getByRole("status")).toHaveTextContent(/no se pudieron cargar/i),
+      expect(screen.getByRole("status")).toHaveTextContent(
+        /a la espera de la autorización de Mina/i,
+      ),
     );
   });
 
@@ -108,7 +110,9 @@ describe("/cosplay — estados", () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(json(page)));
     renderSection();
     await waitFor(() =>
-      expect(screen.getByText("Todavía no hay publicaciones")).toBeInTheDocument(),
+      expect(
+        screen.getByText(/a la espera de la autorización de Mina/),
+      ).toBeInTheDocument(),
     );
     expect(screen.queryByText(/no rows|null|undefined/i)).toBeNull();
   });

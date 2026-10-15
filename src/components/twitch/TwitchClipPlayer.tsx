@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import type { TwitchClip } from "@/types";
 import { ClipThumbnail } from "./TwitchClip";
 import { twitchClipEmbedUrl } from "./twitchUrl";
+import { useTranslations } from "use-intl";
 
 interface TwitchClipPlayerProps {
   clip: TwitchClip;
@@ -23,6 +24,7 @@ export const PLAYER_LOAD_TIMEOUT_MS = 10_000;
  * reproducir, volumen, pantalla completa) siguen siendo del reproductor.
  */
 export default function TwitchClipPlayer({ clip }: TwitchClipPlayerProps) {
+  const t = useTranslations("site.twitch.clip");
   const [status, setStatus] = useState<"loading" | "ready" | "failed">("loading");
   const parent = typeof window !== "undefined" ? window.location.hostname : "localhost";
 
@@ -40,7 +42,9 @@ export default function TwitchClipPlayer({ clip }: TwitchClipPlayerProps) {
       {status !== "failed" && (
         <iframe
           src={twitchClipEmbedUrl(clip, parent)}
-          title={clip.title ? `Clip de Twitch: ${clip.title}` : "Clip de Twitch"}
+          title={
+            clip.title ? t("playerTitleNamed", { title: clip.title }) : t("playerTitle")
+          }
           // autoplay delegado al iframe: sin este permiso el navegador ignora autoplay=true.
           allow="autoplay; fullscreen"
           allowFullScreen
@@ -57,7 +61,7 @@ export default function TwitchClipPlayer({ clip }: TwitchClipPlayerProps) {
           role="status"
           className="absolute inset-x-3 bottom-3 rounded-lg bg-black/70 px-3 py-2 text-center text-xs text-text-secondary backdrop-blur-sm"
         >
-          No se pudo cargar el reproductor. Puedes verlo en Twitch.
+          {t("playerError")}
         </p>
       )}
 

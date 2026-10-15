@@ -1,19 +1,8 @@
 import { describe, expect, it } from "vitest";
-import authEs from "./locales/es/auth.json";
-import authEn from "./locales/en/auth.json";
-import authDe from "./locales/de/auth.json";
-import commonEs from "./locales/es/common.json";
-import commonEn from "./locales/en/common.json";
-import commonDe from "./locales/de/common.json";
-import cosplayEs from "./locales/es/cosplay.json";
-import cosplayEn from "./locales/en/cosplay.json";
-import cosplayDe from "./locales/de/cosplay.json";
-import mediaEs from "./locales/es/media.json";
-import mediaEn from "./locales/en/media.json";
-import mediaDe from "./locales/de/media.json";
-import moderationEs from "./locales/es/moderation.json";
-import moderationEn from "./locales/en/moderation.json";
-import moderationDe from "./locales/de/moderation.json";
+const FILES = import.meta.glob<Json>("./locales/*/*.json", {
+  eager: true,
+  import: "default",
+});
 
 // Paridad ES/EN/DE (Fase 9I-1): las tres traducciones deben cubrir EXACTAMENTE el mismo árbol de
 // claves y los mismos argumentos de interpolación ICU. Una clave que falte en EN/DE se
@@ -50,19 +39,25 @@ function leafValues(obj: Json, prefix = ""): Record<string, string> {
  *  en las ramas del plural (`one {...}`, `other {...}`) porque esas no son argumentos. */
 function icuArgNames(message: string): string[] {
   const names = new Set<string>();
-  for (const match of message.matchAll(/\{\s*([a-zA-Z0-9_]+)/g)) {
+  const withoutBranches = message.replace(
+    /(?:(?:zero|one|two|few|many|other)|=\d+)\s*\{/g,
+    "(",
+  );
+  for (const match of withoutBranches.matchAll(/\{\s*([a-zA-Z0-9_]+)/g)) {
     names.add(match[1]);
   }
   return [...names].sort();
 }
 
-const NAMESPACES: [string, Json, Json, Json][] = [
-  ["auth", authEs, authEn, authDe],
-  ["common", commonEs, commonEn, commonDe],
-  ["cosplay", cosplayEs, cosplayEn, cosplayDe],
-  ["media", mediaEs, mediaEn, mediaDe],
-  ["moderation", moderationEs, moderationEn, moderationDe],
-];
+const NAMES = [
+  ...new Set(Object.keys(FILES).map((p) => p.split("/").pop()!.replace(".json", ""))),
+].sort();
+const NAMESPACES: [string, Json, Json, Json][] = NAMES.map((n) => [
+  n,
+  FILES[`./locales/es/${n}.json`],
+  FILES[`./locales/en/${n}.json`],
+  FILES[`./locales/de/${n}.json`],
+]);
 
 describe.each(NAMESPACES)("paridad de mensajes — %s", (ns, es, en, de) => {
   const esPaths = leafPaths(es).sort();

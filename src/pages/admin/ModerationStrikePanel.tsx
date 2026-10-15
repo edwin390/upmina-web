@@ -1,5 +1,7 @@
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
+import { useTranslations } from "use-intl";
+import { useLocaleCode } from "@/i18n/useFormat";
 import {
   applyModerationStrike,
   ModerationClientError,
@@ -56,23 +58,18 @@ const STALE_CODES = new Set([
   "strike_not_found",
 ]);
 
-function date(iso: string) {
-  return new Intl.DateTimeFormat("es", { dateStyle: "long", timeStyle: "short" }).format(
-    new Date(iso),
-  );
+function date(iso: string, locale: string) {
+  return new Intl.DateTimeFormat(locale, {
+    dateStyle: "long",
+    timeStyle: "short",
+  }).format(new Date(iso));
 }
-function effect(level: StrikeLevel): string {
-  if (level === 1)
-    return "Bloquea nuevas publicaciones y ediciones de Community durante 14 días.";
-  if (level === 2)
-    return "Bloquea nuevas publicaciones y ediciones de Community durante 1 mes.";
-  return "Bloquea permanentemente nuevas publicaciones y ediciones de Community.";
+type StrikeT = ReturnType<typeof useTranslations<"moderation.strike">>;
+
+const INELIGIBLE_KEYS = ["author_unavailable", "self_strike_forbidden"] as const;
+function effect(level: StrikeLevel, t: StrikeT): string {
+  return t(`effect.${level}`);
 }
-const INELIGIBLE: Record<string, string> = {
-  author_unavailable:
-    "No se puede aplicar un strike: la cuenta del autor ya no está disponible.",
-  self_strike_forbidden: "No puedes aplicar un strike sobre tu propio contenido.",
-};
 
 interface DialogProps {
   title: string;
@@ -93,6 +90,8 @@ interface DialogProps {
 }
 
 function StrikeDialog(p: DialogProps) {
+  const t = useTranslations("moderation.strike");
+
   const dialog = useRef<HTMLDialogElement>(null);
   const titleId = useId();
   const errorId = useId();
@@ -130,7 +129,7 @@ function StrikeDialog(p: DialogProps) {
       <div className="mt-3 space-y-2">{p.intro}</div>
       {p.resumed && (
         <p role="status" className="mt-3">
-          Revisa el contexto y confirma nuevamente. No se ha repetido la acción.
+          {t("resumed")}
         </p>
       )}
       <form
@@ -153,8 +152,8 @@ function StrikeDialog(p: DialogProps) {
             className="mt-2 block w-full min-w-0 rounded border border-border-subtle bg-bg-base p-3"
           />
           <span id={countId} className="block text-sm">
-            {count}/{STRIKE_REASON_MAX_CODE_POINTS} caracteres
-            {over ? " — supera el máximo permitido" : ""}
+            {t("count", { count, max: STRIKE_REASON_MAX_CODE_POINTS })}
+            {over ? t("overMax") : ""}
           </span>
           <span className="block text-sm text-text-muted">{p.hint}</span>
         </label>
@@ -172,7 +171,7 @@ function StrikeDialog(p: DialogProps) {
             disabled={p.pending}
             onClick={p.onClose}
           >
-            Cancelar
+            {t("cancel")}
           </button>
           <button
             type="submit"
@@ -198,6 +197,8 @@ export default function ModerationStrikePanel({
   onStepUp,
   onAccessError,
 }: Props) {
+  const t = useTranslations("moderation.strike");
+  const locale = useLocaleCode();
   const strike = item.strike;
   const existing = strike?.existing ?? null;
   // Resume only into a dialog that is still valid for the FRESH server state.
@@ -253,8 +254,8 @@ export default function ModerationStrikePanel({
     if (!normalized.ok) {
       setError(
         normalized.code === "reason_required"
-          ? "Escribe el motivo."
-          : `El motivo no puede superar ${STRIKE_REASON_MAX_CODE_POINTS} caracteres.`,
+          ? t("errors.reasonRequired")
+          : t("errors.reasonTooLong", { max: STRIKE_REASON_MAX_CODE_POINTS }),
       );
       return;
     }
@@ -297,28 +298,20 @@ export default function ModerationStrikePanel({
         }
         if (err.status === 401 || err.status === 403) {
           onAccessError(err);
-          setError(
-            err.status === 401
-              ? "Inicia sesión de nuevo para continuar."
-              : "Tu acceso para esta acción ya no está disponible.",
-          );
+          setError(err.status === 401 ? t("errors.signIn") : t("errors.noAccess"));
           return;
         }
         if (err.code === "invalid_response") {
           setUncertain(true);
-          setError(
-            "No pudimos confirmar el resultado. Cierra este diálogo para actualizar el caso antes de actuar de nuevo.",
-          );
+          setError(t("errors.uncertain"));
           return;
         }
         if (err.code === "reason_required" || err.code === "validation") {
-          setError("Revisa el motivo antes de confirmar.");
+          setError(t("errors.reviewReason"));
           return;
         }
       }
-      setError(
-        "No se pudo completar la acción. Revisa tu conexión y actualiza el caso antes de volver a intentarlo.",
-      );
+      setError(t("errors.generic"));
       return;
     } finally {
       flight.current = false;
@@ -329,7 +322,7 @@ export default function ModerationStrikePanel({
       setMode(null);
       setResumed(false);
       setReason("");
-      onChanged(kind === "apply" ? "Strike aplicado." : "Strike revocado.");
+      onChanged(kind === "apply" ? t("done.apply") : t("done.revoke"));
     }
   }
 
@@ -344,39 +337,39 @@ export default function ModerationStrikePanel({
 
   return (
     <section
-      aria-label="Sanción al autor"
+      aria-label={t("section")}
       className="min-w-0 space-y-3 rounded border border-border-subtle p-3"
     >
-      <h2 className="font-semibold">Sanción al autor</h2>
+      <h2 className="font-semibold">{t("section")}</h2>
 
       {existing ? (
         <div className="min-w-0 space-y-2">
-          <p className="font-semibold">Strike {existing.level}</p>
+          <p className="font-semibold">{t("strikeN", { level: existing.level })}</p>
           <p className="whitespace-pre-wrap break-words [overflow-wrap:anywhere]">
-            <span className="font-semibold">Motivo:</span> {existing.reason}
+            <span className="font-semibold">{t("reasonLabel")}</span> {existing.reason}
           </p>
           {existing.revoked ? (
             <>
-              <p>Strike revocado</p>
+              <p>{t("revoked")}</p>
               {existing.revocationReason && (
                 <p className="whitespace-pre-wrap break-words [overflow-wrap:anywhere]">
-                  <span className="font-semibold">Motivo de la revocación:</span>{" "}
+                  <span className="font-semibold">{t("revocationReason")}</span>{" "}
                   {existing.revocationReason}
                 </p>
               )}
             </>
           ) : existing.permanent ? (
-            <p>Restricción permanente</p>
+            <p>{t("permanent")}</p>
           ) : existing.sanctionInEffect && existing.endsAt ? (
-            <p>Restricción activa hasta {date(existing.endsAt)}</p>
+            <p>{t("activeUntil", { date: date(existing.endsAt, locale) })}</p>
           ) : (
-            <p>Restricción finalizada</p>
+            <p>{t("ended")}</p>
           )}
           {!existing.canRevoke && !existing.revoked && (
             <p className="text-sm text-text-muted" data-testid="revoke-unavailable">
               {role === "developer" || role === "admin"
-                ? "No puedes revocar este strike porque lo aplicaste tú: otra persona con rol de desarrollo o administración debe revocarlo."
-                : "Solo desarrollo o administración pueden revocar un strike."}
+                ? t("revokeOwn")
+                : t("revokeRole")}
             </p>
           )}
           {existing.canRevoke && !existing.revoked && (
@@ -386,56 +379,54 @@ export default function ModerationStrikePanel({
               disabled={pending}
               onClick={(event) => openDialog("revoke", event.currentTarget)}
             >
-              Revocar strike
+              {t("revokeButton")}
             </button>
           )}
         </div>
       ) : strike.eligible && strike.predictedLevel !== null ? (
         <div className="min-w-0 space-y-2">
-          <p className="font-semibold">Próximo strike: Strike {strike.predictedLevel}</p>
-          <p>{effect(strike.predictedLevel)}</p>
-          <p className="text-sm text-text-muted">
-            El autor podrá seguir eliminando sus propias publicaciones. Procede y strike
-            son acciones separadas: este caso ya fue decidido.
-          </p>
+          <p className="font-semibold">{t("next", { level: strike.predictedLevel })}</p>
+          <p>{effect(strike.predictedLevel, t)}</p>
+          <p className="text-sm text-text-muted">{t("separate")}</p>
           <button
             type="button"
             className={primaryButton}
             disabled={pending}
             onClick={(event) => openDialog("apply", event.currentTarget)}
           >
-            Aplicar Strike {strike.predictedLevel}
+            {t("apply", { level: strike.predictedLevel })}
           </button>
         </div>
       ) : (
         <p>
-          {(strike.ineligibleReason && INELIGIBLE[strike.ineligibleReason]) ??
-            "No se puede aplicar un strike en este caso."}
+          {strike.ineligibleReason &&
+          (INELIGIBLE_KEYS as readonly string[]).includes(strike.ineligibleReason)
+            ? t(
+                `ineligible.${strike.ineligibleReason as (typeof INELIGIBLE_KEYS)[number]}`,
+              )
+            : t("ineligibleGeneric")}
         </p>
       )}
 
       {mode === "apply" && strike.predictedLevel !== null && (
         <StrikeDialog
-          title={`Confirmar Strike ${strike.predictedLevel}`}
+          title={t("applyTitle", { level: strike.predictedLevel })}
           intro={
             <>
-              <p>{effect(strike.predictedLevel)}</p>
-              <p>
-                El motivo que escribas lo verá el autor. El nivel y la duración los decide
-                el servidor al confirmar.
-              </p>
+              <p>{effect(strike.predictedLevel, t)}</p>
+              <p>{t("applyIntro")}</p>
             </>
           }
-          label="Motivo del strike (visible para el autor)"
-          hint="Obligatorio. Máximo 1000 caracteres."
+          label={t("applyLabel")}
+          hint={t("hint")}
           reason={reason}
           onReason={setReason}
           pending={pending}
           uncertain={uncertain}
           error={error}
           resumed={resumed}
-          submitLabel="Confirmar strike"
-          pendingLabel="Aplicando…"
+          submitLabel={t("confirmStrike")}
+          pendingLabel={t("applying")}
           danger={false}
           onSubmit={() => void run("apply")}
           onClose={closeDialog}
@@ -443,26 +434,23 @@ export default function ModerationStrikePanel({
       )}
       {mode === "revoke" && existing && (
         <StrikeDialog
-          title={`Revocar Strike ${existing.level}`}
+          title={t("revokeTitle", { level: existing.level })}
           intro={
             <>
-              <p>La revocación quita este strike del cálculo de futuros strikes.</p>
-              <p>
-                No restaura automáticamente una publicación retirada ni revierte la
-                decisión de moderación.
-              </p>
+              <p>{t("revokeIntro1")}</p>
+              <p>{t("revokeIntro2")}</p>
             </>
           }
-          label="Motivo de la revocación"
-          hint="Obligatorio. Máximo 1000 caracteres."
+          label={t("revokeLabel")}
+          hint={t("hint")}
           reason={reason}
           onReason={setReason}
           pending={pending}
           uncertain={uncertain}
           error={error}
           resumed={resumed}
-          submitLabel="Confirmar revocación"
-          pendingLabel="Revocando…"
+          submitLabel={t("confirmRevocation")}
+          pendingLabel={t("revoking")}
           danger
           onSubmit={() => void run("revoke")}
           onClose={closeDialog}

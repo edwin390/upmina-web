@@ -7,6 +7,7 @@ import {
   type AccountIncompleteReason,
 } from "@/lib/account-incomplete";
 import { AccountIncompleteToast } from "./AccountIncompleteNotice";
+import { useTranslations } from "use-intl";
 
 // Control de "me gusta" de una publicación de Comunidad (Fase 9J-2C). Reutilizable en el feed
 // (CommunityFeedCard), el detalle (PostDetailPage) y — en su variante de solo lectura, ver
@@ -87,6 +88,7 @@ export default function CommunityLikeButton({
   // de completar, dando la sensación de que el clic "no funcionó". Se reinicia solo al desmontar
   // (navegar fuera y volver monta una instancia nueva, que sincroniza con props frescos).
   const hasLocalMutationRef = useRef(false);
+  const t = useTranslations("community.like");
 
   // Resincroniza con la verdad del servidor cuando llega (p. ej. useCommunityLikedByMe resuelve
   // después del primer render, o un refetch trae datos nuevos) — nunca mientras una mutación
@@ -142,7 +144,7 @@ export default function CommunityLikeButton({
         disabled={isPending}
         aria-pressed={liked}
         aria-busy={isPending}
-        aria-label={liked ? `Quitar me gusta (${count})` : `Me gusta (${count})`}
+        aria-label={liked ? t("unlike", { count }) : t("like", { count })}
         className={
           className ??
           `inline-flex min-h-11 items-center gap-1.5 rounded-md px-2 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-secondary ${

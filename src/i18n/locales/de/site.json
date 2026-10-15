@@ -1,0 +1,178 @@
+{
+  "header": {
+    "home": "Start",
+    "twitch": "Twitch",
+    "youtube": "YouTube",
+    "instagram": "Instagram",
+    "tiktok": "TikTok",
+    "cosplay": "Cosplays",
+    "community": "Community",
+    "profile": "Profil",
+    "login": "Anmelden",
+    "watchOnTwitch": "Auf Twitch ansehen",
+    "logoTitle": "Doppelklick für eine Überraschung",
+    "openMenu": "Menü öffnen",
+    "closeMenu": "Menü schließen",
+    "language": {
+      "label": "Sprache",
+      "es": "Español",
+      "en": "English",
+      "de": "Deutsch"
+    },
+    "surprise": "Eine Überraschung entdecken"
+  },
+  "twitch": {
+    "clipsConfigError": "Die Verbindung zu Twitch konnte nicht eingerichtet werden.",
+    "clipsLoadError": "Die Clips konnten nicht geladen werden. Bitte versuche es später erneut.",
+    "loadingContent": "Twitch-Inhalte werden geladen...",
+    "loadError": "Die Twitch-Inhalte konnten nicht geladen werden.",
+    "empty": "Es sind noch keine Twitch-Inhalte verfügbar.",
+    "livePlayerTitle": "Twitch-Livestream",
+    "lastStreamPlayerTitle": "Letzter Twitch-Stream",
+    "lastStream": "Letzter aufgezeichneter Stream",
+    "watch": "Auf Twitch ansehen",
+    "statusError": "Der Live-Status konnte nicht abgefragt werden. Du kannst den Kanal direkt auf Twitch ansehen.",
+    "latestClips": "Neueste Clips",
+    "viewChannel": "Kanal ansehen",
+    "loadingClips": "Clips werden geladen…",
+    "noClips": "Es sind noch keine Clips verfügbar.",
+    "badge": {
+      "loading": "Wird geprüft…",
+      "live": "LIVE",
+      "offline": "OFFLINE",
+      "error": "KEINE DATEN",
+      "viewers": "{count, number} Zuschauer"
+    },
+    "clip": {
+      "play": "Clip abspielen",
+      "playNamed": "Clip abspielen: {title}",
+      "views": "{count, number} {count, plural, one {Aufruf} other {Aufrufe}}",
+      "playerTitle": "Twitch-Clip",
+      "playerTitleNamed": "Twitch-Clip: {title}",
+      "playerError": "Der Player konnte nicht geladen werden. Du kannst ihn auf Twitch ansehen.",
+      "previous": "Vorheriger Clip",
+      "next": "Nächster Clip",
+      "close": "Schließen",
+      "newTab": "(öffnet in einem neuen Tab)",
+      "counter": "Clip {index} von {total}"
+    }
+  },
+  "home": {
+    "badge": "fansite",
+    "subtitle": "Streams, Inhalte und Community — alles an einem Ort.",
+    "seeContent": "Inhalte ansehen",
+    "scrollHint": "SCROLLEN ↓"
+  },
+  "explore": {
+    "title": "ENTDECKE UPMINA",
+    "go": "Entdecken →",
+    "twitch": "Streams, VODs und Clips",
+    "youtube": "Videos und Shorts",
+    "instagram": "Posts und Reels",
+    "tiktok": "Videos und Momente",
+    "cosplay": "Fotos und Galerien",
+    "community": "Inhalte von Fans",
+    "communityLabel": "Community",
+    "cosplayLabel": "Cosplays"
+  },
+  "now": {
+    "title": "JETZT",
+    "subtitle": "Das Neueste vom Kanal auf einen Blick.",
+    "checking": "Kanal wird geprüft…",
+    "statusError": "Der Kanalstatus konnte nicht abgefragt werden",
+    "live": "Mina ist live",
+    "offline": "Mina ist gerade nicht live",
+    "twitchLive": "Twitch · Live",
+    "twitchLast": "Twitch · Letzter Stream",
+    "goTwitch": "Zu Twitch →",
+    "youtubeFallback": "Videos und Shorts von Mina",
+    "goYoutube": "Zu YouTube →",
+    "youtubeBadge": "YouTube · Neuestes Video",
+    "watchYoutube": "Auf YouTube ansehen"
+  },
+  "latest": {
+    "title": "NEUESTE INHALTE",
+    "video": "YouTube · Video",
+    "short": "YouTube · Short",
+    "clip": "Twitch · Clip",
+    "videos": "Videos ansehen",
+    "shorts": "Shorts ansehen",
+    "clips": "Clips ansehen"
+  },
+  "cta": {
+    "title": "VON DER COMMUNITY GEMACHT <heart>♡</heart>",
+    "text": "Ein Raum für Fanart, Clips und von der Community geteilte Momente.",
+    "button": "Community entdecken"
+  },
+  "notice": {
+    "expired": "Dieser Inhalt ist unter den neuesten nicht mehr verfügbar."
+  },
+  "youtube": {
+    "shortsLoading": "Shorts werden geladen…",
+    "shortsError": "Die YouTube-Shorts konnten gerade nicht geladen werden. Bitte versuche es später erneut.",
+    "allFailed": "Die YouTube-Inhalte konnten gerade nicht geladen werden. Bitte versuche es später erneut.",
+    "latestFailed": "Das neueste YouTube-Video konnte gerade nicht geladen werden.",
+    "moreVideos": "Weitere Videos",
+    "videosLoading": "Videos werden geladen…",
+    "videosError": "Die YouTube-Videos konnten gerade nicht geladen werden. Bitte versuche es später erneut.",
+    "playing": "Wird abgespielt",
+    "short": {
+      "title": "YouTube-Short: {title}",
+      "play": "Short abspielen: {title}",
+      "previous": "Vorheriger Short",
+      "next": "Nächster Short",
+      "list": "Shorts-Liste",
+      "view": "Short ansehen: {title}"
+    }
+  },
+  "permissionPending": "Dieser Inhalt ist noch nicht verfügbar. Wir warten auf Minas Erlaubnis, ihn hier zu teilen.",
+  "instagram": {
+    "loading": "Beiträge werden geladen…",
+    "profileLink": "@{username} auf Instagram →",
+    "type": {
+      "IMAGE": "Foto",
+      "VIDEO": "Video",
+      "CAROUSEL_ALBUM": "Karussell",
+      "reel": "Reel",
+      "reelBadge": "Reel ▶"
+    },
+    "defaultCaption": "Instagram-Beitrag",
+    "openPost": "{label}: {description}. Beitrag öffnen",
+    "commentsTotal": "{count} {count, plural, one {Kommentar} other {Kommentare}}",
+    "noComments": "Noch keine Kommentare.",
+    "commentsLoading": "Kommentare werden geladen…",
+    "commentsHidden": "Kommentare können hier noch nicht angezeigt werden.",
+    "commentsHiddenWithTotal": "{total} auf Instagram. Kommentare können hier noch nicht angezeigt werden.",
+    "commentsError": "Die Kommentare konnten nicht geladen werden.",
+    "like": "Gefällt mir",
+    "comments": "Kommentare",
+    "commentsOnInstagram": "Kommentare können auf Instagram angesehen werden.",
+    "viewComments": "Kommentare auf Instagram ansehen →",
+    "reelLabel": "Reel",
+    "position": "Beitrag {position} von {total}",
+    "close": "Schließen",
+    "previous": "Vorheriger Beitrag",
+    "next": "Nächster Beitrag",
+    "viewOnInstagram": "Auf Instagram ansehen →",
+    "slidePrevious": "Vorheriges Element",
+    "slideNext": "Nächstes Element",
+    "slideGo": "Zu Element {index} von {total}"
+  },
+  "tiktok": {
+    "loading": "Videos werden geladen…",
+    "open": "TikTok öffnen: {title}",
+    "openUntitled": "TikTok-Video öffnen",
+    "cover": "Titelbild: {title}",
+    "coverUntitled": "Titelbild des TikTok-Videos",
+    "viewerTitle": "TikTok-Video",
+    "watch": "Auf TikTok ansehen",
+    "newTab": "(öffnet in einem neuen Tab)",
+    "close": "Schließen",
+    "previous": "Vorheriges Video",
+    "next": "Nächstes Video",
+    "counter": "Video {index} von {total}",
+    "playerTitle": "TikTok-Player",
+    "playerTitleNamed": "TikTok-Player: {title}",
+    "playerError": "Der Player konnte nicht geladen werden. Du kannst ihn auf TikTok ansehen."
+  }
+}

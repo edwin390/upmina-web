@@ -8,6 +8,7 @@ import AdminAuthCard from "@/components/admin/AdminAuthCard";
 import DeveloperCleanupsSection from "@/components/developer/DeveloperCleanupsSection";
 import DeveloperRecoveriesSection from "@/components/developer/DeveloperRecoveriesSection";
 import DeveloperAccountDeletionsSection from "@/components/developer/DeveloperAccountDeletionsSection";
+import { useTranslations } from "use-intl";
 
 // /admin/developer (Developer Panel V1). Máquina de estados sobre lo que el SERVIDOR dice, con
 // navegación y protección INDEPENDIENTES del panel de Admin:
@@ -49,6 +50,8 @@ export default function DeveloperPage() {
 }
 
 function DeveloperPanel() {
+  const t = useTranslations("developer.page");
+
   const { signOut } = useAuth();
   const location = useLocation();
   const { status, access, refetch, invalidate } = useAdminAccess({ fresh: true });
@@ -76,9 +79,9 @@ function DeveloperPanel() {
 
   if (status === "loading") {
     return (
-      <AdminAuthCard title="Panel Developer">
+      <AdminAuthCard title={t("title")}>
         <p className="text-sm text-text-secondary" role="status">
-          Comprobando tu sesión…
+          {t("checking")}
         </p>
       </AdminAuthCard>
     );
@@ -90,12 +93,12 @@ function DeveloperPanel() {
 
   if (status === "unauthenticated") {
     return (
-      <AdminAuthCard title="Panel Developer">
+      <AdminAuthCard title={t("title")}>
         <p role="alert" className="text-sm text-accent-live">
-          Tu sesión ya no es válida. Cierra sesión e inicia sesión de nuevo.
+          {t("invalidSession")}
         </p>
         <button type="button" onClick={() => void signOut()} className={`mt-6 ${BUTTON}`}>
-          Cerrar sesión
+          {t("signOut")}
         </button>
       </AdminAuthCard>
     );
@@ -103,12 +106,12 @@ function DeveloperPanel() {
 
   if (status === "error" || !access) {
     return (
-      <AdminAuthCard title="Panel Developer">
+      <AdminAuthCard title={t("title")}>
         <p role="alert" className="text-sm text-accent-live">
-          No se pudo comprobar tu acceso. Inténtalo de nuevo.
+          {t("accessError")}
         </p>
         <button type="button" onClick={() => void refetch()} className={`mt-6 ${BUTTON}`}>
-          Reintentar
+          {t("retry")}
         </button>
       </AdminAuthCard>
     );
@@ -118,15 +121,13 @@ function DeveloperPanel() {
     // USER, MODERATOR o ADMIN (o un Developer cuyo rol se revocó con el panel abierto): acceso
     // denegado SIN MFA. Developer y Admin son roles independientes.
     return (
-      <AdminAuthCard title="Panel Developer">
+      <AdminAuthCard title={t("title")}>
         <p role="alert" className="text-sm text-accent-live">
-          {hadPanelRef.current
-            ? "Tu acceso Developer ya no está disponible."
-            : "No tienes acceso al panel Developer."}
+          {hadPanelRef.current ? t("accessLost") : t("noAccess")}
         </p>
         <p className="mt-4 text-sm text-text-secondary">
           <Link to="/account" className="font-medium text-accent-primary hover:underline">
-            Ir a mi cuenta
+            {t("goToAccount")}
           </Link>
         </p>
       </AdminAuthCard>
@@ -136,16 +137,16 @@ function DeveloperPanel() {
   if (!access.mfaRecent) {
     if (mfaReturnGuardRef.current) {
       return (
-        <AdminAuthCard title="Panel Developer">
+        <AdminAuthCard title={t("title")}>
           <p role="alert" className="text-sm text-accent-live">
-            No pudimos confirmar tu verificación en dos pasos reciente.
+            {t("mfaUnconfirmed")}
           </p>
           <div className="mt-6 flex flex-wrap gap-3">
             <button type="button" onClick={() => void refetch()} className={BUTTON}>
-              Reintentar
+              {t("retry")}
             </button>
             <Link to={MFA_PATH} state={location.state} className={BUTTON}>
-              Verificar de nuevo
+              {t("verifyAgain")}
             </Link>
           </div>
         </AdminAuthCard>
@@ -165,16 +166,13 @@ function DeveloperPanel() {
       <PrivilegedFailureContext.Provider value={handleFailure}>
         <div className="rounded-xl border border-accent-primary/40 bg-bg-surface p-6 sm:p-8">
           <h1 className="font-display text-3xl tracking-wide text-text-primary">
-            Panel Developer
+            {t("title")}
           </h1>
           <div
             className="mt-2 h-0.5 w-12 rounded-full bg-gradient-accent"
             aria-hidden="true"
           />
-          <p className="mt-4 text-sm text-text-secondary">
-            Herramientas técnicas de Developer: supervisión de limpiezas de MFA y
-            aprobación excepcional de recuperaciones. No concede permisos de Admin.
-          </p>
+          <p className="mt-4 text-sm text-text-secondary">{t("intro")}</p>
           <DeveloperCleanupsSection />
           <DeveloperRecoveriesSection />
           <DeveloperAccountDeletionsSection />

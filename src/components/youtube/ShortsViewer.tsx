@@ -2,7 +2,8 @@ import { useState, type KeyboardEvent } from "react";
 import clsx from "clsx";
 import type { YouTubeVideo } from "@/types";
 import { isYouTubeVideoId } from "@/lib/deep-links";
-import { formatRelativeDate } from "@/lib/format";
+import { useTranslations } from "use-intl";
+import { useRelativeDate } from "@/i18n/useFormat";
 import { wrapIndex } from "@/lib/media-ratio";
 import { shortEmbedUrl } from "./youtubeUrl";
 
@@ -42,6 +43,8 @@ export default function ShortsViewer({
   onSelect,
   headingId,
 }: ShortsViewerProps) {
+  const t = useTranslations("site.youtube.short");
+  const relativeDate = useRelativeDate();
   // Una vez iniciada la reproducción (Reproducir o miniatura), los Shorts siguientes se reproducen
   // al navegar (decisión de la persona); antes de eso solo se muestra la portada.
   const [playing, setPlaying] = useState(false);
@@ -90,7 +93,7 @@ export default function ShortsViewer({
               <iframe
                 key={current.id}
                 src={shortEmbedUrl(current.id)}
-                title={`Short de YouTube: ${current.title}`}
+                title={t("title", { title: current.title })}
                 allow="autoplay; encrypted-media; fullscreen"
                 allowFullScreen
                 referrerPolicy="strict-origin-when-cross-origin"
@@ -101,7 +104,7 @@ export default function ShortsViewer({
                 key={current.id}
                 type="button"
                 onClick={() => setPlaying(true)}
-                aria-label={`Reproducir Short: ${current.title}`}
+                aria-label={t("play", { title: current.title })}
                 className="group absolute inset-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent-secondary"
               >
                 {(current.coverUrl ?? current.thumbnailUrl) && (
@@ -126,7 +129,7 @@ export default function ShortsViewer({
               type="button"
               onClick={() => go(-1)}
               disabled={single}
-              aria-label="Short anterior"
+              aria-label={t("previous")}
               className={NAV_BUTTON_CLASS}
             >
               <span aria-hidden="true">‹</span>
@@ -138,7 +141,7 @@ export default function ShortsViewer({
               type="button"
               onClick={() => go(1)}
               disabled={single}
-              aria-label="Short siguiente"
+              aria-label={t("next")}
               className={NAV_BUTTON_CLASS}
             >
               <span aria-hidden="true">›</span>
@@ -152,12 +155,12 @@ export default function ShortsViewer({
             {current.title}
           </p>
           <p className="mt-1 text-sm text-text-secondary">
-            {formatRelativeDate(current.publishedAt)} · {current.duration}
+            {relativeDate(current.publishedAt)} · {current.duration}
           </p>
 
           {!single && (
             <ul
-              aria-label="Lista de Shorts"
+              aria-label={t("list")}
               className="scrollbar-subtle mt-4 flex max-w-full gap-2 overflow-x-auto overscroll-x-contain pb-2 md:flex-wrap md:overflow-visible"
             >
               {playable.map((short) => {
@@ -170,7 +173,7 @@ export default function ShortsViewer({
                         setPlaying(true);
                         onSelect(short.id);
                       }}
-                      aria-label={`Ver Short: ${short.title}`}
+                      aria-label={t("view", { title: short.title })}
                       aria-current={isCurrent ? "true" : undefined}
                       className={clsx(
                         "block w-14 overflow-hidden rounded-md border-2 transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-secondary motion-reduce:transition-none",

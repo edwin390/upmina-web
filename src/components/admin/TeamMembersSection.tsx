@@ -2,6 +2,8 @@ import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { usePrivilegedFailureReporter } from "@/hooks/privileged-failure";
 import DeveloperRestoreControls from "@/components/admin/DeveloperRestoreControls";
 import { supabase } from "@/lib/supabase";
+import { useTranslations } from "use-intl";
+import { useLocaleCode } from "@/i18n/useFormat";
 
 // Sección "Miembros del equipo" de /admin (Bloque 9F). Solo PRESENTACIÓN: el dashboard la monta
 // únicamente cuando GET /api/admin/me declara la capacidad `team_admin`, pero la autoridad es
@@ -38,28 +40,19 @@ const REMOVE_ENDPOINT = "/api/admin/team-members-remove";
 
 const ROLES: readonly MemberRole[] = ["admin", "moderator", "developer"];
 
-// El rol se comunica siempre con TEXTO (el color es solo un refuerzo).
-const ROLE_LABEL: Record<MemberRole, string> = {
-  admin: "ADMIN",
-  moderator: "MODERADOR",
-  developer: "DEVELOPER",
-};
-
 const ROLE_BADGE_CLASS: Record<MemberRole, string> = {
   admin: "border-accent-primary/60 text-accent-secondary",
   moderator: "border-accent-warning/60 text-accent-warning",
   developer: "border-accent-success/60 text-accent-success",
 };
 
-const MSG_SESSION = "Tu sesión ya no es válida. Inicia sesión de nuevo.";
-const MSG_FORBIDDEN =
-  "No se pudo autorizar esta acción. Comprueba tu verificación en dos pasos e inténtalo de nuevo.";
-const MSG_LOAD = "No se pudieron cargar los miembros.";
-const MSG_ROLE = "No pudimos cambiar el rol. Inténtalo de nuevo.";
-const MSG_REMOVE = "No pudimos quitar el acceso. Inténtalo de nuevo.";
-const MSG_GONE = "Este cambio ya no se puede aplicar. Actualizamos la lista.";
-const MSG_ROLE_OK = "Rol actualizado.";
-const MSG_REMOVE_OK = "Acceso quitado.";
+// Mensajes como marcadores `i18n:<clave>`; se traducen al renderizar (resolveMessage).
+const MSG_SESSION = "i18n:session";
+const MSG_FORBIDDEN = "i18n:forbidden";
+const MSG_LOAD = "i18n:load";
+const MSG_ROLE = "i18n:role";
+const MSG_REMOVE = "i18n:remove";
+const MSG_GONE = "i18n:gone";
 
 const SECONDARY_BUTTON_CLASS =
   "inline-flex min-h-11 items-center rounded-md border border-border-subtle px-5 py-2.5 text-sm font-semibold text-text-secondary transition-colors duration-200 ease-smooth hover:border-accent-primary/60 hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-secondary disabled:pointer-events-none disabled:opacity-50";
@@ -117,24 +110,32 @@ function parseMembers(body: unknown): TeamMember[] | null {
   return parsed;
 }
 
+type MembersT = ReturnType<typeof useTranslations<"admin.members">>;
+
+/** Traduce un marcador `i18n:<clave>`; cualquier otro texto se muestra tal cual. */
+function resolveMessage(message: string, t: MembersT): string {
+  if (!message.startsWith("i18n:")) return message;
+  return (t as unknown as (k: string) => string)(`msg.${message.slice(5)}`);
+}
+
 /** Identidad principal: display_name, luego @username, luego "Cuenta sin perfil". */
-function primaryIdentity(member: TeamMember): string {
+function primaryIdentity(member: TeamMember, t: MembersT): string {
   if (member.display_name) return member.display_name;
   if (member.username) return `@${member.username}`;
-  return "Cuenta sin perfil";
+  return t("noProfile");
 }
 
 /** Nombre para textos de acción; si no hay perfil se añade el email para que no sea ambiguo. */
-function actionName(member: TeamMember): string {
-  const name = primaryIdentity(member);
+function actionName(member: TeamMember, t: MembersT): string {
+  const name = primaryIdentity(member, t);
   const hasProfile = Boolean(member.display_name || member.username);
   return !hasProfile && member.email ? `${name} (${member.email})` : name;
 }
 
-function formatDate(iso: string): string {
+function formatDate(iso: string, locale: string): string {
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return "—";
-  return new Intl.DateTimeFormat("es", {
+  return new Intl.DateTimeFormat(locale, {
     dateStyle: "medium",
     timeStyle: "short",
   }).format(date);
@@ -166,26 +167,24 @@ function omitKey(
 }
 
 /** Resultado de la invalidación del MFA tras retirar el acceso (MFA fase 1). */
-function mfaSuffix(body: unknown): { text: string; pending: boolean } {
+function mfaSuffix(body: unknown, t: MembersT): { text: string; pending: boolean } {
   const status = (body as { mfa_reset?: { status?: unknown } } | null)?.mfa_reset?.status;
   if (status === "completed") {
-    return { text: " Su autenticador anterior quedó invalidado.", pending: false };
+    return { text: ` ${t("mfaDone")}`, pending: false };
   }
   if (status === "pending") {
     return {
-      text: " Atención: el acceso se retiró, pero su autenticador anterior todavía no se pudo invalidar. Puedes reintentarlo en «Autenticadores pendientes de restablecer».",
+      text: ` ${t("mfaPending", { section: t("mfaSection") })}`,
       pending: true,
     };
   }
   return { text: "", pending: false };
 }
 
-function revokedSuffix(body: unknown): string {
+function revokedSuffix(body: unknown, t: MembersT): string {
   const n = (body as { revoked_invitations?: unknown } | null)?.revoked_invitations;
   if (typeof n !== "number" || !Number.isInteger(n) || n <= 0) return "";
-  return n === 1
-    ? " Se revocó 1 invitación pendiente suya."
-    : ` Se revocaron ${n} invitaciones pendientes suyas.`;
+  return ` ${t("revokedInvitations", { count: n })}`;
 }
 
 type ListState =
@@ -202,8 +201,11 @@ export default function TeamMembersSection({
   /** Se avisa tras una retirada para que el panel recargue los autenticadores pendientes. */
   onMfaChanged?: () => void;
 } = {}) {
+  const t = useTranslations("admin.members");
+  const locale = useLocaleCode();
   const headingId = useId();
   const baseId = useId();
+
   const reportFailure = usePrivilegedFailureReporter();
 
   const [list, setList] = useState<ListState>({ kind: "loading" });
@@ -327,9 +329,9 @@ export default function TeamMembersSection({
         if (!isMountedRef.current) return;
         setConfirming(null);
         setSelectedRoles((prev) => omitKey(prev, action.id));
-        const mfa = isRoleChange ? { text: "", pending: false } : mfaSuffix(body);
+        const mfa = isRoleChange ? { text: "", pending: false } : mfaSuffix(body, t);
         setNotice(
-          `${isRoleChange ? MSG_ROLE_OK : MSG_REMOVE_OK}${revokedSuffix(body)}${mfa.text}`,
+          `${isRoleChange ? t("roleOk") : t("removeOk")}${revokedSuffix(body, t)}${mfa.text}`,
         );
         if (!isRoleChange) onMfaChanged?.();
         listHeadingRef.current?.focus(); // la fila cambia o desaparece: el foco no se pierde
@@ -354,72 +356,68 @@ export default function TeamMembersSection({
   };
 
   const confirmationText = (member: TeamMember, action: Confirmation): string => {
-    const name = actionName(member);
+    const name = actionName(member, t);
     const losesAdmin =
       member.role === "admin" && !(action.kind === "role" && action.role === "admin");
-    const invitations = losesAdmin
-      ? " Sus invitaciones pendientes se revocarán y no se pueden recuperar."
-      : "";
+    const invitations = losesAdmin ? ` ${t("invitationsRevoked")}` : "";
     if (action.kind === "remove") {
-      return `¿Quitar el acceso al equipo de ${name}? La cuenta y el perfil NO se eliminan: solo pierde su acceso privilegiado.${invitations}`;
+      return `${t("confirmRemove", { name })}${invitations}`;
     }
-    const gain = action.role === "admin" ? " Tendrá control total del equipo." : "";
-    return `¿Cambiar el rol de ${name} de ${ROLE_LABEL[member.role]} a ${ROLE_LABEL[action.role]}?${gain}${invitations}`;
+    const gain = action.role === "admin" ? ` ${t("gainAdmin")}` : "";
+    return `${t("confirmChange", { name, from: t(`role.${member.role}`), to: t(`role.${action.role}`) })}${gain}${invitations}`;
   };
 
   return (
     <section aria-labelledby={headingId} className="mt-8">
       <h2 id={headingId} className="font-display text-xl tracking-wide text-text-primary">
-        Miembros del equipo
+        {t("heading")}
       </h2>
-      <p className="mt-2 text-sm text-text-secondary">
-        Personas con acceso privilegiado. Puedes cambiar el rol de otro miembro o quitarle
-        el acceso; no puedes modificar el tuyo.
-      </p>
+      <p className="mt-2 text-sm text-text-secondary">{t("intro")}</p>
 
       <h3
         ref={listHeadingRef}
         tabIndex={-1}
         className="mt-6 font-semibold text-text-primary focus-visible:outline-none"
       >
-        Miembros actuales
+        {t("current")}
       </h3>
 
       {notice ? (
         <p role="status" className="mt-3 text-sm text-accent-success">
+          {" "}
           {notice}
         </p>
       ) : null}
 
       {list.kind === "loading" ? (
         <p className="mt-3 text-sm text-text-secondary" role="status">
-          Cargando miembros…
+          {t("loading")}
         </p>
       ) : null}
 
       {list.kind === "error" ? (
         <div className="mt-3">
           <p role="alert" className="text-sm text-accent-live">
-            {list.message}
+            {resolveMessage(list.message, t)}
           </p>
           <button
             type="button"
             onClick={() => void loadList(true)}
             className={`${SECONDARY_BUTTON_CLASS} mt-3`}
           >
-            Reintentar
+            {t("retry")}
           </button>
         </div>
       ) : null}
 
       {list.kind === "ready" && list.members.length === 0 ? (
-        <p className="mt-3 text-sm text-text-secondary">No hay miembros para mostrar.</p>
+        <p className="mt-3 text-sm text-text-secondary">{t("empty")}</p>
       ) : null}
 
       {list.kind === "ready" && list.members.length > 0 ? (
         <ul className="mt-3 grid gap-3">
           {list.members.map((member) => {
-            const name = actionName(member);
+            const name = actionName(member, t);
             const selectId = `${baseId}-role-${member.user_id}`;
             const selected = selectedRoles[member.user_id];
             const validSelection = selected && selected !== member.role ? selected : "";
@@ -440,14 +438,16 @@ export default function TeamMembersSection({
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div className="min-w-0">
                     <p className="flex flex-wrap items-center gap-2 font-semibold text-text-primary">
-                      <span className="break-words">{primaryIdentity(member)}</span>
+                      <span className="break-words">{primaryIdentity(member, t)}</span>
                       <span
                         className={`rounded border px-2 py-0.5 text-xs font-bold tracking-[0.12em] ${ROLE_BADGE_CLASS[member.role]}`}
                       >
-                        {ROLE_LABEL[member.role]}
+                        {t(`role.${member.role}`)}
                       </span>
                       {member.is_self ? (
-                        <span className="text-xs font-normal text-text-muted">Tú</span>
+                        <span className="text-xs font-normal text-text-muted">
+                          {t("you")}
+                        </span>
                       ) : null}
                     </p>
                     {member.display_name && member.username ? (
@@ -461,7 +461,7 @@ export default function TeamMembersSection({
                       </p>
                     ) : null}
                     <p className="mt-1 text-xs text-text-muted">
-                      Acceso desde: {formatDate(member.granted_at)}
+                      {t("since", { date: formatDate(member.granted_at, locale) })}
                     </p>
                   </div>
                 </div>
@@ -493,7 +493,7 @@ export default function TeamMembersSection({
                         htmlFor={selectId}
                         className="block text-sm font-medium text-text-primary"
                       >
-                        Nuevo rol
+                        {t("newRole")}
                       </label>
                       <select
                         id={selectId}
@@ -510,10 +510,10 @@ export default function TeamMembersSection({
                         disabled={busyId !== null}
                         className={`${FIELD_CLASS} mt-1`}
                       >
-                        <option value="">Elegir rol…</option>
+                        <option value="">{t("chooseRole")}</option>
                         {otherRoles.map((r) => (
                           <option key={r} value={r}>
-                            {ROLE_LABEL[r]}
+                            {t(`role.${r}`)}
                           </option>
                         ))}
                       </select>
@@ -534,10 +534,10 @@ export default function TeamMembersSection({
                         });
                       }}
                       disabled={busyId !== null || !validSelection}
-                      aria-label={`Aplicar cambio de rol a ${name}`}
+                      aria-label={t("applyAria", { name })}
                       className={SECONDARY_BUTTON_CLASS}
                     >
-                      Aplicar
+                      {t("apply")}
                     </button>
                     <button
                       ref={(el) => {
@@ -550,10 +550,10 @@ export default function TeamMembersSection({
                         setConfirming({ id: member.user_id, kind: "remove" });
                       }}
                       disabled={busyId !== null}
-                      aria-label={`Quitar acceso a ${name}`}
+                      aria-label={t("removeAria", { name })}
                       className={DANGER_BUTTON_CLASS}
                     >
-                      Quitar acceso
+                      {t("removeAccess")}
                     </button>
                   </div>
                 ) : null}
@@ -563,8 +563,8 @@ export default function TeamMembersSection({
                     role="group"
                     aria-label={
                       confirming.kind === "remove"
-                        ? "Confirmar quitar acceso"
-                        : "Confirmar cambio de rol"
+                        ? t("confirmRemoveGroup")
+                        : t("confirmRoleGroup")
                     }
                     className="mt-3 rounded-md border border-accent-live/40 p-3"
                   >
@@ -580,10 +580,10 @@ export default function TeamMembersSection({
                         className={DANGER_BUTTON_CLASS}
                       >
                         {isBusy
-                          ? "Aplicando…"
+                          ? t("applying")
                           : confirming.kind === "remove"
-                            ? "Sí, quitar acceso"
-                            : "Sí, cambiar rol"}
+                            ? t("yesRemove")
+                            : t("yesChange")}
                       </button>
                       <button
                         ref={cancelButtonRef}
@@ -592,7 +592,7 @@ export default function TeamMembersSection({
                         disabled={busyId !== null}
                         className={SECONDARY_BUTTON_CLASS}
                       >
-                        Cancelar
+                        {t("cancel")}
                       </button>
                     </div>
                   </div>
@@ -600,7 +600,7 @@ export default function TeamMembersSection({
 
                 {rowError?.id === member.user_id ? (
                   <p role="alert" className="mt-3 text-sm text-accent-live">
-                    {rowError.message}
+                    {resolveMessage(rowError.message, t)}
                   </p>
                 ) : null}
               </li>

@@ -5,6 +5,7 @@ import { useCommunityLikedByMe } from "@/hooks/useCommunityLikedByMe";
 import CommunityLikeButton from "@/components/community/CommunityLikeButton";
 import CommunityPostMediaViewer from "@/components/community/CommunityPostMediaViewer";
 import CommunityReportButton from "@/components/community/CommunityReportButton";
+import { useTranslations } from "use-intl";
 
 // /community/post/:postId (Fase 9J-2B.1, con like real en 9J-2C, con vídeo real en 9J-3): detalle
 // público de UNA publicación de Comunidad — destino "compartible" de las tarjetas del feed y de la
@@ -45,6 +46,8 @@ export default function PostDetailPage() {
   return <PublicPostDetail />;
 }
 function PublicPostDetail() {
+  const t = useTranslations("community.post");
+  const tc = useTranslations("community.common");
   const { postId } = useParams<{ postId: string }>();
   const { data: post, isLoading, isError, refetch } = useCommunityPostDetail(postId);
   const notFound = !isLoading && !isError && post === null;
@@ -54,7 +57,7 @@ function PublicPostDetail() {
     <div className="mx-auto max-w-2xl px-4 py-16">
       {isLoading ? (
         <p role="status" className="text-text-secondary" aria-live="polite">
-          Cargando publicación…
+          {t("loading")}
         </p>
       ) : null}
 
@@ -63,13 +66,13 @@ function PublicPostDetail() {
           role="alert"
           className="rounded-lg border border-border-subtle bg-bg-surface px-6 py-10 text-center"
         >
-          <p className="text-text-secondary">No se pudo cargar esta publicación.</p>
+          <p className="text-text-secondary">{t("loadError")}</p>
           <button
             type="button"
             onClick={() => void refetch()}
             className="mt-4 inline-flex min-h-11 items-center justify-center rounded-md border border-accent-primary/60 bg-accent-primary px-5 py-2.5 text-sm font-bold text-text-inverse transition hover:bg-accent-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-secondary"
           >
-            Reintentar
+            {tc("retry")}
           </button>
         </div>
       ) : null}
@@ -77,16 +80,14 @@ function PublicPostDetail() {
       {notFound ? (
         <div className="rounded-lg border border-border-subtle bg-bg-surface px-6 py-16 text-center">
           <p className="font-display text-lg tracking-wide text-text-primary">
-            Esta publicación no existe
+            {t("notFoundTitle")}
           </p>
-          <p className="mt-2 text-text-secondary">
-            Puede haberse borrado o no estar disponible.
-          </p>
+          <p className="mt-2 text-text-secondary">{t("notFoundBody")}</p>
           <Link
             to="/community"
             className="mt-4 inline-flex min-h-11 items-center justify-center rounded-md border border-border-subtle px-5 py-2.5 text-sm font-semibold text-text-secondary transition-colors hover:border-accent-primary/70 hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-secondary"
           >
-            Volver a Comunidad
+            {tc("backToCommunity")}
           </Link>
         </div>
       ) : null}
@@ -96,7 +97,7 @@ function PublicPostDetail() {
           <div className="flex items-center gap-3">
             <Link
               to={`/@${post.author.username}`}
-              aria-label={`Ver el perfil de @${post.author.username}`}
+              aria-label={tc("viewProfile", { username: post.author.username })}
               className="rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-secondary"
             >
               <AuthorAvatarPlaceholder username={post.author.username} />

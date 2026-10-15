@@ -1,7 +1,9 @@
 import { Link } from "react-router-dom";
+import { useTranslations } from "use-intl";
 
 // CTA estático: no consulta Supabase ni muestra contenido de usuarios.
 export default function CommunityCta() {
+  const t = useTranslations("site.cta");
   return (
     <section
       aria-labelledby="hecho-por-la-comunidad"
@@ -17,16 +19,16 @@ export default function CommunityCta() {
             id="hecho-por-la-comunidad"
             className="font-display text-4xl tracking-wide text-text-primary md:text-6xl"
           >
-            HECHO POR LA COMUNIDAD <span className="text-accent-primary">♡</span>
+            {t.rich("title", {
+              heart: (chunks) => <span className="text-accent-primary">{chunks}</span>,
+            })}
           </h2>
-          <p className="mx-auto mt-4 max-w-xl text-text-secondary">
-            Un espacio para fanarts, clips y momentos compartidos por la comunidad.
-          </p>
+          <p className="mx-auto mt-4 max-w-xl text-text-secondary">{t("text")}</p>
           <Link
             to="/community"
             className="mt-8 inline-flex min-h-12 items-center rounded-md border border-accent-primary/60 bg-accent-primary px-6 py-3 text-sm font-bold uppercase tracking-[0.18em] text-text-inverse shadow-glow-primary transition duration-200 ease-bounce hover:-translate-y-1 hover:bg-accent-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-secondary focus-visible:ring-offset-2 focus-visible:ring-offset-bg-surface"
           >
-            Explorar comunidad
+            {t("button")}
           </Link>
         </div>
       </div>

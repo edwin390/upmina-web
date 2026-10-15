@@ -2,7 +2,9 @@ import { useCallback, useEffect, useRef } from "react";
 import { useTwitchStatus } from "@/hooks/useTwitchStatus";
 import { useTwitchClips, TwitchClipsError } from "@/hooks/useTwitchClips";
 import { useTwitchLatestVideo } from "@/hooks/useTwitchLatestVideo";
-import { formatRelativeDate, parseTwitchDuration } from "@/lib/format";
+import { parseTwitchDuration } from "@/lib/format";
+import { useTranslations } from "use-intl";
+import { useRelativeDate } from "@/i18n/useFormat";
 import { wrapIndex } from "@/lib/media-ratio";
 import { isTwitchClipId } from "@/lib/deep-links";
 import { useSearchParam } from "@/hooks/useSearchParam";
@@ -14,6 +16,8 @@ import TwitchClip from "./TwitchClip";
 import TwitchClipViewer from "./TwitchClipViewer";
 
 export default function TwitchSection() {
+  const t = useTranslations("site.twitch");
+  const relativeDate = useRelativeDate();
   const {
     data: status,
     isLoading: statusLoading,
@@ -81,8 +85,8 @@ export default function TwitchSection() {
   // configuración cuando en realidad Twitch está caído.
   const clipsErrorMessage = clipsErrorObj
     ? clipsErrorObj instanceof TwitchClipsError && clipsErrorObj.status === 503
-      ? "No se pudo configurar la conexión con Twitch."
-      : "No se pudieron cargar los clips. Inténtalo de nuevo más tarde."
+      ? t("clipsConfigError")
+      : t("clipsLoadError")
     : null;
 
   // Mientras no sepamos qué canal se está consultando (carga inicial o
@@ -99,10 +103,10 @@ export default function TwitchSection() {
   const isLoadingVideo = statusLoading || latestVideoLoading;
   const hasVideoError = statusError || latestVideoError;
   const videoPlaceholderMessage = isLoadingVideo
-    ? "Cargando contenido de Twitch..."
+    ? t("loadingContent")
     : hasVideoError
-      ? "No se pudo cargar el contenido de Twitch."
-      : "Todavía no hay contenido de Twitch disponible.";
+      ? t("loadError")
+      : t("empty");
 
   return (
     <section
@@ -125,7 +129,7 @@ export default function TwitchSection() {
           <>
             <TwitchPlayer
               channel={status.channel}
-              title="Directo de Twitch"
+              title={t("livePlayerTitle")}
               suspended={clipOpen}
               onActivate={clipOpen ? closeViewer : undefined}
             />
@@ -135,15 +139,15 @@ export default function TwitchSection() {
           <>
             <TwitchPlayer
               videoId={latestVideo.id}
-              title="Último stream de Twitch"
+              title={t("lastStreamPlayerTitle")}
               suspended={clipOpen}
               onActivate={clipOpen ? closeViewer : undefined}
             />
             <p className="mt-3 text-text-secondary">{latestVideo.title}</p>
             <p className="mt-1 flex flex-wrap items-center gap-2 text-sm text-text-muted">
-              <span>Último stream grabado</span>
+              <span>{t("lastStream")}</span>
               <span aria-hidden="true">·</span>
-              <span>{formatRelativeDate(latestVideo.createdAt)}</span>
+              <span>{relativeDate(latestVideo.createdAt)}</span>
               <span aria-hidden="true">·</span>
               <span>{parseTwitchDuration(latestVideo.duration)}</span>
               <span aria-hidden="true">·</span>
@@ -153,7 +157,7 @@ export default function TwitchSection() {
                 rel="noreferrer noopener"
                 className="font-medium text-accent-primary hover:underline"
               >
-                Ver en Twitch
+                {t("watch")}
               </a>
             </p>
           </>
@@ -166,33 +170,30 @@ export default function TwitchSection() {
           </div>
         )}
         {statusError && (
-          <p className="mt-3 text-sm text-text-muted">
-            No se pudo consultar el estado en vivo. Puedes ver el canal directamente en
-            Twitch.
-          </p>
+          <p className="mt-3 text-sm text-text-muted">{t("statusError")}</p>
         )}
       </div>
 
       <div className="mb-4 flex items-center justify-between gap-4">
-        <h3 className="text-lg font-semibold text-text-primary">Últimos clips</h3>
+        <h3 className="text-lg font-semibold text-text-primary">{t("latestClips")}</h3>
         <a
           href={channelUrl}
           target="_blank"
           rel="noreferrer"
           className="text-sm font-medium text-accent-primary hover:underline"
         >
-          Ver canal
+          {t("viewChannel")}
         </a>
       </div>
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        {clipsLoading && <p className="text-text-muted">Cargando clips…</p>}
+        {clipsLoading && <p className="text-text-muted">{t("loadingClips")}</p>}
         {clipsErrorMessage && (
           <p role="status" className="text-sm text-text-muted">
             {clipsErrorMessage}
           </p>
         )}
         {!clipsLoading && !clipsErrorMessage && clips?.length === 0 && (
-          <p className="text-sm text-text-muted">Todavía no hay clips disponibles.</p>
+          <p className="text-sm text-text-muted">{t("noClips")}</p>
         )}
         {clips?.map((clip) => (
           <TwitchClip

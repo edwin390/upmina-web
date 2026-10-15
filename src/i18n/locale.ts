@@ -5,9 +5,9 @@
 // Orden de resolución (congelado):
 //   1. preferencia explícita persistida (localStorage);
 //   2. idioma del navegador, si es uno de los soportados;
-//   3. español (idioma de reserva final).
-// Un idioma de navegador no soportado (p. ej. "fr") cae directamente en español: nunca se
-// negocia un idioma "parecido" ni se adivina.
+//   3. inglés (FALLBACK_LOCALE) si el idioma del navegador no es compatible.
+// Un idioma de navegador no soportado (p. ej. "fr") cae directamente en inglés: nunca se
+// negocia un idioma "parecido" ni se adivina. (Los mensajes ausentes siguen cayendo a ES: DEFAULT_LOCALE.)
 //
 // Sin prefijo de idioma en la URL (decisión congelada de 9I): el idioma vive en localStorage,
 // no en la ruta. El idioma es una preferencia de PRESENTACIÓN, nunca de autorización — no tiene
@@ -19,9 +19,10 @@ export {
   isSupportedLocale,
   type Locale,
 } from "./locale-core";
-import { DEFAULT_LOCALE, isSupportedLocale, type Locale } from "./locale-core";
+import { isSupportedLocale, type Locale } from "./locale-core";
 
 const STORAGE_KEY = "upmina:locale";
+export const FALLBACK_LOCALE: Locale = "en";
 
 /** Preferencia explícita ya guardada, o `null` si no hay ninguna o localStorage no está
  *  disponible (navegación privada, storage bloqueado, SSR futuro). Nunca lanza. */
@@ -63,7 +64,7 @@ function detectBrowserLocale(): Locale | null {
   return null;
 }
 
-/** Idioma activo al arrancar: persistida → navegador → español. Pura, sin efectos. */
+/** Idioma activo al arrancar: persistida → navegador → inglés. Pura, sin efectos. */
 export function resolveInitialLocale(): Locale {
-  return getPersistedLocale() ?? detectBrowserLocale() ?? DEFAULT_LOCALE;
+  return getPersistedLocale() ?? detectBrowserLocale() ?? FALLBACK_LOCALE;
 }

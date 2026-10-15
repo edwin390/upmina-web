@@ -12,6 +12,8 @@ import {
   readPendingRecoveryCode,
   RECOVERY_LOGIN_PATH,
 } from "@/lib/pending-recovery-code";
+import { useTranslations } from "use-intl";
+import { useLocaleCode } from "@/i18n/useFormat";
 
 // /admin/mfa/recovery — «Perdí mi autenticador» (MFA fase 2). Solo PRESENTA el estado que decide el
 // servidor y envía operaciones al endpoint /api/admin/mfa-recovery; la autoridad (rol, credenciales
@@ -23,11 +25,6 @@ import {
 const ENDPOINT = "/api/admin/mfa-recovery";
 
 /** El código del enlace vive solo en memoria de esta pestaña: así se recupera si se pierde. */
-const INVALID_LINK_NOTICE =
-  "El enlace no contiene un código de verificación válido. Vuelve a abrir el enlace del correo o pega aquí el enlace completo.";
-const CODE_LOST_HELP =
-  "Por seguridad el código del enlace solo se conserva en esta pestaña. Si recargas la página o abres el enlace en otra pestaña o dispositivo, vuelve a abrir el enlace del correo o pega aquí el enlace completo.";
-
 interface Recovery {
   status: string;
   recoveryId?: string;
@@ -46,37 +43,6 @@ interface Recovery {
   lastErrorClass?: string | null;
 }
 
-const CODE_MESSAGES: Record<string, string> = {
-  recent_login_required: "Confirma tu contraseña actual para continuar.",
-  mail_unavailable:
-    "El envío de correos no está disponible ahora mismo. Inténtalo más tarde.",
-  active_request: "Ya tienes una solicitud en curso.",
-  rate_limited: "Has hecho demasiadas solicitudes. Inténtalo más tarde.",
-  no_approver: "No hay otro administrador que pueda aprobar tu solicitud.",
-  email_unverified: "Tu correo no está confirmado en la cuenta.",
-  invalid_code:
-    "El código no es válido. Si abriste el enlace con otra cuenta, cambia de cuenta.",
-  no_request:
-    "No hay una solicitud en curso para esta cuenta. Si el enlace es de otra cuenta, cambia de cuenta.",
-  challenge_expired: "El código caducó. Pide un correo nuevo.",
-  locked: "Demasiados intentos. La solicitud se canceló; puedes iniciar otra.",
-  too_soon: "Espera un minuto antes de pedir otro correo.",
-  send_limit: "Ya no se pueden reenviar más correos para esta solicitud.",
-  email_changed: "Tu correo cambió durante el proceso, así que la solicitud se canceló.",
-  role_changed: "Tu rol cambió durante el proceso, así que la solicitud se canceló.",
-  expired: "La solicitud caducó.",
-  waiting: "Todavía no ha pasado la espera de seguridad.",
-  notice_pending: "Aún no se confirmó la entrega del aviso de aprobación.",
-  notice_failed:
-    "No se pudo entregar el aviso de aprobación. Pide a un administrador que lo reenvíe.",
-  new_factor_required:
-    "Aún no se detecta un autenticador nuevo verificado en esta sesión. Configúralo en la verificación en dos pasos y vuelve a intentarlo.",
-  forbidden: "No autorizado.",
-};
-const GENERIC = "No se pudo completar la operación. Inténtalo de nuevo.";
-
-// Estados con una solicitud EN CURSO: solo entonces se muestra «Actualizar estado» y se consulta
-// automáticamente. none/completed/denied/cancelled/expired no consultan nada por su cuenta.
 const ACTIVE_STATUSES: ReadonlySet<string> = new Set([
   "pending_email",
   "pending_approval",
@@ -86,13 +52,6 @@ const ACTIVE_STATUSES: ReadonlySet<string> = new Set([
 ]);
 /** Intervalo del refresco automático (solo GET del estado, sin escrituras). */
 const RECOVERY_POLL_MS = 15000;
-
-const READINESS_TEXT: Record<string, string> = {
-  notice_pending: "Esperando la confirmación de entrega del aviso de aprobación…",
-  notice_failed:
-    "No se pudo entregar el aviso de aprobación. Pide a un administrador que lo reenvíe.",
-  waiting: "En espera de seguridad.",
-};
 
 const PRIMARY =
   "inline-flex min-h-11 items-center justify-center rounded-md border border-accent-primary/60 bg-accent-primary px-5 py-2.5 text-sm font-bold uppercase tracking-[0.18em] text-text-inverse shadow-glow-primary transition duration-200 ease-bounce hover:-translate-y-1 hover:bg-accent-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-secondary focus-visible:ring-offset-2 focus-visible:ring-offset-bg-surface disabled:pointer-events-none disabled:opacity-50";
@@ -109,10 +68,10 @@ async function accessToken(): Promise<string | null> {
   }
 }
 
-function formatWhen(iso: string | null | undefined): string {
+function formatWhen(iso: string | null | undefined, locale: string): string {
   if (!iso) return "";
   const d = new Date(iso);
-  return Number.isNaN(d.getTime()) ? "" : d.toLocaleString("es");
+  return Number.isNaN(d.getTime()) ? "" : d.toLocaleString(locale);
 }
 
 export default function AdminMfaRecoveryPage() {
@@ -138,6 +97,14 @@ export default function AdminMfaRecoveryPage() {
   const loadSeq = useRef(0);
   const inFlight = useRef(0);
   const mounted = useRef(true);
+  const t = useTranslations("admin.recovery");
+  const locale = useLocaleCode();
+  const tRef = useRef(t);
+  tRef.current = t;
+  const textFor = (group: "codes" | "readiness", key: string): string | null => {
+    const path = `${group}.${key}`;
+    return t.has(path as never) ? (t as unknown as (k: string) => string)(path) : null;
+  };
 
   useEffect(() => {
     mounted.current = true;
@@ -210,20 +177,20 @@ export default function AdminMfaRecoveryPage() {
           return null;
         }
         if (response.status === 403) {
-          return fail("Esta función es solo para miembros del equipo.");
+          return fail(tRef.current("forbiddenTeam"));
         }
-        if (!response.ok) return fail("No se pudo cargar el estado de la solicitud.");
+        if (!response.ok) return fail(tRef.current("loadStatusError"));
         const body = (await response.json().catch(() => null)) as Recovery | null;
         if (stale()) return null;
         if (!body || typeof body.status !== "string") {
-          return fail("No se pudo cargar el estado de la solicitud.");
+          return fail(tRef.current("loadStatusError"));
         }
         setLoadError(null);
         setNeedsLogin(false);
         setRecovery(body);
         return body;
       } catch {
-        return fail("No se pudo cargar el estado de la solicitud.");
+        return fail(tRef.current("loadStatusError"));
       } finally {
         inFlight.current -= 1;
         if (mounted.current && inFlight.current === 0) setRefreshing(false);
@@ -322,28 +289,22 @@ export default function AdminMfaRecoveryPage() {
         const rateLimited =
           (error as { status?: number; code?: string } | null)?.status === 429 ||
           (error as { code?: string } | null)?.code === "over_request_rate_limit";
-        fail(
-          rateLimited
-            ? "Demasiados intentos. Espera unos minutos e inténtalo de nuevo."
-            : "No se pudo confirmar. Revisa tu contraseña e inténtalo de nuevo.",
-        );
+        fail(rateLimited ? t("rateLimited") : t("confirmWrong"));
         return;
       }
       if (data.user.id !== current.user.id) {
-        fail("No se pudo confirmar. Cierra sesión e inicia sesión de nuevo.");
+        fail(t("confirmSession"));
         return;
       }
       const fresh = await load();
       if (!mounted.current) return;
       if (fresh && fresh.recentLogin === false) {
-        fail(
-          "El servidor no reconoció la confirmación. Cierra sesión e inicia sesión de nuevo.",
-        );
+        fail(t("serverNoRecognize"));
       } else if (fresh) {
-        setMessage({ kind: "ok", text: "Contraseña confirmada. Ya puedes continuar." });
+        setMessage({ kind: "ok", text: t("passwordConfirmed") });
       }
     } catch {
-      if (mounted.current) fail("No se pudo confirmar. Inténtalo de nuevo.");
+      if (mounted.current) fail(t("confirmRetry"));
     } finally {
       lock.current = false;
       if (mounted.current) setBusy(false);
@@ -381,7 +342,7 @@ export default function AdminMfaRecoveryPage() {
       }
       if (!response.ok) {
         const key = typeof body?.code === "string" ? body.code : "";
-        setMessage({ kind: "error", text: CODE_MESSAGES[key] ?? GENERIC });
+        setMessage({ kind: "error", text: textFor("codes", key) ?? t("generic") });
         void load();
         return;
       }
@@ -389,12 +350,12 @@ export default function AdminMfaRecoveryPage() {
       if (mail?.status === "failed") {
         setMessage({
           kind: "error",
-          text: "La solicitud se registró, pero no se pudo enviar el correo. Pide un correo nuevo.",
+          text: t("mailFailedAfter"),
         });
       } else if (op === "execute" && body?.status === "executing") {
         setMessage({
           kind: "error",
-          text: "No se pudo invalidar el autenticador todavía. Puedes reintentarlo.",
+          text: t("executeNotInvalidated"),
         });
       } else if (okText) {
         setMessage({ kind: "ok", text: okText });
@@ -404,7 +365,7 @@ export default function AdminMfaRecoveryPage() {
       setConfirmExecute(false);
       await load();
     } catch {
-      if (mounted.current) setMessage({ kind: "error", text: GENERIC });
+      if (mounted.current) setMessage({ kind: "error", text: t("generic") });
     } finally {
       lock.current = false;
       if (mounted.current) setBusy(false);
@@ -431,51 +392,50 @@ export default function AdminMfaRecoveryPage() {
   };
   const switchAccountButton = (
     <button type="button" onClick={() => void switchAccount()} className={SECONDARY}>
-      Cambiar de cuenta
+      {t("switchAccount")}
     </button>
   );
 
   const signOutButton = (
     <button type="button" onClick={() => void signOut()} className={`mt-4 ${SECONDARY}`}>
-      Cerrar sesión
+      {t("signOut")}
     </button>
   );
 
   if (needsLogin) {
     return (
-      <AdminAuthCard title="Restablecer autenticador">
+      <AdminAuthCard title={t("title")}>
         {invalidLink ? (
           <p
             role="status"
             className="mb-3 text-sm text-text-secondary"
             data-testid="invalid-link-notice"
           >
-            {INVALID_LINK_NOTICE}
+            {t("invalidLinkNotice")}
           </p>
         ) : null}
         <p role="status" className="text-sm text-text-secondary">
-          Inicia sesión para continuar con la recuperación de tu autenticador. Volverás
-          aquí automáticamente y tu solicitud seguirá donde estaba.
+          {t("loginPrompt")}
         </p>
         <p className="mt-3 text-sm text-text-secondary" data-testid="recovery-code-help">
-          {CODE_LOST_HELP}
+          {t("codeLostHelp")}
         </p>
         <Link to={RECOVERY_LOGIN_PATH} className={`mt-4 ${PRIMARY}`}>
-          Iniciar sesión
+          {t("signIn")}
         </Link>
       </AdminAuthCard>
     );
   }
   if (loadError) {
     return (
-      <AdminAuthCard title="Restablecer autenticador">
+      <AdminAuthCard title={t("title")}>
         {invalidLink ? (
           <p
             role="status"
             className="mb-3 text-sm text-text-secondary"
             data-testid="invalid-link-notice"
           >
-            {INVALID_LINK_NOTICE}
+            {t("invalidLinkNotice")}
           </p>
         ) : null}
         <p role="alert" className="text-sm text-accent-live">
@@ -485,7 +445,7 @@ export default function AdminMfaRecoveryPage() {
           to="/admin/mfa"
           className="mt-4 inline-flex min-h-11 items-center text-sm underline"
         >
-          Volver a la verificación en dos pasos
+          {t("backToMfa")}
         </Link>
         <div className="mt-2">{switchAccountButton}</div>
       </AdminAuthCard>
@@ -493,18 +453,18 @@ export default function AdminMfaRecoveryPage() {
   }
   if (!recovery) {
     return (
-      <AdminAuthCard title="Restablecer autenticador">
+      <AdminAuthCard title={t("title")}>
         {invalidLink ? (
           <p
             role="status"
             className="mb-3 text-sm text-text-secondary"
             data-testid="invalid-link-notice"
           >
-            {INVALID_LINK_NOTICE}
+            {t("invalidLinkNotice")}
           </p>
         ) : null}
         <p role="status" className="text-sm text-text-secondary">
-          Cargando…
+          {t("loading")}
         </p>
       </AdminAuthCard>
     );
@@ -520,7 +480,7 @@ export default function AdminMfaRecoveryPage() {
   if (status === "completed") {
     body = (
       <p role="status" className="text-sm text-text-secondary">
-        Tu autenticador se restableció. Ya puedes usar las herramientas de tu rol.
+        {t("completed")}
       </p>
     );
   } else if (closed) {
@@ -528,38 +488,27 @@ export default function AdminMfaRecoveryPage() {
       <>
         {status === "none" && code.trim() !== "" ? (
           <div role="status" className="mb-4 rounded-md border border-border-subtle p-3">
-            <p className="text-sm text-text-secondary">
-              Abriste un enlace de verificación, pero esta cuenta no tiene una solicitud
-              en curso. Si el enlace es de otra cuenta, cambia de cuenta: el código se
-              conserva mientras inicias sesión.
-            </p>
+            <p className="text-sm text-text-secondary">{t("strayLink")}</p>
             <div className="mt-2">{switchAccountButton}</div>
           </div>
         ) : null}
         {status === "denied" ? (
           <p className="mb-3 text-sm text-text-secondary">
-            Un administrador rechazó tu solicitud anterior
-            {recovery.deniedReason ? `: ${recovery.deniedReason}` : "."}
+            {recovery.deniedReason
+              ? t("deniedWithReason", { reason: recovery.deniedReason })
+              : t("denied")}
           </p>
         ) : status === "cancelled" || status === "expired" ? (
-          <p className="mb-3 text-sm text-text-secondary">
-            Tu solicitud anterior se cerró.
-          </p>
+          <p className="mb-3 text-sm text-text-secondary">{t("closedPrevious")}</p>
         ) : null}
-        <p className="text-sm text-text-secondary">
-          Si perdiste el acceso a tu app autenticadora, puedes pedir que se restablezca.
-          Te enviaremos un correo para verificarlo y otro administrador tendrá que
-          aprobarlo. Tu rol no cambia.
-        </p>
+        <p className="text-sm text-text-secondary">{t("requestIntro")}</p>
         {recovery.hasApprover === false ? (
           <p role="alert" className="mt-3 text-sm text-accent-live">
-            No hay otro administrador ni un Developer que pueda aprobarlo. Contacta con el
-            propietario del proyecto, que realiza la recuperación desde los controles de
-            Supabase.
+            {t("noApprover")}
           </p>
         ) : recovery.mailConfigured === false ? (
           <p role="alert" className="mt-3 text-sm text-accent-live">
-            El envío de correos no está disponible todavía.
+            {t("mailNotAvailable")}
           </p>
         ) : null}
         <button
@@ -571,11 +520,9 @@ export default function AdminMfaRecoveryPage() {
             recovery.hasApprover === false ||
             recovery.mailConfigured === false
           }
-          onClick={() =>
-            void run("request", {}, "Te enviamos un correo para verificar la solicitud.")
-          }
+          onClick={() => void run("request", {}, t("requestSent"))}
         >
-          {busy ? "Enviando…" : "Solicitar restablecimiento"}
+          {busy ? t("sending") : t("requestButton")}
         </button>
       </>
     );
@@ -584,20 +531,13 @@ export default function AdminMfaRecoveryPage() {
       <form
         onSubmit={(e) => {
           e.preventDefault();
-          void run(
-            "verify",
-            { token: code.trim() },
-            "Correo verificado. Falta la aprobación de un administrador.",
-          );
+          void run("verify", { token: code.trim() }, t("emailVerified"));
         }}
         className="flex flex-col gap-4"
       >
-        <p className="text-sm text-text-secondary">
-          Te enviamos un correo con un enlace. Ábrelo con esta sesión iniciada o pega aquí
-          el código del enlace (lo que sigue a «#c=»).
-        </p>
+        <p className="text-sm text-text-secondary">{t("pendingIntro")}</p>
         <AdminAuthField
-          label="Código del correo"
+          label={t("emailCode")}
           id="recovery-code"
           name="code"
           type="text"
@@ -613,27 +553,27 @@ export default function AdminMfaRecoveryPage() {
             disabled={busy || locked || code.trim().length === 0}
             className={PRIMARY}
           >
-            Verificar correo
+            {t("verifyEmail")}
           </button>
           <button
             type="button"
             disabled={busy || locked}
             className={SECONDARY}
-            onClick={() => void run("resend", {}, "Te enviamos un correo nuevo.")}
+            onClick={() => void run("resend", {}, t("resent"))}
           >
-            Reenviar correo
+            {t("resend")}
           </button>
           <button
             type="button"
             disabled={busy}
             className={SECONDARY}
-            onClick={() => void run("cancel", {}, "Solicitud cancelada.")}
+            onClick={() => void run("cancel", {}, t("cancelled"))}
           >
-            Cancelar solicitud
+            {t("cancelRequest")}
           </button>
         </div>
         <p className="text-sm text-text-secondary" data-testid="recovery-code-help">
-          {CODE_LOST_HELP} ¿Abriste el enlace con otra cuenta? Cambia de cuenta.
+          {t("codeLostHelp")} {t("otherAccountHelp")}
         </p>
         <div>{switchAccountButton}</div>
       </form>
@@ -642,16 +582,15 @@ export default function AdminMfaRecoveryPage() {
     body = (
       <>
         <p role="status" className="text-sm text-text-secondary">
-          Correo verificado. Esperando la aprobación de un administrador. Aún no se ha
-          eliminado ningún autenticador.
+          {t("waitingApproval")}
         </p>
         <button
           type="button"
           disabled={busy}
           className={`mt-4 ${SECONDARY}`}
-          onClick={() => void run("cancel", {}, "Solicitud cancelada.")}
+          onClick={() => void run("cancel", {}, t("cancelled"))}
         >
-          Cancelar solicitud
+          {t("cancelRequest")}
         </button>
       </>
     );
@@ -660,30 +599,28 @@ export default function AdminMfaRecoveryPage() {
     body = (
       <>
         <p className="text-sm text-text-secondary">
-          Un administrador aprobó tu solicitud.{" "}
-          {recovery.readiness && READINESS_TEXT[recovery.readiness]}
+          {t("approvedPrefix")}{" "}
+          {recovery.readiness ? textFor("readiness", recovery.readiness) : null}
           {recovery.readiness === "waiting" && recovery.readyAt
-            ? ` Podrás continuar a partir de ${formatWhen(recovery.readyAt)}.`
+            ? ` ${t("readyAt", { when: formatWhen(recovery.readyAt, locale) })}`
             : ""}
         </p>
         {status === "executing" ? (
           <p role="alert" className="mt-3 text-sm text-accent-live">
-            La invalidación no terminó. Puedes reintentarla.
+            {t("executionIncomplete")}
           </p>
         ) : null}
         {ready ? (
           confirmExecute ? (
             <div className="mt-4 flex flex-wrap items-center gap-3">
-              <p className="text-sm text-text-primary">
-                Esto elimina tu autenticador actual. Tendrás que configurar uno nuevo.
-              </p>
+              <p className="text-sm text-text-primary">{t("confirmExecute")}</p>
               <button
                 type="button"
                 disabled={busy || locked}
                 className={PRIMARY}
                 onClick={() => void run("execute", {})}
               >
-                Sí, invalidar mi autenticador
+                {t("yesInvalidate")}
               </button>
               <button
                 type="button"
@@ -691,7 +628,7 @@ export default function AdminMfaRecoveryPage() {
                 className={SECONDARY}
                 onClick={() => setConfirmExecute(false)}
               >
-                No
+                {t("no")}
               </button>
             </div>
           ) : (
@@ -701,7 +638,7 @@ export default function AdminMfaRecoveryPage() {
               className={`mt-4 ${PRIMARY}`}
               onClick={() => setConfirmExecute(true)}
             >
-              Invalidar mi autenticador actual
+              {t("invalidateButton")}
             </button>
           )
         ) : null}
@@ -710,9 +647,9 @@ export default function AdminMfaRecoveryPage() {
             type="button"
             disabled={busy}
             className={`mt-4 ml-3 ${SECONDARY}`}
-            onClick={() => void run("cancel", {}, "Solicitud cancelada.")}
+            onClick={() => void run("cancel", {}, t("cancelled"))}
           >
-            Cancelar solicitud
+            {t("cancelRequest")}
           </button>
         ) : null}
       </>
@@ -722,10 +659,7 @@ export default function AdminMfaRecoveryPage() {
     body = (
       <>
         <p role="status" className="text-sm text-text-secondary">
-          Tu autenticador anterior quedó invalidado. Configura uno nuevo: abre la
-          verificación en dos pasos en una pestaña nueva, escanea el código y verifícalo.
-          Esta página lo detecta sola y completa la recuperación; no tienes que pulsar
-          nada más. Si tu sesión se cerró, inicia sesión de nuevo.
+          {t("afterInvalidated")}
         </p>
         <div className="mt-4 flex flex-wrap gap-3">
           <a
@@ -734,26 +668,24 @@ export default function AdminMfaRecoveryPage() {
             rel="noopener noreferrer"
             className={PRIMARY}
           >
-            Configurar autenticador nuevo
+            {t("setupNew")}
           </a>
         </div>
-        <p className="mt-3 text-sm text-text-secondary">
-          Aún no se detecta un autenticador nuevo verificado en esta sesión.
-        </p>
+        <p className="mt-3 text-sm text-text-secondary">{t("notDetected")}</p>
         {signOutButton}
       </>
     );
   }
 
   return (
-    <AdminAuthCard title="Restablecer autenticador">
+    <AdminAuthCard title={t("title")}>
       {invalidLink ? (
         <p
           role="status"
           className="mb-3 text-sm text-text-secondary"
           data-testid="invalid-link-notice"
         >
-          {INVALID_LINK_NOTICE}
+          {t("invalidLinkNotice")}
         </p>
       ) : null}
       {body}
@@ -762,14 +694,11 @@ export default function AdminMfaRecoveryPage() {
         <form
           onSubmit={(e) => void confirmPassword(e)}
           className="mt-6 flex flex-col gap-3 rounded-md border border-border-subtle p-4"
-          aria-label="Confirmar contraseña"
+          aria-label={t("confirmPasswordLabel")}
         >
-          <p className="text-sm text-text-secondary">
-            Por seguridad, confirma tu contraseña actual para continuar. No necesitas tu
-            autenticador.
-          </p>
+          <p className="text-sm text-text-secondary">{t("confirmPasswordIntro")}</p>
           <AdminAuthField
-            label="Contraseña actual"
+            label={t("currentPassword")}
             id="recovery-password"
             name="password"
             type="password"
@@ -784,7 +713,7 @@ export default function AdminMfaRecoveryPage() {
             disabled={busy || password.length === 0}
             className={`self-start ${PRIMARY}`}
           >
-            {busy ? "Confirmando…" : "Confirmar y continuar"}
+            {busy ? t("confirming") : t("confirmContinue")}
           </button>
         </form>
       ) : null}
@@ -797,14 +726,15 @@ export default function AdminMfaRecoveryPage() {
             className={SECONDARY}
             onClick={() => void load()}
           >
-            Actualizar estado
+            {t("refresh")}
           </button>
         ) : null}
         <Link
           to="/admin/mfa"
           className="inline-flex min-h-11 items-center text-sm text-text-secondary underline"
         >
-          Volver
+          {" "}
+          {t("back")}
         </Link>
       </div>
     </AdminAuthCard>

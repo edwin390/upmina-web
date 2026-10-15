@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { usePrivilegedFailureReporter } from "@/hooks/privileged-failure";
 import { supabase } from "@/lib/supabase";
+import { useTranslations } from "use-intl";
+import { useLocaleCode } from "@/i18n/useFormat";
 
 // Limpiezas de MFA pendientes (MFA fase 1) para Developer. Presenta lo que devuelve
 // GET /api/admin/developer-mfa-cleanups y permite SOLICITAR el reintento (POST sin cuerpo: el servidor
@@ -27,25 +29,17 @@ interface Cleanup {
   email_masked: string | null;
 }
 
-const ROLE_LABEL: Record<string, string> = {
-  admin: "ADMIN",
-  moderator: "MODERADOR",
-  developer: "DEVELOPER",
-};
-const ERROR_LABEL: Record<string, string> = {
-  auth_delete_failed: "Falló el borrado en el proveedor de autenticación",
-  auth_list_failed: "No se pudo comprobar la lista de factores",
-  auth_unavailable: "Proveedor de autenticación no disponible",
-  factor_still_present: "El factor seguía presente tras el borrado",
-  record_failed: "Los factores se borraron pero no se pudo registrar",
-};
+// Mensajes como marcadores `i18n:<clave>`; se traducen al renderizar.
+const MSG_SESSION = "i18n:session";
+const MSG_LIST = "i18n:listError";
+const MSG_RETRY = "i18n:retryError";
 
-function formatDate(value: string | null): string {
+function formatDate(value: string | null, locale: string): string {
   if (!value) return "—";
   const date = new Date(value);
   return Number.isNaN(date.getTime())
     ? "—"
-    : date.toLocaleString("es", { dateStyle: "medium", timeStyle: "short" });
+    : date.toLocaleString(locale, { dateStyle: "medium", timeStyle: "short" });
 }
 
 function parse(raw: unknown): Cleanup[] | null {
@@ -92,6 +86,17 @@ async function token(): Promise<string | null> {
 }
 
 export default function DeveloperCleanupsSection() {
+  const t = useTranslations("developer.cleanups");
+  const locale = useLocaleCode();
+  const label = (group: "role" | "errors", key: string): string => {
+    const path = `${group}.${key}`;
+    return t.has(path as never) ? (t as unknown as (k: string) => string)(path) : key;
+  };
+  const resolveMessage = (message: string): string =>
+    message.startsWith("i18n:")
+      ? (t as unknown as (k: string) => string)(`msg.${message.slice(5)}`)
+      : message;
+
   const headingId = useId();
   const reportFailure = usePrivilegedFailureReporter();
   const [items, setItems] = useState<Cleanup[] | null>(null);
@@ -117,7 +122,7 @@ export default function DeveloperCleanupsSection() {
       const jwt = await token();
       if (!current()) return;
       if (!jwt) {
-        setError("Tu sesión ya no es válida. Inicia sesión de nuevo.");
+        setError(MSG_SESSION);
         return;
       }
       const response = await fetch(ENDPOINT, {
@@ -126,19 +131,19 @@ export default function DeveloperCleanupsSection() {
       if (!current()) return;
       if (!response.ok) {
         reportFailure(response);
-        setError("No se pudo cargar la lista de limpiezas.");
+        setError(MSG_LIST);
         return;
       }
       const parsed = parse(await response.json().catch(() => null));
       if (!current()) return;
       if (!parsed) {
-        setError("No se pudo cargar la lista de limpiezas.");
+        setError(MSG_LIST);
         return;
       }
       setError(null);
       setItems(parsed);
     } catch {
-      if (current()) setError("No se pudo cargar la lista de limpiezas.");
+      if (current()) setError(MSG_LIST);
     } finally {
       if (current()) setLoading(false);
     }
@@ -155,7 +160,7 @@ export default function DeveloperCleanupsSection() {
     try {
       const jwt = await token();
       if (!jwt) {
-        setError("Tu sesión ya no es válida. Inicia sesión de nuevo.");
+        setError(MSG_SESSION);
         return;
       }
       const response = await fetch(ENDPOINT, {
@@ -164,7 +169,7 @@ export default function DeveloperCleanupsSection() {
       });
       if (!response.ok) {
         reportFailure(response);
-        if (mounted.current) setError("No se pudo reintentar la limpieza.");
+        if (mounted.current) setError(MSG_RETRY);
         return;
       }
       const body = (await response.json().catch(() => null)) as {
@@ -174,28 +179,28 @@ export default function DeveloperCleanupsSection() {
       if (!mounted.current) return;
       setNotice(
         typeof body?.completed === "number" && typeof body?.pending === "number"
-          ? `Reintento terminado: ${body.completed} completadas, ${body.pending} siguen pendientes.`
-          : "Reintento terminado.",
+          ? t("retryDone", { completed: body.completed, pending: body.pending })
+          : t("retryDoneSimple"),
       );
       await load();
     } catch {
-      if (mounted.current) setError("No se pudo reintentar la limpieza.");
+      if (mounted.current) setError(MSG_RETRY);
     } finally {
       if (mounted.current) setRetrying(false);
     }
-  }, [retrying, reportFailure, load]);
+  }, [retrying, reportFailure, load, t]);
 
   const pending = (items ?? []).filter((i) => i.status === "pending");
   const history = (items ?? []).filter((i) => i.status === "completed");
 
   const renderItem = (c: Cleanup, key: string) => {
-    const name = c.username ? `@${c.username}` : "Cuenta sin perfil";
+    const name = c.username ? `@${c.username}` : t("noProfile");
     return (
       <li key={key} className="rounded-md border border-border-subtle p-4">
         <p className="font-semibold text-text-primary">
           {name}
           <span className="ml-2 text-sm font-normal text-text-secondary">
-            {ROLE_LABEL[c.previous_role] ?? c.previous_role} anterior
+            {t("previousRole", { role: label("role", c.previous_role) })}
           </span>
         </p>
         {c.email_masked ? (
@@ -203,41 +208,47 @@ export default function DeveloperCleanupsSection() {
         ) : null}
         <dl className="mt-2 grid gap-x-6 gap-y-1 text-sm sm:grid-cols-2">
           <div>
-            <dt className="inline text-text-muted">Estado: </dt>
+            <dt className="inline text-text-muted">{t("state")}</dt>
             <dd className="inline text-text-primary">
-              {c.status === "pending" ? "Pendiente de limpiar" : "Completada"}
+              {c.status === "pending" ? t("statePending") : t("stateCompleted")}
             </dd>
           </div>
           <div>
-            <dt className="inline text-text-muted">Factores: </dt>
+            <dt className="inline text-text-muted">{t("factors")}</dt>
             <dd className="inline text-text-primary">
               {c.status === "completed" && c.factors_deleted !== null
-                ? `${c.factors_deleted} de ${c.factor_count} eliminados`
-                : `${c.factor_count} por eliminar`}
+                ? t("factorsDone", { done: c.factors_deleted, total: c.factor_count })
+                : t("factorsTodo", { total: c.factor_count })}
             </dd>
           </div>
           <div>
-            <dt className="inline text-text-muted">Intentos: </dt>
+            <dt className="inline text-text-muted">{t("attempts")}</dt>
             <dd className="inline text-text-primary">{c.attempts}</dd>
           </div>
           <div>
-            <dt className="inline text-text-muted">Último intento: </dt>
-            <dd className="inline text-text-primary">{formatDate(c.last_attempt_at)}</dd>
+            <dt className="inline text-text-muted">{t("lastAttempt")}</dt>
+            <dd className="inline text-text-primary">
+              {formatDate(c.last_attempt_at, locale)}
+            </dd>
           </div>
           <div>
-            <dt className="inline text-text-muted">Solicitada: </dt>
-            <dd className="inline text-text-primary">{formatDate(c.requested_at)}</dd>
+            <dt className="inline text-text-muted">{t("requested")}</dt>
+            <dd className="inline text-text-primary">
+              {formatDate(c.requested_at, locale)}
+            </dd>
           </div>
           {c.status === "completed" ? (
             <div>
-              <dt className="inline text-text-muted">Completada: </dt>
-              <dd className="inline text-text-primary">{formatDate(c.completed_at)}</dd>
+              <dt className="inline text-text-muted">{t("completed")}</dt>
+              <dd className="inline text-text-primary">
+                {formatDate(c.completed_at, locale)}
+              </dd>
             </div>
           ) : null}
         </dl>
         {c.status === "pending" && c.last_error_class ? (
           <p className="mt-2 text-sm text-accent-live">
-            Último error: {ERROR_LABEL[c.last_error_class] ?? c.last_error_class}
+            {t("lastError", { error: label("errors", c.last_error_class) })}
           </p>
         ) : null}
       </li>
@@ -255,7 +266,7 @@ export default function DeveloperCleanupsSection() {
           id={headingId}
           className="font-display text-xl tracking-wide text-text-primary"
         >
-          Limpiezas de MFA pendientes
+          {t("heading")}
         </h2>
         <button
           type="button"
@@ -263,13 +274,10 @@ export default function DeveloperCleanupsSection() {
           disabled={loading}
           onClick={() => void load()}
         >
-          {loading ? "Actualizando…" : "Actualizar"}
+          {loading ? t("refreshing") : t("refresh")}
         </button>
       </div>
-      <p className="mt-2 text-sm text-text-secondary">
-        Supervisión y reintento manual. El reintento solo borra los factores guardados al
-        retirar el rol, nunca factores nuevos.
-      </p>
+      <p className="mt-2 text-sm text-text-secondary">{t("intro")}</p>
       {pending.length > 0 ? (
         <button
           type="button"
@@ -277,7 +285,7 @@ export default function DeveloperCleanupsSection() {
           disabled={retrying || loading}
           onClick={() => void retry()}
         >
-          {retrying ? "Reintentando…" : "Reintentar pendientes"}
+          {retrying ? t("retrying") : t("retryPending")}
         </button>
       ) : null}
       {notice ? (
@@ -287,28 +295,27 @@ export default function DeveloperCleanupsSection() {
       ) : null}
       {error ? (
         <p role="alert" className="mt-3 text-sm text-accent-live">
-          {error}
+          {" "}
+          {resolveMessage(error)}
         </p>
       ) : null}
       {items && !error ? (
         <>
           <h3 className="mt-4 text-sm font-semibold text-text-primary">
-            Pendientes ({pending.length})
+            {t("pendingHeading", { count: pending.length })}
           </h3>
           {pending.length === 0 ? (
-            <p className="mt-2 text-sm text-text-secondary">
-              No hay limpiezas pendientes.
-            </p>
+            <p className="mt-2 text-sm text-text-secondary">{t("noPending")}</p>
           ) : (
             <ul className="mt-2 flex flex-col gap-3">
               {pending.map((c, i) => renderItem(c, `p-${i}`))}
             </ul>
           )}
           <h3 className="mt-6 text-sm font-semibold text-text-primary">
-            Historial reciente ({history.length})
+            {t("historyHeading", { count: history.length })}
           </h3>
           {history.length === 0 ? (
-            <p className="mt-2 text-sm text-text-secondary">Sin limpiezas completadas.</p>
+            <p className="mt-2 text-sm text-text-secondary">{t("noHistory")}</p>
           ) : (
             <ul className="mt-2 flex flex-col gap-3">
               {history.map((c, i) => renderItem(c, `h-${i}`))}

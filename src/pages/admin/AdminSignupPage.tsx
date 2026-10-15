@@ -11,6 +11,7 @@ import {
   isSignupLegalConsentEnabled,
   type LegalChecks,
 } from "@/lib/legal-consent";
+import { useTranslations } from "use-intl";
 
 // /admin/signup (Bloque 3A). Crea una cuenta de Supabase Auth normal: SIEMPRE USER sin
 // privilegios. No se envía ningún metadata de rol en signUp(), no hay lista de emails
@@ -23,18 +24,22 @@ import {
 // ningún sitio.
 const MIN_PASSWORD_LENGTH = 8;
 
-function signupErrorMessage(error: unknown): string {
+type AdminSignupT = ReturnType<typeof useTranslations<"admin.signup">>;
+
+function signupErrorMessage(error: unknown, t: AdminSignupT): string {
   const message = error instanceof Error ? error.message : "";
   if (/already registered|already exists/i.test(message)) {
-    return "Ya existe una cuenta con ese email.";
+    return t("alreadyExists");
   }
   if (/password/i.test(message)) {
-    return "La contraseña no cumple los requisitos mínimos.";
+    return t("weakPassword");
   }
-  return "No se pudo crear la cuenta. Inténtalo de nuevo.";
+  return t("genericError");
 }
 
 export default function AdminSignupPage() {
+  const t = useTranslations("admin.signup");
+
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -50,23 +55,21 @@ export default function AdminSignupPage() {
     setError(null);
 
     if (password.length < MIN_PASSWORD_LENGTH) {
-      setError(`La contraseña debe tener al menos ${MIN_PASSWORD_LENGTH} caracteres.`);
+      setError(t("tooShort", { min: MIN_PASSWORD_LENGTH }));
       return;
     }
     if (password !== confirmPassword) {
-      setError("Las contraseñas no coinciden.");
+      setError(t("mismatch"));
       return;
     }
 
     if (legalEnabled && !allAccepted(legal)) {
-      setError(
-        "Debes confirmar que eres mayor de 18 años y aceptar los documentos para crear tu cuenta.",
-      );
+      setError(t("legalRequired"));
       return;
     }
 
     if (!supabase) {
-      setError("El acceso admin no está configurado todavía.");
+      setError(t("notConfigured"));
       return;
     }
 
@@ -81,12 +84,12 @@ export default function AdminSignupPage() {
           : {}),
       });
       if (signUpError) {
-        setError(signupErrorMessage(signUpError));
+        setError(signupErrorMessage(signUpError, t));
         return;
       }
       setIsSubmitted(true);
     } catch (err) {
-      setError(signupErrorMessage(err));
+      setError(signupErrorMessage(err, t));
     } finally {
       setIsSubmitting(false);
     }
@@ -94,11 +97,14 @@ export default function AdminSignupPage() {
 
   if (isSubmitted) {
     return (
-      <AdminAuthCard title="Revisa tu email">
+      <AdminAuthCard title={t("checkEmailTitle")}>
         <p className="text-sm text-text-secondary" role="status">
-          Te enviamos un email de confirmación a{" "}
-          <span className="font-medium text-text-primary">{email}</span>. Confírmalo para
-          poder iniciar sesión.
+          {t.rich("checkEmailBody", {
+            email,
+            emailTag: (chunks) => (
+              <span className="font-medium text-text-primary">{chunks}</span>
+            ),
+          })}
         </p>
       </AdminAuthCard>
     );
@@ -106,22 +112,22 @@ export default function AdminSignupPage() {
 
   return (
     <AdminAuthCard
-      title="Crear cuenta"
+      title={t("title")}
       footer={
         <>
-          ¿Ya tienes cuenta?{" "}
+          {t("haveAccount")}{" "}
           <Link
             to="/admin/login"
             className="font-medium text-accent-primary hover:underline"
           >
-            Iniciar sesión
+            {t("signIn")}
           </Link>
         </>
       }
     >
       <form onSubmit={handleSubmit} className="flex flex-col gap-4">
         <AdminAuthField
-          label="Email"
+          label={t("email")}
           id="signup-email"
           name="email"
           type="email"
@@ -132,7 +138,7 @@ export default function AdminSignupPage() {
           disabled={isSubmitting}
         />
         <AdminAuthField
-          label="Contraseña"
+          label={t("password")}
           id="signup-password"
           name="password"
           type="password"
@@ -144,7 +150,7 @@ export default function AdminSignupPage() {
           disabled={isSubmitting}
         />
         <AdminAuthField
-          label="Confirmar contraseña"
+          label={t("confirmPassword")}
           id="signup-confirm-password"
           name="confirmPassword"
           type="password"
@@ -175,7 +181,7 @@ export default function AdminSignupPage() {
           disabled={isSubmitting || (legalEnabled && !allAccepted(legal))}
           className="mt-2 inline-flex min-h-11 items-center justify-center rounded-md border border-accent-primary/60 bg-accent-primary px-5 py-2.5 text-sm font-bold uppercase tracking-[0.18em] text-text-inverse shadow-glow-primary transition duration-200 ease-bounce hover:-translate-y-1 hover:bg-accent-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-secondary focus-visible:ring-offset-2 focus-visible:ring-offset-bg-surface disabled:pointer-events-none disabled:opacity-50"
         >
-          {isSubmitting ? "Creando cuenta…" : "Crear cuenta"}
+          {isSubmitting ? t("submitting") : t("submit")}
         </button>
       </form>
     </AdminAuthCard>

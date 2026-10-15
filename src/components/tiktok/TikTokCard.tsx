@@ -1,5 +1,6 @@
 import type { TikTokVideo } from "@/types";
-import { formatRelativeDate } from "@/lib/format";
+import { useTranslations } from "use-intl";
+import { useRelativeDate } from "@/i18n/useFormat";
 import TikTokCover from "./TikTokCover";
 
 interface TikTokCardProps {
@@ -33,8 +34,10 @@ function PlayBadge() {
  * visor interno (TikTokViewer). Título y fecha van fuera del área 9:16.
  */
 export default function TikTokCard({ video, onOpen }: TikTokCardProps) {
+  const t = useTranslations("site.tiktok");
+  const relativeDate = useRelativeDate();
   const title = video.title.trim();
-  const label = title ? `Abrir TikTok: ${title}` : "Abrir video de TikTok";
+  const label = title ? t("open", { title }) : t("openUntitled");
 
   return (
     <article className="flex min-w-0 flex-col gap-2">
@@ -57,9 +60,7 @@ export default function TikTokCard({ video, onOpen }: TikTokCardProps) {
             {title}
           </p>
         )}
-        <p className="mt-0.5 text-xs text-text-muted">
-          {formatRelativeDate(video.createTime)}
-        </p>
+        <p className="mt-0.5 text-xs text-text-muted">{relativeDate(video.createTime)}</p>
       </div>
     </article>
   );

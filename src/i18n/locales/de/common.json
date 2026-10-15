@@ -17,5 +17,8 @@
     "independence": "UPMINA Web ist ein unabhängiges, von Fans geschaffenes Projekt. Es ist nicht offiziell mit UPMINA oder ihrem Team verbunden und wird von ihnen weder gesponsert noch unterstützt.",
     "independenceWithNotice": "UPMINA Web ist ein unabhängiges, von Fans geschaffenes Projekt. Es ist nicht offiziell mit UPMINA oder ihrem Team verbunden und wird von ihnen weder gesponsert noch unterstützt. Siehe den <notice>rechtlichen Hinweis</notice>.",
     "madeWith": "© {year} UPMINA Web · Mit <heart>♥</heart> von Fans gemacht"
+  },
+  "format": {
+    "justNow": "Gerade eben"
   }
 }

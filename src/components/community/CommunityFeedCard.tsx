@@ -1,4 +1,6 @@
 import { Link } from "react-router-dom";
+import { useTranslations } from "use-intl";
+import { useLocaleCode } from "@/i18n/useFormat";
 import type { CommunityFeedPost } from "@/types";
 import CommunityLikeButton from "./CommunityLikeButton";
 import CommunityReportButton from "./CommunityReportButton";
@@ -8,10 +10,10 @@ import CommunityReportButton from "./CommunityReportButton";
 // desde useCommunityFeed. Sin menú ADMIN ni acciones de gestión (eso vive exclusivamente en
 // /account, CommunityPostsSection.tsx): esta tarjeta es de solo lectura.
 
-function formatDate(iso: string): string {
+function formatDate(iso: string, locale: string): string {
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return "";
-  return new Intl.DateTimeFormat("es", {
+  return new Intl.DateTimeFormat(locale, {
     dateStyle: "medium",
     timeStyle: "short",
   }).format(date);
@@ -42,11 +44,12 @@ function AuthorIdentity({ post }: { post: CommunityFeedPost }) {
  *  futuro), así que nunca se intenta construir una URL que casi con certeza no resolvería. Enlaza
  *  al perfil público /@username (Fase 9J-2B), igual que la identidad de al lado. */
 function AuthorAvatar({ username }: { username: string }) {
+  const t = useTranslations("community.common");
   const initial = username.charAt(0).toUpperCase();
   return (
     <Link
       to={`/@${username}`}
-      aria-label={`Ver el perfil de @${username}`}
+      aria-label={t("viewProfile", { username })}
       className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-border-subtle bg-bg-elevated font-display text-sm text-text-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-secondary"
     >
       <span aria-hidden="true">{initial}</span>
@@ -178,6 +181,8 @@ export default function CommunityFeedCard({
   post: CommunityFeedPost;
   likedByMe: boolean;
 }) {
+  const t = useTranslations("community.feed");
+  const locale = useLocaleCode();
   return (
     <li className="rounded-lg border border-border-subtle bg-bg-surface p-4">
       <div className="flex items-center gap-3">
@@ -187,7 +192,7 @@ export default function CommunityFeedCard({
           dateTime={post.createdAt}
           className="ml-auto shrink-0 text-xs text-text-secondary"
         >
-          {formatDate(post.createdAt)}
+          {formatDate(post.createdAt, locale)}
         </time>
       </div>
 
@@ -198,7 +203,7 @@ export default function CommunityFeedCard({
           enlace (MediaGrid solo pinta <img>, nunca <a>/<button>). */}
       <Link
         to={`/community/post/${post.id}`}
-        aria-label="Ver publicación completa"
+        aria-label={t("viewFull")}
         className="block rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-secondary"
       >
         {post.text ? (

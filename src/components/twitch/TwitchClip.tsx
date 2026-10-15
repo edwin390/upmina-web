@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type { TwitchClip as TwitchClipType } from "@/types";
-import { formatRelativeDate } from "@/lib/format";
+import { useTranslations } from "use-intl";
+import { useRelativeDate } from "@/i18n/useFormat";
 import { safeTwitchUrl } from "./twitchUrl";
 
 interface TwitchClipProps {
@@ -71,6 +72,8 @@ function PlayBadge() {
  * (TwitchClipViewer) y solo para el clip abierto.
  */
 export default function TwitchClip({ clip, onOpen }: TwitchClipProps) {
+  const t = useTranslations("site.twitch");
+  const relativeDate = useRelativeDate();
   const twitchUrl = safeTwitchUrl(clip.url);
 
   return (
@@ -79,7 +82,9 @@ export default function TwitchClip({ clip, onOpen }: TwitchClipProps) {
         type="button"
         onClick={(event) => onOpen(clip, event.currentTarget)}
         aria-haspopup="dialog"
-        aria-label={clip.title ? `Reproducir clip: ${clip.title}` : "Reproducir clip"}
+        aria-label={
+          clip.title ? t("clip.playNamed", { title: clip.title }) : t("clip.play")
+        }
         className="relative block aspect-video w-full overflow-hidden bg-bg-elevated focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent-secondary"
       >
         <ClipThumbnail url={clip.thumbnailUrl} />
@@ -92,9 +97,8 @@ export default function TwitchClip({ clip, onOpen }: TwitchClipProps) {
       <div className="p-3">
         <p className="line-clamp-2 text-sm font-medium text-text-primary">{clip.title}</p>
         <p className="mt-1 text-xs text-text-muted">
-          {clip.creatorName} · {clip.viewCount.toLocaleString("es")}{" "}
-          {clip.viewCount === 1 ? "vista" : "vistas"} ·{" "}
-          {formatRelativeDate(clip.createdAt)}
+          {clip.creatorName} · {t("clip.views", { count: clip.viewCount })} ·{" "}
+          {relativeDate(clip.createdAt)}
         </p>
         {/* Salida opcional a twitch.tv; la reproducción normal ocurre en el visor. */}
         {twitchUrl && (
@@ -104,7 +108,7 @@ export default function TwitchClip({ clip, onOpen }: TwitchClipProps) {
             rel="noreferrer noopener"
             className="mt-2 inline-block text-xs font-medium text-accent-primary hover:underline"
           >
-            Ver en Twitch
+            {t("watch")}
           </a>
         )}
       </div>

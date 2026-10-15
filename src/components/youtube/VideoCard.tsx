@@ -1,6 +1,7 @@
 import clsx from "clsx";
 import type { YouTubeVideo } from "@/types";
-import { formatRelativeDate } from "@/lib/format";
+import { useTranslations } from "use-intl";
+import { useRelativeDate } from "@/i18n/useFormat";
 
 interface VideoCardProps {
   video: YouTubeVideo;
@@ -9,6 +10,8 @@ interface VideoCardProps {
 }
 
 export default function VideoCard({ video, isSelected, onSelect }: VideoCardProps) {
+  const t = useTranslations("site.youtube");
+  const relativeDate = useRelativeDate();
   return (
     <button
       type="button"
@@ -32,7 +35,7 @@ export default function VideoCard({ video, isSelected, onSelect }: VideoCardProp
         </span>
         {isSelected && (
           <span className="absolute left-1 top-1 rounded bg-accent-primary px-1.5 py-0.5 text-xs font-semibold text-text-inverse">
-            Reproduciendo
+            {t("playing")}
           </span>
         )}
       </div>
@@ -40,9 +43,7 @@ export default function VideoCard({ video, isSelected, onSelect }: VideoCardProp
         <p className="line-clamp-2 text-sm font-medium text-text-primary">
           {video.title}
         </p>
-        <p className="mt-1 text-xs text-text-muted">
-          {formatRelativeDate(video.publishedAt)}
-        </p>
+        <p className="mt-1 text-xs text-text-muted">{relativeDate(video.publishedAt)}</p>
       </div>
     </button>
   );

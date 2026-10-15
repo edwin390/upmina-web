@@ -18,6 +18,7 @@ import {
 } from "@/components/auth/PasswordRecoveryLinks";
 import { isAuthLinkSuccess, parseAuthLinkError } from "@/lib/auth-link-error";
 import { parseSafeReturnTo } from "@/lib/safe-return-to";
+import { useTranslations } from "use-intl";
 
 // /login (Bloque 6C). Login público con email + contraseña sobre el MISMO cliente de
 // Supabase y el MISMO AuthProvider global (un solo listener): solo establece
@@ -32,8 +33,7 @@ import { parseSafeReturnTo } from "@/lib/safe-return-to";
 // acepta (destino interno de la allowlist); cualquier otro valor —externo, protocol-relative,
 // malformado, ausente— cae en "/". Se navega con React Router, nunca con window.location, y el
 // destino no concede nada: cada superficie privilegiada decide por su cuenta (rol + MFA reciente).
-const INVALID_CREDENTIALS_MESSAGE = "Email o contraseña incorrectos.";
-const GENERIC_ERROR_MESSAGE = "No se pudo iniciar sesión. Inténtalo de nuevo.";
+type LoginError = "invalidCredentials" | "genericError";
 
 /** AUTH-1: Supabase responde `email_not_confirmed` solo con credenciales correctas. */
 function isEmailNotConfirmed(error: unknown): boolean {
@@ -44,14 +44,15 @@ function isEmailNotConfirmed(error: unknown): boolean {
   return /email not confirmed/i.test(message);
 }
 
-function loginErrorMessage(error: unknown): string {
+function loginErrorMessage(error: unknown): LoginError {
   const message = error instanceof Error ? error.message : "";
   return /invalid login credentials/i.test(message)
-    ? INVALID_CREDENTIALS_MESSAGE
-    : GENERIC_ERROR_MESSAGE;
+    ? "invalidCredentials"
+    : "genericError";
 }
 
 export default function LoginPage() {
+  const t = useTranslations("auth.login");
   const { session, loading: sessionLoading } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
@@ -61,7 +62,7 @@ export default function LoginPage() {
     rawReturnTo === null ? "/" : (parseSafeReturnTo(rawReturnTo)?.path ?? "/");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<LoginError | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   // AUTH-1: email pendiente de confirmación (no nulo = estado "Check your inbox").
   const [pendingEmail, setPendingEmail] = useState<string | null>(null);
@@ -98,7 +99,7 @@ export default function LoginPage() {
     setError(null);
 
     if (!supabase) {
-      setError(GENERIC_ERROR_MESSAGE);
+      setError("genericError");
       return;
     }
 
@@ -134,9 +135,9 @@ export default function LoginPage() {
   // usuario ya autenticado lo vea parpadear antes de la redirección).
   if (sessionLoading) {
     return (
-      <AdminAuthCard title="Iniciar sesión">
+      <AdminAuthCard title={t("title")}>
         <p className="text-sm text-text-secondary" role="status">
-          Comprobando sesión…
+          {t("checking")}
         </p>
       </AdminAuthCard>
     );
@@ -164,10 +165,10 @@ export default function LoginPage() {
 
   return (
     <AdminAuthCard
-      title="Iniciar sesión"
+      title={t("title")}
       footer={
         <Link to="/signup" className="font-medium text-accent-primary hover:underline">
-          Crear cuenta
+          {t("createAccount")}
         </Link>
       }
     >
@@ -178,7 +179,7 @@ export default function LoginPage() {
           <PasswordUpdatedNotice />
         ) : null}
         <AdminAuthField
-          label="Email"
+          label={t("email")}
           id="public-login-email"
           name="email"
           type="email"
@@ -189,7 +190,7 @@ export default function LoginPage() {
           disabled={isSubmitting}
         />
         <AdminAuthField
-          label="Contraseña"
+          label={t("password")}
           id="public-login-password"
           name="password"
           type="password"
@@ -206,7 +207,7 @@ export default function LoginPage() {
 
         {error ? (
           <p id="public-login-error" role="alert" className="text-sm text-accent-live">
-            {error}
+            {t(error)}
           </p>
         ) : null}
 
@@ -215,7 +216,7 @@ export default function LoginPage() {
           disabled={isSubmitting}
           className="mt-2 inline-flex min-h-11 items-center justify-center rounded-md border border-accent-primary/60 bg-accent-primary px-5 py-2.5 text-sm font-bold uppercase tracking-[0.18em] text-text-inverse shadow-glow-primary transition duration-200 ease-bounce hover:-translate-y-1 hover:bg-accent-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-secondary focus-visible:ring-offset-2 focus-visible:ring-offset-bg-surface disabled:pointer-events-none disabled:opacity-50"
         >
-          {isSubmitting ? "Iniciando sesión…" : "Iniciar sesión"}
+          {isSubmitting ? t("submitting") : t("submit")}
         </button>
       </form>
     </AdminAuthCard>

@@ -25,9 +25,7 @@ export default function EditCard({ edit, onVote }: EditCardProps) {
           </p>
         )}
         <div className="mt-3 flex items-center justify-between">
-          <p className="text-xs text-text-muted">
-            {formatRelativeDate(edit.createdAt)}
-          </p>
+          <p className="text-xs text-text-muted">{formatRelativeDate(edit.createdAt)}</p>
           <div className="flex items-center gap-2">
             <button
               type="button"

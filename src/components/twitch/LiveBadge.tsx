@@ -1,4 +1,5 @@
 import clsx from "clsx";
+import { useTranslations } from "use-intl";
 
 export type LiveBadgeStatus = "loading" | "live" | "offline" | "error";
 
@@ -7,14 +8,8 @@ interface LiveBadgeProps {
   viewerCount?: number;
 }
 
-const STATUS_LABEL: Record<LiveBadgeStatus, string> = {
-  loading: "Comprobando…",
-  live: "EN VIVO",
-  offline: "OFFLINE",
-  error: "SIN DATOS",
-};
-
 export default function LiveBadge({ status, viewerCount }: LiveBadgeProps) {
+  const t = useTranslations("site.twitch.badge");
   const isLive = status === "live";
 
   return (
@@ -40,11 +35,11 @@ export default function LiveBadge({ status, viewerCount }: LiveBadgeProps) {
       {/* Solo el texto de estado se anuncia; el conteo de viewers cambia
           cada refetch (60s) y no debe generar anuncios repetidos. */}
       <span role="status" aria-live="polite">
-        {STATUS_LABEL[status]}
+        {t(status)}
       </span>
       {isLive && typeof viewerCount === "number" && (
         <span className="text-xs font-normal opacity-80">
-          {viewerCount.toLocaleString("es")} viewers
+          {t("viewers", { count: viewerCount })}
         </span>
       )}
     </div>

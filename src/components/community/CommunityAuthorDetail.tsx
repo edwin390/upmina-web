@@ -1,9 +1,10 @@
 import { useEffect, useRef } from "react";
 import { Link } from "react-router-dom";
+import { useTranslations } from "use-intl";
+import { useLocaleCode } from "@/i18n/useFormat";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/lib/auth-context";
 import { fetchAuthorPost, acknowledgeAuthorNotice } from "@/lib/community-client";
-import { NO_PROCEDE_NOTICE } from "@/lib/community-author-contract";
 import CommunityPostMediaViewer from "./CommunityPostMediaViewer";
 import CommunityPostTileMenu from "./CommunityPostTileMenu";
 import { refreshCommunityContent } from "@/lib/content-freshness";
@@ -13,6 +14,8 @@ import { useCommunityLikedByMe } from "@/hooks/useCommunityLikedByMe";
 
 /** Private application content, not private storage delivery (R4-D). No prefetch/GET consumes a notice. */
 export default function CommunityAuthorDetail({ postId }: { postId: string }) {
+  const t = useTranslations("community.author");
+  const locale = useLocaleCode();
   const { user, session, loading } = useAuth();
   const client = useQueryClient();
   const attempted = useRef<string | null>(null);
@@ -85,25 +88,23 @@ export default function CommunityAuthorDetail({ postId }: { postId: string }) {
     );
     return () => clearTimeout(timer);
   }, [post, postId, user?.id, client, refetch]);
-  if (loading || (query.isLoading && session))
-    return <p role="status">Cargando publicación…</p>;
+  if (loading || (query.isLoading && session)) return <p role="status">{t("loading")}</p>;
   if (!session)
     return (
       <p>
-        Inicia sesión para acceder a tu publicación.{" "}
-        <Link to="/login">Iniciar sesión</Link>
+        {t("signInPrompt")} <Link to="/login">{t("signIn")}</Link>
       </p>
     );
   if (query.isError)
     return (
       <div role="alert">
-        No se pudo cargar esta publicación.{" "}
+        {t("loadError")}{" "}
         <button type="button" onClick={() => void query.refetch()}>
-          Reintentar
+          {t("retry")}
         </button>
       </div>
     );
-  if (!post) return <p>Esta publicación no está disponible.</p>;
+  if (!post) return <p>{t("unavailable")}</p>;
   const media = post.media
     .filter(
       (m): m is typeof m & { url: string; width: number; height: number } =>
@@ -134,12 +135,12 @@ export default function CommunityAuthorDetail({ postId }: { postId: string }) {
         to={`/@${post.author.username}`}
         className="text-accent-primary hover:underline"
       >
-        Volver a mi perfil
+        {t("backToProfile")}
       </Link>
       <p className="mt-4 text-text-secondary">
         {post.author.displayName ?? `@${post.author.username}`} ·{" "}
         <time dateTime={post.createdAt}>
-          {new Intl.DateTimeFormat("es", {
+          {new Intl.DateTimeFormat(locale, {
             dateStyle: "medium",
             timeStyle: "short",
           }).format(new Date(post.createdAt))}
@@ -148,32 +149,28 @@ export default function CommunityAuthorDetail({ postId }: { postId: string }) {
       {post.moderation.kind !== "none" && (
         <section
           className="mt-4 rounded-md border border-accent-primary/40 bg-bg-elevated p-4"
-          aria-label="Estado de la publicación"
+          aria-label={t("statusLabel")}
         >
           <h1 className="font-display text-xl">
-            {post.moderation.kind === "paused"
-              ? "Publicación pausada"
-              : "Publicación retirada"}
+            {post.moderation.kind === "paused" ? t("pausedTitle") : t("removedTitle")}
           </h1>
           {post.moderation.kind === "paused" ? (
-            <p className="mt-2">
-              Esta publicación fue ocultada temporalmente mientras el equipo de moderación
-              revisa reportes.
-            </p>
+            <p className="mt-2">{t("pausedBody")}</p>
           ) : (
             <>
-              <p className="mt-2">Esta publicación fue retirada por moderación.</p>
+              <p className="mt-2">{t("removedBody")}</p>
               <p className="mt-2">
-                Se eliminará permanentemente después del{" "}
-                <time dateTime={post.moderation.deadline!}>
-                  {new Intl.DateTimeFormat("es", {
+                {t.rich("deleteAfter", {
+                  date: new Intl.DateTimeFormat(locale, {
                     dateStyle: "long",
                     timeStyle: "short",
-                  }).format(new Date(post.moderation.deadline!))}
-                </time>
-                . La retención inicial es de 72 horas (3 días).
+                  }).format(new Date(post.moderation.deadline!)),
+                  time: (chunks) => (
+                    <time dateTime={post.moderation.deadline!}>{chunks}</time>
+                  ),
+                })}
               </p>
-              <h2 className="mt-4 font-semibold">Mensaje de moderación</h2>
+              <h2 className="mt-4 font-semibold">{t("moderationMessage")}</h2>
               <p className="mt-2 whitespace-pre-wrap break-words">
                 {post.moderation.message}
               </p>
@@ -186,7 +183,7 @@ export default function CommunityAuthorDetail({ postId }: { postId: string }) {
           role="status"
           className="mt-4 rounded-md border border-accent-secondary/40 p-4"
         >
-          {NO_PROCEDE_NOTICE}
+          {t("noProcede")}
         </p>
       )}
       <p className="mt-4 whitespace-pre-wrap break-words">{post.text}</p>

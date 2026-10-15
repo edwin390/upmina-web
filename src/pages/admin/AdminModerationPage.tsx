@@ -27,6 +27,7 @@ import {
 import ModerationQueueFilters from "./ModerationQueueFilters";
 import ModerationMedia from "./ModerationMedia";
 import ModerationPendingCounter, { type PendingState } from "./ModerationPendingCounter";
+import { useLocaleCode } from "@/i18n/useFormat";
 
 const MFA_PATH = "/admin/mfa?returnTo=/admin/moderation";
 const LOGIN_PATH = "/login?returnTo=/admin/moderation";
@@ -70,30 +71,13 @@ function actionable(item: ModerationCaseItem) {
     return false;
   }
 }
-const REASONS: Record<string, string> = {
-  spam: "Spam",
-  harassment: "Acoso",
-  hate_speech: "Discurso de odio",
-  sexual_content: "Contenido sexual",
-  violence: "Violencia",
-  off_topic: "Ajeno a Mina",
-  ai_generated: "Generado con IA",
-  other: "Otro",
-};
-const STATES: Record<string, string> = {
-  open: "Abierto",
-  reviewing: "En revisión",
-  resolved: "Resuelto",
-  dismissed: "Descartado",
-  actioned: "Actuado",
-};
 const buttonClass =
   "min-h-11 rounded-md border border-border-subtle px-4 py-2 text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent-primary disabled:opacity-50";
 const topButtonClass =
   "inline-flex min-h-11 items-center rounded-md border border-border-subtle px-4 py-2 text-sm font-semibold text-text-secondary transition-colors duration-200 ease-smooth enabled:hover:border-accent-primary/60 enabled:hover:text-text-primary enabled:active:border-accent-primary/60 enabled:active:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-secondary disabled:pointer-events-none disabled:opacity-50 motion-reduce:transition-none";
-function date(iso: string | null) {
+function formatWhen(iso: string | null, locale: string) {
   return iso
-    ? new Intl.DateTimeFormat("es", { dateStyle: "medium", timeStyle: "short" }).format(
+    ? new Intl.DateTimeFormat(locale, { dateStyle: "medium", timeStyle: "short" }).format(
         new Date(iso),
       )
     : "—";
@@ -111,20 +95,22 @@ function contentExpired(item: ModerationCaseItem) {
     Date.parse(item.post.purgeAfter) <= Date.now()
   );
 }
-function postState(item: ModerationCaseItem) {
+type PageT = ReturnType<typeof useTranslations<"moderation.page">>;
+
+function postState(item: ModerationCaseItem, t: PageT) {
   return !item.post
     ? purgedAt(item)
-      ? "Publicación eliminada definitivamente"
-      : "Publicación no disponible"
+      ? t("postState.purged")
+      : t("postState.unavailable")
     : item.post.status === "removed_pending_purge"
       ? contentExpired(item)
-        ? "Retirada por moderación · contenido expirado"
-        : "Retirada por moderación"
+        ? t("postState.removedExpired")
+        : t("postState.removed")
       : item.post.status === "hidden_pending_review"
-        ? "Oculta preventivamente"
+        ? t("postState.hiddenPending")
         : item.post.status === "hidden"
-          ? "Oculta por moderación anterior"
-          : "Publicada";
+          ? t("postState.hiddenPrevious")
+          : t("postState.published");
 }
 /** Texto de la cola en el idioma activo (namespace moderation.queue). */
 function QueueText({
@@ -142,7 +128,29 @@ function returnedFromMfa(state: unknown) {
       (state as { mfaCancelled?: unknown }).mfaCancelled),
   );
 }
+const REASON_KEYS = [
+  "spam",
+  "harassment",
+  "hate_speech",
+  "sexual_content",
+  "violence",
+  "off_topic",
+  "ai_generated",
+  "other",
+] as const;
+const STATE_KEYS = ["open", "reviewing", "resolved", "dismissed", "actioned"] as const;
+function reasonLabel(t: PageT, reason: string): string {
+  return (REASON_KEYS as readonly string[]).includes(reason)
+    ? t(`reasons.${reason as (typeof REASON_KEYS)[number]}`)
+    : reason;
+}
+function stateLabel(t: PageT, state: string): string {
+  return (STATE_KEYS as readonly string[]).includes(state)
+    ? t(`states.${state as (typeof STATE_KEYS)[number]}`)
+    : state;
+}
 function Reasons({ item }: { item: ModerationCaseItem }) {
+  const t = useTranslations("moderation.page");
   return (
     <span className="flex flex-wrap gap-2">
       {item.reasons.map((r) => (
@@ -150,7 +158,7 @@ function Reasons({ item }: { item: ModerationCaseItem }) {
           key={r.reason}
           className="break-words rounded border border-border-subtle px-2 py-1 text-xs"
         >
-          {REASONS[r.reason]} ×{r.count}
+          {reasonLabel(t, r.reason)} ×{r.count}
         </span>
       ))}
     </span>
@@ -193,6 +201,10 @@ function AdminModeration() {
   // COPY-1 fase 2A: pestaña de copyright, separada de los reportes ordinarios (su propia cola, detalle y acciones).
   const [section, setSection] = useState<"reports" | "copyright">("reports");
   const tc = useTranslations("moderation.copyright.panel");
+  const t = useTranslations("moderation.page");
+  const locale = useLocaleCode();
+  const date = (iso: string | null) => formatWhen(iso, locale);
+
   const tcd = useTranslations("moderation.caseDetail");
   // R5-G: filtros aplicados y rastro de cursores de las páginas anteriores («Página anterior»
   // retrocede por este rastro; la paginación sigue siendo por cursor, sin OFFSET).
@@ -384,16 +396,13 @@ function AdminModeration() {
     decisionReturn = null;
     if (queue.cases.some((item) => item.cycleId === resume.current?.cycleId))
       void openCase(resume.current.cycleId);
-    else
-      setDecisionFeedback(
-        "El caso ya no está disponible en esta cola. Revisa la información actualizada.",
-      );
-  }, [canLoadPanel, queue, openCase]);
+    else setDecisionFeedback(t("caseGone"));
+  }, [canLoadPanel, queue, openCase, t]);
   if (status === "loading") {
     return (
-      <AdminAuthCard title="Moderación">
+      <AdminAuthCard title={t("title")}>
         <p className="text-sm text-text-secondary" role="status">
-          Comprobando tu sesión…
+          {t("checking")}
         </p>
       </AdminAuthCard>
     );
@@ -405,16 +414,16 @@ function AdminModeration() {
 
   if (status === "unauthenticated" || status === "error" || !access) {
     return (
-      <AdminAuthCard title="Moderación">
+      <AdminAuthCard title={t("title")}>
         <p role="alert" className="text-sm text-accent-live">
-          No se pudo comprobar tu acceso. Inténtalo de nuevo.
+          {t("accessError")}
         </p>
         <button
           type="button"
           onClick={() => void refetch()}
           className="mt-6 inline-flex min-h-11 items-center rounded-md border border-border-subtle px-5 py-2.5 text-sm font-semibold text-text-secondary transition-colors hover:border-accent-primary/60 hover:text-text-primary"
         >
-          Reintentar
+          {t("retry")}
         </button>
       </AdminAuthCard>
     );
@@ -425,15 +434,13 @@ function AdminModeration() {
     // concede capacidades). Nunca se distingue "nunca tuvo acceso" de "se lo quitaron" con más
     // detalle del necesario.
     return (
-      <AdminAuthCard title="Moderación">
+      <AdminAuthCard title={t("title")}>
         <p role="alert" className="text-sm text-accent-live">
-          {hadAccessRef.current
-            ? "Tu acceso a moderación ya no está disponible."
-            : "No tienes acceso al panel de moderación."}
+          {hadAccessRef.current ? t("accessLost") : t("noAccess")}
         </p>
         <p className="mt-4 text-sm text-text-secondary">
           <Link to="/account" className="font-medium text-accent-primary hover:underline">
-            Ir a mi cuenta
+            {t("goToAccount")}
           </Link>
         </p>
       </AdminAuthCard>
@@ -443,9 +450,9 @@ function AdminModeration() {
   if (!mfaRecent) {
     if (mfaReturnGuardRef.current) {
       return (
-        <AdminAuthCard title="Moderación">
+        <AdminAuthCard title={t("title")}>
           <p role="alert" className="text-sm text-accent-live">
-            No pudimos confirmar tu verificación en dos pasos reciente.
+            {t("mfaUnconfirmed")}
           </p>
           <div className="mt-6 flex flex-wrap gap-3">
             <button
@@ -453,14 +460,14 @@ function AdminModeration() {
               onClick={() => void refetch()}
               className="inline-flex min-h-11 items-center rounded-md border border-border-subtle px-5 py-2.5 text-sm font-semibold text-text-secondary transition-colors hover:border-accent-primary/60 hover:text-text-primary"
             >
-              Reintentar
+              {t("retry")}
             </button>
             <Link
               to={MFA_PATH}
               state={location.state}
               className="inline-flex min-h-11 items-center rounded-md border border-accent-primary/60 px-5 py-2.5 text-sm font-semibold text-accent-primary hover:underline"
             >
-              Verificar de nuevo
+              {t("verifyAgain")}
             </Link>
           </div>
         </AdminAuthCard>
@@ -486,52 +493,51 @@ function AdminModeration() {
           {tcd("close")}
         </button>
       </div>
-      {detail?.kind === "loading" && <p role="status">Cargando caso…</p>}
+      {detail?.kind === "loading" && <p role="status">{t("loadingCase")}</p>}
       {detail?.kind === "error" && (
         <div role="alert">
-          No se pudo cargar este caso.{" "}
+          {t("caseError")}{" "}
           <button className={buttonClass} onClick={() => void openCase(selectedId)}>
-            Reintentar detalle
+            {t("retryDetail")}
           </button>
         </div>
       )}
       {detail?.kind === "ready" && (
         <div className="min-w-0 space-y-4">
           <p className="break-all text-xs text-text-muted">
-            Caso {detail.item.caseId} · Ciclo {detail.item.cycleNumber} · Versión actual
-            del caso {detail.item.caseVersion} · Publicación {detail.item.postId}
+            {t("caseIds", {
+              caseId: detail.item.caseId,
+              cycle: detail.item.cycleNumber,
+              version: detail.item.caseVersion,
+              postId: detail.item.postId,
+            })}
           </p>
-          <h2 className="text-lg font-semibold">Contexto de la publicación</h2>
-          <p>{postState(detail.item)}</p>
+          <h2 className="text-lg font-semibold">{t("contextHeading")}</h2>
+          <p>{postState(detail.item, t)}</p>
           {detail.item.post ? (
             <>
               <p>
-                {detail.item.post.authorUsername
-                  ? `@${detail.item.post.authorUsername}`
-                  : "Autor no disponible"}{" "}
-                · Versión de publicación {detail.item.post.version}
+                {t("postVersion", {
+                  author: detail.item.post.authorUsername
+                    ? `@${detail.item.post.authorUsername}`
+                    : t("authorUnavailable"),
+                  version: detail.item.post.version,
+                })}
               </p>
               {contentExpired(detail.item) ? (
-                <p>
-                  El contenido de esta publicación ya expiró y no está disponible. No se
-                  conserva una captura de su texto o media.
-                </p>
+                <p>{t("contentExpired")}</p>
               ) : (
                 <>
                   <p className="whitespace-pre-wrap break-words [overflow-wrap:anywhere]">
-                    {detail.item.post.text ?? "Publicación sin texto"}
+                    {detail.item.post.text ?? t("noText")}
                   </p>
-                  <p className="text-sm text-text-muted">
-                    Se muestra el contenido actual, no una captura histórica del reporte.
-                  </p>
+                  <p className="text-sm text-text-muted">{t("currentContent")}</p>
                 </>
               )}
               {detail.item.firstReportAt &&
                 Date.parse(detail.item.post.updatedAt) >
                   Date.parse(detail.item.firstReportAt) && (
-                  <p className="text-sm">
-                    La publicación se actualizó después del primer reporte.
-                  </p>
+                  <p className="text-sm">{t("updatedAfter")}</p>
                 )}
               <div className="flex min-w-0 flex-wrap gap-2">
                 {detail.item.media.map((m, i, all) => (
@@ -547,54 +553,48 @@ function AdminModeration() {
           ) : (
             <p>
               {purgedAt(detail.item)
-                ? `La publicación fue eliminada definitivamente el ${date(purgedAt(detail.item))}. `
-                : "La publicación original ya no está disponible. "}
-              No se conserva una captura de su texto o media.
+                ? t("purgedOn", { date: date(purgedAt(detail.item)) })
+                : t("originalGone")}
             </p>
           )}
-          <h2 className="font-semibold">Estado del ciclo</h2>
+          <h2 className="font-semibold">{t("cycleHeading")}</h2>
           <p>
-            Caso {detail.item.caseStatus === "pending" ? "pendiente" : "cerrado"} · Ciclo
-            actual {detail.item.currentCycleNumber}
+            {t("caseSummary", {
+              status: t(
+                `caseStatus.${detail.item.caseStatus === "pending" ? "pending" : "closed"}`,
+              ),
+              n: detail.item.currentCycleNumber,
+            })}
           </p>
           <p>
             {detail.item.cycleStatus === "pending"
-              ? "Pendiente de revisión humana"
+              ? t("pendingReview")
               : detail.item.closureKind === "author_deleted"
                 ? tcd("closureAuthorDeleted")
                 : detail.item.closureKind === "legacy"
-                  ? "Cierre histórico; sin decisión agrupada registrada"
-                  : "Ciclo cerrado por decisión registrada"}
+                  ? t("legacyClosure")
+                  : t("decisionClosure")}
           </p>
-          {!detail.item.isCurrentCycle && (
-            <p>
-              Este es un ciclo anterior. La publicación mostrada corresponde al estado
-              actual.
-            </p>
-          )}
-          {detail.item.cycleStatus === "closed" && (
-            <p>
-              Los reportes de ciclos cerrados no aportan votos al ciclo actual. No se
-              reconstruye un conteo histórico de cuentas.
-            </p>
-          )}
+          {!detail.item.isCurrentCycle && <p>{t("previousCycle")}</p>}
+          {detail.item.cycleStatus === "closed" && <p>{t("closedReportsNote")}</p>}
           <p>
-            {detail.item.qualifyingReporters} cuentas calificantes ·{" "}
-            {detail.item.totalReports} reportes del ciclo
+            {t("reporters", {
+              qualifying: detail.item.qualifyingReporters,
+              total: detail.item.totalReports,
+            })}
           </p>
           {detail.item.post?.status === "hidden_pending_review" && (
-            <p className="rounded border border-border-subtle p-3">
-              Oculta preventivamente por el umbral de reportes. La revisión humana está
-              pendiente: esto no confirma una infracción ni aplica un strike.
-            </p>
+            <p className="rounded border border-border-subtle p-3">{t("hiddenNote")}</p>
           )}
           <Reasons item={detail.item} />
           {detail.item.decision && (
             <p className="rounded border border-border-subtle p-3">
-              Decisión:{" "}
-              {detail.item.decision.result === "reports_not_valid"
-                ? "No procede"
-                : "Procede"}
+              {t("decision", {
+                result:
+                  detail.item.decision.result === "reports_not_valid"
+                    ? t("resultNotValid")
+                    : t("resultValid"),
+              })}
               {detail.item.decision.resolutionMessage && (
                 <span className="block whitespace-pre-wrap break-words [overflow-wrap:anywhere]">
                   {detail.item.decision.resolutionMessage}
@@ -643,9 +643,7 @@ function AdminModeration() {
                 onStale={() => {
                   // Never retried: reload the authoritative state and say so neutrally.
                   resume.current = null;
-                  setDecisionFeedback(
-                    "El estado de moderación de este caso cambió. Actualizamos la información para que la revises de nuevo.",
-                  );
+                  setDecisionFeedback(t("strikeChanged"));
                   void openCase(detail.item.cycleId, true);
                 }}
                 onChanged={(message) => {
@@ -688,9 +686,7 @@ function AdminModeration() {
               onConflict={() => {
                 resume.current = null;
                 close();
-                setDecisionFeedback(
-                  "Este caso cambió mientras lo revisabas. Actualizamos la información para que puedas revisarlo nuevamente.",
-                );
+                setDecisionFeedback(t("caseChanged"));
                 void loadQueue();
                 void loadPending();
               }}
@@ -704,7 +700,7 @@ function AdminModeration() {
               }}
             />
           )}
-          <h2 className="font-semibold">Reportes del ciclo</h2>
+          <h2 className="font-semibold">{t("reportsHeading")}</h2>
           <ul className="space-y-3">
             {detail.item.reports.map((r) => (
               <li
@@ -712,7 +708,8 @@ function AdminModeration() {
                 className="min-w-0 rounded border border-border-subtle p-3"
               >
                 <p>
-                  {REASONS[r.reason]} · {STATES[r.status]} · {date(r.createdAt)}
+                  {reasonLabel(t, r.reason)} · {stateLabel(t, r.status)} ·{" "}
+                  {date(r.createdAt)}
                 </p>
                 {r.detail && (
                   <p className="whitespace-pre-wrap break-words [overflow-wrap:anywhere]">
@@ -723,15 +720,10 @@ function AdminModeration() {
             ))}
           </ul>
           {detail.item.reportsTruncated && (
-            <p>
-              Se muestran los 50 reportes más recientes de {detail.item.totalReports}. Hay
-              más reportes en este ciclo.
-            </p>
+            <p>{t("truncated", { total: detail.item.totalReports })}</p>
           )}
           {detail.item.cycleStatus === "pending" && (
-            <p className="text-sm text-text-muted">
-              Este caso está pendiente de una decisión de moderación.
-            </p>
+            <p className="text-sm text-text-muted">{t("pendingDecision")}</p>
           )}
           <ModerationAuditList audit={detail.item.audit} />
         </div>
@@ -758,7 +750,7 @@ function AdminModeration() {
       <div className="mx-auto min-w-0 max-w-4xl px-4 py-16">
         <div className="min-w-0 rounded-xl border border-accent-primary/40 bg-bg-surface p-4 sm:p-8">
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <h1 className="font-display text-3xl">Moderación</h1>
+            <h1 className="font-display text-3xl">{t("title")}</h1>
             <span className="text-xs uppercase">{role?.toUpperCase()}</span>
           </div>
           {sectionNav}
@@ -770,14 +762,14 @@ function AdminModeration() {
     <div className="mx-auto min-w-0 max-w-4xl px-4 py-16">
       <div className="min-w-0 rounded-xl border border-accent-primary/40 bg-bg-surface p-4 sm:p-8">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <h1 className="font-display text-3xl">Moderación</h1>
+          <h1 className="font-display text-3xl">{t("title")}</h1>
           <span className="text-xs uppercase">{role?.toUpperCase()}</span>
         </div>
         {sectionNav}
         <div className="mt-3">
           <ModerationPendingCounter state={pending} onRetry={() => void loadPending()} />
         </div>
-        <section ref={listRef} aria-label="Cola de casos" className="mt-6 min-w-0">
+        <section ref={listRef} aria-label={t("queueLabel")} className="mt-6 min-w-0">
           {decisionFeedback && (
             <p role="status" className="mb-4">
               {decisionFeedback}
@@ -799,7 +791,7 @@ function AdminModeration() {
                   setScope(s);
                 }}
               >
-                {s === "active" ? "Activos" : "Historial"}
+                {s === "active" ? t("scopeActive") : t("scopeClosed")}
               </button>
             ))}
             <button
@@ -811,7 +803,7 @@ function AdminModeration() {
                 if (selectedId) void openCase(selectedId);
               }}
             >
-              Actualizar contexto
+              {t("refreshContext")}
             </button>
           </div>
           <ModerationQueueFilters
@@ -821,22 +813,18 @@ function AdminModeration() {
           />
           {(queue.kind === "loading" ||
             (queue.kind === "ready" && queue.scope !== scope)) && (
-            <p role="status">Cargando casos…</p>
+            <p role="status">{t("loadingCases")}</p>
           )}
           {queue.kind === "error" && (
             <div role="alert">
-              {queue.invalidPage ? (
-                <QueueText k="invalidPage" />
-              ) : (
-                "No se pudieron cargar los casos."
-              )}{" "}
+              {queue.invalidPage ? <QueueText k="invalidPage" /> : t("casesError")}{" "}
               {queue.invalidPage ? (
                 <button className={buttonClass} onClick={goFirst}>
-                  Volver al inicio
+                  {t("backToStart")}
                 </button>
               ) : (
                 <button className={buttonClass} onClick={() => void loadQueue()}>
-                  Reintentar
+                  {t("retry")}
                 </button>
               )}
             </div>
@@ -852,7 +840,7 @@ function AdminModeration() {
                 <p role="alert" className="mb-2 text-sm">
                   <QueueText k="updateFailed" />{" "}
                   <button className={buttonClass} onClick={() => void loadQueue()}>
-                    Reintentar
+                    {t("retry")}
                   </button>
                 </p>
               )}
@@ -861,9 +849,9 @@ function AdminModeration() {
                   {hasQueueFilters(filters) ? (
                     <QueueText k="noMatches" />
                   ) : scope === "active" ? (
-                    "No hay casos activos por ahora."
+                    t("noActive")
                   ) : (
-                    "No hay ciclos cerrados por ahora."
+                    t("noClosed")
                   )}
                 </p>
               )}
@@ -886,26 +874,33 @@ function AdminModeration() {
                       className="flex w-full min-w-0 flex-col gap-2 px-4 py-3 text-left hover:bg-bg-elevated focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent-primary"
                     >
                       <span className="flex flex-wrap justify-between gap-2">
-                        <span className="font-semibold">{postState(item)}</span>
+                        <span className="font-semibold">{postState(item, t)}</span>
                         <span className="text-xs">
-                          Ciclo {item.cycleNumber} ·{" "}
-                          {item.cycleStatus === "pending" ? "Pendiente" : "Cerrado"}
+                          {t("cycleLine", {
+                            n: item.cycleNumber,
+                            status:
+                              item.cycleStatus === "pending"
+                                ? t("cyclePending")
+                                : t("cycleClosed"),
+                          })}
                         </span>
                       </span>
                       <span className="text-sm">
-                        {item.qualifyingReporters} cuentas calificantes ·{" "}
-                        {item.totalReports} reportes
+                        {t("reportersShort", {
+                          qualifying: item.qualifyingReporters,
+                          total: item.totalReports,
+                        })}
                       </span>
                       <Reasons item={item} />
                       <span className="line-clamp-2 break-words [overflow-wrap:anywhere] text-sm">
                         {contentExpired(item)
-                          ? "Contenido expirado"
+                          ? t("expiredShort")
                           : (item.post?.text ??
                             (item.post
-                              ? "Publicación sin texto"
+                              ? t("noText")
                               : purgedAt(item)
-                                ? "Publicación eliminada definitivamente"
-                                : "Publicación original no disponible"))}
+                                ? t("postState.purged")
+                                : t("originalUnavailable")))}
                       </span>
                       <span className="text-xs text-text-muted">
                         {item.post?.authorUsername
@@ -914,9 +909,7 @@ function AdminModeration() {
                         {date(item.activityAt)}
                       </span>
                       {item.closureKind === "legacy" && (
-                        <span className="text-xs">
-                          Cierre histórico sin decisión agrupada
-                        </span>
+                        <span className="text-xs">{t("legacyShort")}</span>
                       )}
                       {item.closureKind === "author_deleted" && (
                         <span className="text-xs">
@@ -930,7 +923,7 @@ function AdminModeration() {
               </ul>
               {(trail.length > 0 || cursor || queue.nextCursor) && (
                 <nav
-                  aria-label="Paginación de la cola"
+                  aria-label={t("paginationLabel")}
                   className="mt-4 flex flex-wrap gap-3"
                 >
                   {trail.length > 0 && (
@@ -943,7 +936,7 @@ function AdminModeration() {
                         listRef.current?.scrollIntoView?.({ block: "start" });
                       }}
                     >
-                      Página anterior
+                      {t("previousPage")}
                     </button>
                   )}
                   {cursor && (
@@ -952,7 +945,7 @@ function AdminModeration() {
                       disabled={statusUpdating}
                       onClick={goFirst}
                     >
-                      Volver al inicio
+                      {t("backToStart")}
                     </button>
                   )}
                   {queue.nextCursor && (
@@ -965,7 +958,7 @@ function AdminModeration() {
                         listRef.current?.scrollIntoView?.({ block: "start" });
                       }}
                     >
-                      Siguiente página
+                      {t("nextPage")}
                     </button>
                   )}
                 </nav>

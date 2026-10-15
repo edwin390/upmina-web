@@ -95,9 +95,9 @@ describe("resolveInitialLocale", () => {
     expect(resolveInitialLocale()).toBe(expected);
   });
 
-  it("navegador con idioma NO soportado (p. ej. francés) → español, nunca se adivina", () => {
+  it("navegador con idioma NO soportado (p. ej. francés) → inglés, nunca se adivina", () => {
     stubLanguages(["fr-FR", "fr"]);
-    expect(resolveInitialLocale()).toBe("es");
+    expect(resolveInitialLocale()).toBe("en");
   });
 
   it("usa el primer idioma SOPORTADO de navigator.languages, en orden de preferencia real", () => {
@@ -105,8 +105,8 @@ describe("resolveInitialLocale", () => {
     expect(resolveInitialLocale()).toBe("de");
   });
 
-  it("sin navigator.languages ni preferencia → español", () => {
+  it("sin navigator.languages ni preferencia → inglés", () => {
     stubLanguages([]);
-    expect(resolveInitialLocale()).toBe("es");
+    expect(resolveInitialLocale()).toBe("en");
   });
 });

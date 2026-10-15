@@ -58,9 +58,13 @@ export function applyThumbnailSize(
 }
 
 /**
- * Devuelve una fecha relativa en español ("Hace 3 días").
+ * Devuelve una fecha relativa en el idioma dado (por defecto español: "hace 3 días").
  */
-export function formatRelativeDate(dateInput: string | Date): string {
+export function formatRelativeDate(
+  dateInput: string | Date,
+  locale: string = "es",
+  justNow: string = "Hace instantes",
+): string {
   const date = typeof dateInput === "string" ? new Date(dateInput) : dateInput;
   const diffMs = Date.now() - date.getTime();
   const diffSeconds = Math.floor(diffMs / 1000);
@@ -74,7 +78,7 @@ export function formatRelativeDate(dateInput: string | Date): string {
     ["minute", 60],
   ];
 
-  const rtf = new Intl.RelativeTimeFormat("es", { numeric: "auto" });
+  const rtf = new Intl.RelativeTimeFormat(locale, { numeric: "auto" });
 
   for (const [unit, secondsInUnit] of units) {
     if (diffSeconds >= secondsInUnit) {
@@ -82,5 +86,5 @@ export function formatRelativeDate(dateInput: string | Date): string {
       return rtf.format(-value, unit);
     }
   }
-  return "Hace instantes";
+  return justNow;
 }

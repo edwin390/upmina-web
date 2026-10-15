@@ -14,6 +14,7 @@ import TeamInvitationsSection from "@/components/admin/TeamInvitationsSection";
 import MfaRecoveriesSection from "@/components/admin/MfaRecoveriesSection";
 import BecomeDeveloperSection from "@/components/admin/BecomeDeveloperSection";
 import TeamMembersSection from "@/components/admin/TeamMembersSection";
+import { useTranslations } from "use-intl";
 
 // /admin (Bloque 5C, reescrito en la Fase 9G-3). Máquina de estados sobre lo que el SERVIDOR dice:
 //
@@ -63,6 +64,8 @@ export default function AdminDashboardPage() {
 }
 
 function AdminDashboard() {
+  const t = useTranslations("admin.dashboard");
+
   const { signOut } = useAuth();
   const location = useLocation();
   const { status, access, refetch, invalidate } = useAdminAccess({ fresh: true });
@@ -173,9 +176,9 @@ function AdminDashboard() {
 
   if (status === "loading") {
     return (
-      <AdminAuthCard title="Panel de administración">
+      <AdminAuthCard title={t("title")}>
         <p className="text-sm text-text-secondary" role="status">
-          Comprobando tu sesión…
+          {t("checking")}
         </p>
       </AdminAuthCard>
     );
@@ -189,16 +192,16 @@ function AdminDashboard() {
     // Hay sesión local pero el servidor la rechazó: NO se envía a /login (con sesión local,
     // /login redirigiría de vuelta aquí y se formaría un bucle). Se ofrece cerrarla.
     return (
-      <AdminAuthCard title="Panel de administración">
+      <AdminAuthCard title={t("title")}>
         <p role="alert" className="text-sm text-accent-live">
-          Tu sesión ya no es válida. Cierra sesión e inicia sesión de nuevo.
+          {t("invalidSession")}
         </p>
         <button
           type="button"
           onClick={() => void signOut()}
           className="mt-6 inline-flex min-h-11 items-center rounded-md border border-border-subtle px-5 py-2.5 text-sm font-semibold text-text-secondary transition-colors duration-200 ease-smooth hover:border-accent-primary/60 hover:text-text-primary"
         >
-          Cerrar sesión
+          {t("signOut")}
         </button>
       </AdminAuthCard>
     );
@@ -206,16 +209,16 @@ function AdminDashboard() {
 
   if (status === "error" || !access) {
     return (
-      <AdminAuthCard title="Panel de administración">
+      <AdminAuthCard title={t("title")}>
         <p role="alert" className="text-sm text-accent-live">
-          No se pudo comprobar tu acceso. Inténtalo de nuevo.
+          {t("accessError")}
         </p>
         <button
           type="button"
           onClick={() => void refetch()}
           className="mt-6 inline-flex min-h-11 items-center rounded-md border border-border-subtle px-5 py-2.5 text-sm font-semibold text-text-secondary transition-colors duration-200 ease-smooth hover:border-accent-primary/60 hover:text-text-primary"
         >
-          Reintentar
+          {t("retry")}
         </button>
       </AdminAuthCard>
     );
@@ -225,11 +228,9 @@ function AdminDashboard() {
     // USER, MODERATOR o DEVELOPER (o un ADMIN cuyo rol se revocó con el panel abierto): acceso
     // denegado SIN MFA. Solo navegación normal.
     return (
-      <AdminAuthCard title="Panel de administración">
+      <AdminAuthCard title={t("title")}>
         <p role="alert" className="text-sm text-accent-live">
-          {hadPanelRef.current
-            ? "Tu acceso administrativo ya no está disponible."
-            : "No tienes acceso al panel de administración."}
+          {hadPanelRef.current ? t("accessLost") : t("noAccess")}
         </p>
         {access.capabilities.includes("moderation") && (
           <Link
@@ -237,12 +238,12 @@ function AdminDashboard() {
             state={{ cancelTo: "/admin" }}
             className="mt-4 inline-flex min-h-11 items-center font-semibold text-accent-primary hover:underline"
           >
-            Abrir moderación
+            {t("openModeration")}
           </Link>
         )}
         <p className="mt-4 text-sm text-text-secondary">
           <Link to="/account" className="font-medium text-accent-primary hover:underline">
-            Ir a mi cuenta
+            {t("goToAccount")}
           </Link>
         </p>
       </AdminAuthCard>
@@ -253,9 +254,9 @@ function AdminDashboard() {
     if (mfaReturnGuardRef.current) {
       // Volvió de un MFA y el servidor todavía no lo reconoce: no se redirige otra vez.
       return (
-        <AdminAuthCard title="Panel de administración">
+        <AdminAuthCard title={t("title")}>
           <p role="alert" className="text-sm text-accent-live">
-            No pudimos confirmar tu verificación en dos pasos reciente.
+            {t("mfaUnconfirmed")}
           </p>
           <div className="mt-6 flex flex-wrap gap-3">
             <button
@@ -263,14 +264,14 @@ function AdminDashboard() {
               onClick={() => void refetch()}
               className="inline-flex min-h-11 items-center rounded-md border border-border-subtle px-5 py-2.5 text-sm font-semibold text-text-secondary transition-colors duration-200 ease-smooth hover:border-accent-primary/60 hover:text-text-primary"
             >
-              Reintentar
+              {t("retry")}
             </button>
             <Link
               to={MFA_PATH}
               state={location.state}
               className="inline-flex min-h-11 items-center rounded-md border border-accent-primary/60 px-5 py-2.5 text-sm font-semibold text-accent-primary hover:underline"
             >
-              Verificar de nuevo
+              {t("verifyAgain")}
             </Link>
           </div>
         </AdminAuthCard>
@@ -288,9 +289,9 @@ function AdminDashboard() {
   // role admin + MFA reciente: la decisión final la toma GET /api/admin/me.
   if (panel.kind === "loading") {
     return (
-      <AdminAuthCard title="Panel de administración">
+      <AdminAuthCard title={t("title")}>
         <p className="text-sm text-text-secondary" role="status">
-          Comprobando tu sesión…
+          {t("checking")}
         </p>
       </AdminAuthCard>
     );
@@ -298,16 +299,16 @@ function AdminDashboard() {
 
   if (panel.kind === "error") {
     return (
-      <AdminAuthCard title="Panel de administración">
+      <AdminAuthCard title={t("title")}>
         <p role="alert" className="text-sm text-accent-live">
-          No se pudo autorizar esta sesión para acceder al panel.
+          {t("authorizeError")}
         </p>
         <button
           type="button"
           onClick={() => void refetch()}
           className="mt-6 inline-flex min-h-11 items-center rounded-md border border-border-subtle px-5 py-2.5 text-sm font-semibold text-text-secondary transition-colors duration-200 ease-smooth hover:border-accent-primary/60 hover:text-text-primary"
         >
-          Reintentar
+          {t("retry")}
         </button>
       </AdminAuthCard>
     );
@@ -321,7 +322,7 @@ function AdminDashboard() {
           <div className="flex flex-wrap items-center justify-between gap-4">
             <div>
               <h1 className="font-display text-3xl tracking-wide text-text-primary">
-                Panel de administración
+                {t("title")}
               </h1>
               <div
                 className="mt-2 h-0.5 w-12 rounded-full bg-gradient-accent"
@@ -334,7 +335,7 @@ function AdminDashboard() {
           </div>
 
           <p className="mt-6 text-sm text-text-secondary" role="status">
-            Sesión administrativa verificada.
+            {t("verifiedSession")}
           </p>
 
           <SocialConnectionsSection />
@@ -346,13 +347,13 @@ function AdminDashboard() {
           <BecomeDeveloperSection />
 
           {panel.capabilities.includes("moderation") ? (
-            <nav className="mt-8 grid gap-3" aria-label="Herramientas administrativas">
+            <nav className="mt-8 grid gap-3" aria-label={t("toolsLabel")}>
               <Link
                 to="/admin/moderation"
                 state={{ cancelTo: "/admin" }}
                 className="rounded-md border border-border-subtle px-4 py-3 text-sm font-semibold text-text-secondary transition-colors hover:border-accent-primary/60 hover:text-text-primary"
               >
-                Moderación
+                {t("moderation")}
               </Link>
             </nav>
           ) : null}

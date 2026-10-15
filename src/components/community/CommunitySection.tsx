@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useCommunityFeed, type CommunityFeedMode } from "@/hooks/useCommunityFeed";
 import { useCommunityLikedByMe } from "@/hooks/useCommunityLikedByMe";
 import CommunityFeedCard from "./CommunityFeedCard";
+import { useTranslations } from "use-intl";
 
 // /community (Fase 9J-2A, con "Populares" activada en 9J-2C): feed público REAL de Comunidad —
 // reemplaza el cascarón temporal de 9J-1C UX follow-up (que solo mostraba las etiquetas congeladas
@@ -15,11 +16,6 @@ import CommunityFeedCard from "./CommunityFeedCard";
 // id desc — ver useCommunityFeed.ts y community-feed-handlers.ts) son ahora dos pestañas
 // igualmente funcionales; ninguna fabrica datos: Populares muestra publicaciones elegibles con 0
 // likes en vez de un tab vacío, nunca un "engagement score" inventado.
-const TAB_LABEL: Record<CommunityFeedMode, string> = {
-  recent: "Recientes",
-  popular: "Populares",
-};
-
 function ModeTab({
   mode,
   active,
@@ -29,6 +25,7 @@ function ModeTab({
   active: boolean;
   onSelect: (mode: CommunityFeedMode) => void;
 }) {
+  const t = useTranslations("community.section");
   return (
     <button
       type="button"
@@ -40,12 +37,14 @@ function ModeTab({
           : "rounded-md bg-bg-elevated px-3 py-1.5 text-sm text-text-secondary transition-colors hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-secondary"
       }
     >
-      {TAB_LABEL[mode]}
+      {t(mode)}
     </button>
   );
 }
 
 export default function CommunitySection() {
+  const t = useTranslations("community.section");
+  const tc = useTranslations("community.common");
   const [mode, setMode] = useState<CommunityFeedMode>("recent");
   const {
     data,
@@ -64,7 +63,7 @@ export default function CommunitySection() {
     <section className="mx-auto max-w-3xl px-4 py-16">
       <header className="mb-8">
         <h1 className="font-display text-3xl tracking-wide text-text-primary">
-          Comunidad
+          {t("heading")}
         </h1>
         <div className="mt-4 flex gap-2">
           <ModeTab mode="recent" active={mode === "recent"} onSelect={setMode} />
@@ -84,7 +83,7 @@ export default function CommunitySection() {
       ) : null}
       {isLoading ? (
         <p role="status" className="sr-only">
-          Cargando publicaciones…
+          {t("loading")}
         </p>
       ) : null}
 
@@ -93,13 +92,13 @@ export default function CommunitySection() {
           role="alert"
           className="rounded-lg border border-border-subtle bg-bg-surface px-6 py-10 text-center"
         >
-          <p className="text-text-secondary">No se pudieron cargar las publicaciones.</p>
+          <p className="text-text-secondary">{t("loadError")}</p>
           <button
             type="button"
             onClick={() => void refetch()}
             className="mt-4 inline-flex min-h-11 items-center justify-center rounded-md border border-accent-primary/60 bg-accent-primary px-5 py-2.5 text-sm font-bold text-text-inverse transition hover:bg-accent-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-secondary"
           >
-            Reintentar
+            {tc("retry")}
           </button>
         </div>
       ) : null}
@@ -107,11 +106,9 @@ export default function CommunitySection() {
       {!isLoading && !isError && items.length === 0 ? (
         <div className="rounded-lg border border-border-subtle bg-bg-surface px-6 py-16 text-center">
           <p className="font-display text-lg tracking-wide text-text-primary">
-            Todavía no hay publicaciones
+            {t("emptyTitle")}
           </p>
-          <p className="mt-2 text-text-secondary">
-            Cuando la comunidad empiece a publicar, sus publicaciones aparecerán aquí.
-          </p>
+          <p className="mt-2 text-text-secondary">{t("emptyBody")}</p>
         </div>
       ) : null}
 
@@ -135,7 +132,7 @@ export default function CommunitySection() {
                 disabled={isFetchingNextPage}
                 className="rounded-md border border-border-subtle px-5 py-2.5 text-sm font-semibold text-text-secondary transition-colors hover:border-accent-primary/70 hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-secondary disabled:opacity-50"
               >
-                {isFetchingNextPage ? "Cargando…" : "Cargar más"}
+                {isFetchingNextPage ? t("loadingMore") : t("loadMore")}
               </button>
             </div>
           ) : null}

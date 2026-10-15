@@ -4,7 +4,8 @@ import { useQueryClient } from "@tanstack/react-query";
 import { ADMIN_ACCESS_QUERY_ROOT } from "@/hooks/useAdminAccess";
 import { usePrivilegedFailureReporter } from "@/hooks/privileged-failure";
 import { supabase } from "@/lib/supabase";
-import { reverifyTotp, type ReverifyResult } from "@/lib/totp-reverify";
+import { reverifyTotp } from "@/lib/totp-reverify";
+import { useTranslations } from "use-intl";
 
 // «Convertirme en Developer» (Developer Panel V1). Un Admin puede transferir SU PROPIA cuenta a Developer;
 // no existe ninguna forma de asignar Developer a otra persona. Solo PRESENTA y envía la decisión: que haya
@@ -33,20 +34,6 @@ type Eligibility =
   | { kind: "blocked"; reason: "no_eligible_peer" | "recovery_in_progress" }
   | { kind: "error" };
 
-const BLOCKED_TEXT: Record<"no_eligible_peer" | "recovery_in_progress", string> = {
-  no_eligible_peer:
-    "Ahora mismo no hay otro Admin que pueda quedarse a cargo. Antes de continuar, otra persona tiene que ser Admin y tener activada la verificación en dos pasos.",
-  recovery_in_progress:
-    "Hay una recuperación de autenticador en curso para un Admin. Podrás hacer este cambio cuando termine.",
-};
-const REVERIFY_ERRORS: Record<Exclude<ReverifyResult, "ok">, string> = {
-  invalid_format: "Introduce el código de 6 dígitos de tu app autenticadora.",
-  no_factor: "No encontramos una app autenticadora verificada en tu cuenta.",
-  invalid_code: "Código incorrecto o expirado.",
-  failed: "No se pudo verificar el código. Inténtalo de nuevo.",
-};
-const GENERIC = "No se pudo completar el cambio. Inténtalo de nuevo.";
-
 async function token(): Promise<string | null> {
   if (!supabase) return null;
   try {
@@ -58,8 +45,10 @@ async function token(): Promise<string | null> {
 }
 
 export default function BecomeDeveloperSection() {
+  const t = useTranslations("admin.becomeDev");
   const headingId = useId();
   const checkId = useId();
+
   const codeId = useId();
   const reasonId = useId();
   const reportFailure = usePrivilegedFailureReporter();
@@ -149,13 +138,13 @@ export default function BecomeDeveloperSection() {
       const verified = await reverifyTotp(code);
       if (!mounted.current) return;
       if (verified !== "ok") {
-        setError(REVERIFY_ERRORS[verified]);
+        setError(t(`reverify.${verified}`));
         return;
       }
       setCode("");
       const jwt = await token();
       if (!jwt) {
-        setError("Tu sesión ya no es válida. Inicia sesión de nuevo.");
+        setError(t("session"));
         return;
       }
       // 2) La transferencia: el cuerpo solo lleva la aceptación; la cuenta es SIEMPRE la del token.
@@ -181,11 +170,11 @@ export default function BecomeDeveloperSection() {
       }
       setError(
         response.status === 403 && key === "step_up_required"
-          ? "Tu verificación en dos pasos no es lo bastante reciente. Vuelve a introducir el código."
-          : GENERIC,
+          ? t("stepUp")
+          : t("generic"),
       );
     } catch {
-      if (mounted.current) setError(GENERIC);
+      if (mounted.current) setError(t("generic"));
     } finally {
       lock.current = false;
       if (mounted.current) setBusy(false);
@@ -195,14 +184,9 @@ export default function BecomeDeveloperSection() {
   return (
     <section aria-labelledby={headingId} className="mt-8" data-testid="become-developer">
       <h2 id={headingId} className="font-display text-xl tracking-wide text-text-primary">
-        Convertirme en Developer
+        {t("heading")}
       </h2>
-      <p className="mt-2 text-sm text-text-secondary">
-        Con este cambio tu cuenta dejará de ser Admin y pasará a ser Developer: tendrás
-        acceso a las herramientas técnicas, pero ya no a las de administración. Para
-        volver a ser Admin necesitarás que otro Admin te restaure. Es un cambio sobre tu
-        propia cuenta; no se puede hacer a otra persona.
-      </p>
+      <p className="mt-2 text-sm text-text-secondary">{t("intro")}</p>
 
       {state.kind === "blocked" ? (
         <p
@@ -211,14 +195,14 @@ export default function BecomeDeveloperSection() {
           className="mt-3 text-sm text-text-secondary"
           data-testid="become-developer-reason"
         >
-          {BLOCKED_TEXT[state.reason]}
+          {t(`blocked.${state.reason}`)}
         </p>
       ) : null}
       {state.kind === "error" ? (
         <p role="alert" className="mt-3 text-sm text-accent-live">
-          No pudimos comprobar si puedes hacer este cambio.{" "}
+          {t("checkError")}{" "}
           <button type="button" className="underline" onClick={() => void load()}>
-            Reintentar
+            {t("retry")}
           </button>
         </p>
       ) : null}
@@ -231,21 +215,16 @@ export default function BecomeDeveloperSection() {
           aria-describedby={state.kind === "blocked" ? reasonId : undefined}
           onClick={() => setOpen(true)}
         >
-          Convertirme en Developer
+          {t("heading")}
         </button>
       ) : (
         <form
           role="group"
-          aria-label="Confirmar el cambio a Developer"
+          aria-label={t("confirmGroup")}
           className="mt-4 flex flex-col gap-3 rounded-md border border-border-subtle p-4"
           onSubmit={(e) => void submit(e)}
         >
-          <p className="text-sm text-text-primary">
-            Vas a dejar de ser Admin ahora mismo. Perderás el acceso a la gestión del
-            equipo, las conexiones sociales, Cosplay y las invitaciones pendientes que
-            hayas creado. Por seguridad, tras el cambio tendrás que esperar un tiempo
-            antes de aprobar recuperaciones excepcionales.
-          </p>
+          <p className="text-sm text-text-primary">{t("warning")}</p>
           <label
             htmlFor={checkId}
             className="flex items-start gap-2 text-sm text-text-secondary"
@@ -259,13 +238,10 @@ export default function BecomeDeveloperSection() {
               onChange={(e) => setAccepted(e.target.checked)}
               className="mt-1"
             />
-            <span>
-              Entiendo que dejaré de ser Admin de inmediato y que necesitaré a otro Admin
-              para recuperar mi rol anterior.
-            </span>
+            <span>{t("ack")}</span>
           </label>
           <label htmlFor={codeId} className="text-sm text-text-secondary">
-            Código de tu app autenticadora
+            {t("codeLabel")}
           </label>
           <input
             id={codeId}
@@ -288,10 +264,10 @@ export default function BecomeDeveloperSection() {
               className={PRIMARY}
               disabled={busy || !accepted || code.length !== 6}
             >
-              {busy ? "Comprobando…" : "Confirmar y convertirme"}
+              {busy ? t("checking") : t("confirm")}
             </button>
             <button type="button" className={SECONDARY} disabled={busy} onClick={close}>
-              Cancelar
+              {t("cancel")}
             </button>
           </div>
         </form>

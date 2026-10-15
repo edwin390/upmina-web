@@ -5,6 +5,7 @@ import { useAuth } from "@/lib/auth-context";
 import AdminAuthCard from "@/components/admin/AdminAuthCard";
 import AdminAuthField from "@/components/admin/AdminAuthField";
 import { parseSafeReturnTo } from "@/lib/safe-return-to";
+import { useTranslations } from "use-intl";
 
 // /admin/login (Bloque 3A). Solo establece IDENTIDAD/SESIÓN frontend vía Supabase Auth
 // (signInWithPassword): autenticado !== autorizado. No consulta admin_roles, no decide
@@ -23,18 +24,22 @@ import { parseSafeReturnTo } from "@/lib/safe-return-to";
 // en español; el único caso distinguido es "credenciales incorrectas" porque es
 // información que el propio formulario ya expone (email/contraseña equivocados), no un
 // detalle interno del proveedor.
-function loginErrorMessage(error: unknown): string {
+type AdminLoginT = ReturnType<typeof useTranslations<"admin.login">>;
+
+function loginErrorMessage(error: unknown, t: AdminLoginT): string {
   const message = error instanceof Error ? error.message : "";
   if (/invalid login credentials/i.test(message)) {
-    return "Email o contraseña incorrectos.";
+    return t("invalidCredentials");
   }
   if (/email not confirmed/i.test(message)) {
-    return "Confirma tu email antes de iniciar sesión.";
+    return t("emailNotConfirmed");
   }
-  return "No se pudo iniciar sesión. Inténtalo de nuevo.";
+  return t("genericError");
 }
 
 export default function AdminLoginPage() {
+  const t = useTranslations("admin.login");
+
   const location = useLocation();
   const { session, loading: sessionLoading, signOut } = useAuth();
   const [searchParams] = useSearchParams();
@@ -51,7 +56,7 @@ export default function AdminLoginPage() {
     setError(null);
 
     if (!supabase) {
-      setError("El acceso admin no está configurado todavía.");
+      setError(t("notConfigured"));
       return;
     }
 
@@ -62,7 +67,7 @@ export default function AdminLoginPage() {
         password,
       });
       if (signInError) {
-        setError(loginErrorMessage(signInError));
+        setError(loginErrorMessage(signInError, t));
         return;
       }
       // Éxito: la sesión llega vía onAuthStateChange (AuthProvider) y este componente
@@ -70,7 +75,7 @@ export default function AdminLoginPage() {
       // dashboard: todavía no existe (Bloque 3B+).
       setPassword("");
     } catch (err) {
-      setError(loginErrorMessage(err));
+      setError(loginErrorMessage(err, t));
     } finally {
       setIsSubmitting(false);
     }
@@ -78,9 +83,9 @@ export default function AdminLoginPage() {
 
   if (sessionLoading) {
     return (
-      <AdminAuthCard title="Acceso admin">
+      <AdminAuthCard title={t("title")}>
         <p className="text-sm text-text-secondary" role="status">
-          Comprobando sesión…
+          {t("checking")}
         </p>
       </AdminAuthCard>
     );
@@ -92,10 +97,14 @@ export default function AdminLoginPage() {
 
   if (session) {
     return (
-      <AdminAuthCard title="Acceso admin">
+      <AdminAuthCard title={t("title")}>
         <p className="text-sm text-text-secondary">
-          Sesión iniciada como{" "}
-          <span className="font-medium text-text-primary">{session.user.email}</span>.
+          {t.rich("signedInAs", {
+            email: session.user.email ?? "",
+            emailTag: (chunks) => (
+              <span className="font-medium text-text-primary">{chunks}</span>
+            ),
+          })}
         </p>
         <div className="mt-6 flex flex-wrap gap-3">
           <Link
@@ -103,14 +112,14 @@ export default function AdminLoginPage() {
             state={{ cancelTo: "/admin/login" }}
             className="inline-flex min-h-11 items-center rounded-md border border-accent-primary/60 bg-accent-primary px-5 py-2.5 text-sm font-bold uppercase tracking-[0.18em] text-text-inverse shadow-glow-primary transition duration-200 ease-bounce hover:-translate-y-1 hover:bg-accent-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-secondary focus-visible:ring-offset-2 focus-visible:ring-offset-bg-surface"
           >
-            Ir al panel de administración
+            {t("goToPanel")}
           </Link>
           <button
             type="button"
             onClick={() => void signOut()}
             className="inline-flex min-h-11 items-center rounded-md border border-border-subtle px-5 py-2.5 text-sm font-semibold text-text-secondary transition-colors duration-200 ease-smooth hover:border-accent-primary/60 hover:text-text-primary"
           >
-            Cerrar sesión
+            {t("signOut")}
           </button>
         </div>
       </AdminAuthCard>
@@ -119,22 +128,22 @@ export default function AdminLoginPage() {
 
   return (
     <AdminAuthCard
-      title="Acceso admin"
+      title={t("title")}
       footer={
         <>
-          ¿No tienes cuenta?{" "}
+          {t("noAccount")}{" "}
           <Link
             to="/admin/signup"
             className="font-medium text-accent-primary hover:underline"
           >
-            Crear cuenta
+            {t("createAccount")}
           </Link>
         </>
       }
     >
       <form onSubmit={handleSubmit} className="flex flex-col gap-4">
         <AdminAuthField
-          label="Email"
+          label={t("email")}
           id="login-email"
           name="email"
           type="email"
@@ -145,7 +154,7 @@ export default function AdminLoginPage() {
           disabled={isSubmitting}
         />
         <AdminAuthField
-          label="Contraseña"
+          label={t("password")}
           id="login-password"
           name="password"
           type="password"
@@ -168,7 +177,7 @@ export default function AdminLoginPage() {
           disabled={isSubmitting}
           className="mt-2 inline-flex min-h-11 items-center justify-center rounded-md border border-accent-primary/60 bg-accent-primary px-5 py-2.5 text-sm font-bold uppercase tracking-[0.18em] text-text-inverse shadow-glow-primary transition duration-200 ease-bounce hover:-translate-y-1 hover:bg-accent-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-secondary focus-visible:ring-offset-2 focus-visible:ring-offset-bg-surface disabled:pointer-events-none disabled:opacity-50"
         >
-          {isSubmitting ? "Iniciando sesión…" : "Iniciar sesión"}
+          {isSubmitting ? t("submitting") : t("submit")}
         </button>
       </form>
     </AdminAuthCard>

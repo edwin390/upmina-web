@@ -171,7 +171,7 @@ describe("superficie pública y límites", () => {
   });
 
   it("el formulario público se enlaza desde el pie y tiene su ruta, sin sesión ni cabecera de autenticación", () => {
-    expect(read("src/components/layout/Footer.tsx")).toMatch(/to="\/copyright"/);
+    expect(read("src/components/layout/FooterLegal.tsx")).toMatch(/to="\/copyright"/);
     expect(read("src/App.tsx")).toMatch(
       /path="\/copyright" element=\{<CopyrightClaimPage \/>\}/,
     );

@@ -1,4 +1,12 @@
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import {
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useState,
+  useSyncExternalStore,
+  type ReactNode,
+} from "react";
 import { IntlProvider } from "use-intl";
 import {
   DEFAULT_LOCALE,
@@ -6,54 +14,78 @@ import {
   resolveInitialLocale,
   type Locale,
 } from "./locale";
-import { ES_MESSAGES, loadMessages, type Messages } from "./messages";
+import {
+  ensureNamespaces,
+  getMessagesSnapshot,
+  isNamespaceName,
+  loadMessages,
+  loadedNamespaces,
+  setCurrentLocale,
+  subscribeMessages,
+  type Messages,
+} from "./messages";
 import { LocaleContext, type LocaleContextValue } from "./useUpminaLocale";
 import "./types";
 
-// Proveedor de idioma de Cosplay (Fase 9I-1). Deliberadamente NO envuelve toda la app: solo el
-// subárbol de /cosplay lo monta (dentro de su propio chunk perezoso), así que use-intl y los
-// JSON de mensajes nunca entran en el bundle de Inicio/Twitch/YouTube/etc. Cuando 9L migre el
-// resto del sitio a i18n, este proveedor puede subirse a main.tsx sin cambiar su API.
-//
 // use-intl NO gestiona el cambio de idioma por sí solo (su IntlProvider es de solo lectura desde
 // fuera): este módulo añade el contexto que falta (locale actual + setLocale persistente, en
 // useUpminaLocale.ts) y envuelve <IntlProvider> con los mensajes ya cargados.
+//
+// Proveedor ÚNICO de idioma: main.tsx lo monta en la raíz (con `gate`, que no pinta hasta tener los mensajes del
+// idioma elegido: sin parpadeo de otro idioma). Los proveedores que algunas páginas montaban por su cuenta pasan a
+// ser transparentes (reutilizan el de la raíz), así que el selector de idioma cambia TODA la interfaz a la vez.
+export default function UpminaLocaleProvider({
+  children,
+  gate = false,
+}: {
+  children: ReactNode;
+  gate?: boolean;
+}) {
+  const parent = useContext(LocaleContext);
+  if (parent) return <>{children}</>;
+  return <RootLocaleProvider gate={gate}>{children}</RootLocaleProvider>;
+}
 
-export default function CosplayLocaleProvider({ children }: { children: ReactNode }) {
+function RootLocaleProvider({ children, gate }: { children: ReactNode; gate: boolean }) {
   const [locale, setLocaleState] = useState<Locale>(resolveInitialLocale);
-  // Arranca siempre con ES en memoria (sin red): si el idioma resuelto es en/de, el efecto de
-  // abajo lo sustituye en cuanto termina de cargar.
-  const [messages, setMessages] = useState<Messages>(ES_MESSAGES);
-  const [isChangingLocale, setIsChangingLocale] = useState(locale !== DEFAULT_LOCALE);
+  // Idioma cuyos mensajes se están mostrando. Arranca en ES (el núcleo está en el bundle, sin red) y sólo pasa
+  // al idioma elegido cuando sus mensajes ya están cargados: al cambiar de idioma nunca se ve una mezcla ni claves.
+  const [shown, setShown] = useState<Locale>(DEFAULT_LOCALE);
+  const messages = useSyncExternalStore(subscribeMessages, () =>
+    getMessagesSnapshot(shown),
+  );
+  const isChangingLocale = locale !== shown;
+  // Con `gate`, hasta que no están los mensajes del idioma inicial no se pinta nada (evita mostrar ES y saltar a EN/DE).
+  const ready = !gate || !isChangingLocale;
 
   useEffect(() => {
+    setCurrentLocale(locale);
+  }, [locale]);
+
+  useEffect(() => {
+    if (locale === shown) return;
     let cancelled = false;
-    if (locale === DEFAULT_LOCALE) {
-      setMessages(ES_MESSAGES);
-      setIsChangingLocale(false);
-      return;
-    }
-    setIsChangingLocale(true);
-    loadMessages(locale).then((loaded) => {
-      if (cancelled) return;
-      setMessages(loaded);
-      setIsChangingLocale(false);
+    // Se conservan los espacios de nombres que la sesión ya estaba usando (páginas abiertas incluidas).
+    void loadMessages(locale, loadedNamespaces(shown)).then(() => {
+      if (!cancelled) setShown(locale);
     });
     return () => {
       cancelled = true;
     };
-  }, [locale]);
+  }, [locale, shown]);
 
-  // <html lang> refleja el idioma de Cosplay mientras está montado; al salir de /cosplay vuelve
-  // al español del resto del sitio (que no es i18n-aware todavía, Fase 9L).
+  // <html lang> refleja el idioma mostrado.
   useEffect(() => {
-    document.documentElement.lang = locale;
+    document.documentElement.lang = shown;
+  }, [shown]);
+  useEffect(() => {
     return () => {
       document.documentElement.lang = DEFAULT_LOCALE;
     };
-  }, [locale]);
+  }, []);
 
   const setLocale = useCallback((next: Locale) => {
+    setCurrentLocale(next);
     setLocaleState(next);
     persistLocale(next);
   }, []);
@@ -66,12 +98,24 @@ export default function CosplayLocaleProvider({ children }: { children: ReactNod
   return (
     <LocaleContext.Provider value={contextValue}>
       <IntlProvider
-        locale={locale}
-        messages={messages}
-        // ES es el idioma de reserva final para claves ausentes (no debería ocurrir: la
-        // paridad ES/EN/DE está cubierta por i18n-parity.test.ts). `onError` se deja en su
-        // valor por defecto (console.error): una clave realmente ausente debe seguir siendo
-        // visible en desarrollo, aunque la UI no se rompa gracias al fallback de abajo.
+        locale={shown}
+        messages={messages as unknown as Messages}
+        // Un espacio de nombres sin cargar (p. ej. un componente suelto fuera de una ruta con precarga) se pide en
+        // cuanto se detecta; el resto de errores siguen yendo a la consola como siempre.
+        onError={(error) => {
+          const namespace = /`([A-Za-z0-9_]+)[.`]/.exec(error.message)?.[1];
+          if (
+            namespace &&
+            isNamespaceName(namespace) &&
+            !(namespace in getMessagesSnapshot(shown))
+          ) {
+            void ensureNamespaces(shown, [namespace]);
+            return;
+          }
+          console.error(error);
+        }}
+        // ES es el idioma de reserva final para claves ausentes (no debería ocurrir: la paridad
+        // ES/EN/DE está cubierta por messages-parity.test.ts).
         getMessageFallback={({ key, namespace }) => {
           const path = namespace ? `${namespace}.${key}` : key;
           const fromEs = path
@@ -81,12 +125,16 @@ export default function CosplayLocaleProvider({ children }: { children: ReactNod
                 acc && typeof acc === "object"
                   ? (acc as Record<string, unknown>)[part]
                   : undefined,
-              ES_MESSAGES,
+              getMessagesSnapshot(DEFAULT_LOCALE),
             );
           return typeof fromEs === "string" ? fromEs : path;
         }}
       >
-        {children}
+        {ready ? (
+          children
+        ) : (
+          <div className="min-h-screen bg-bg-base" aria-hidden="true" />
+        )}
       </IntlProvider>
     </LocaleContext.Provider>
   );

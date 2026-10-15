@@ -13,6 +13,7 @@ import {
   readPendingInvitation,
 } from "@/lib/pending-invitation";
 import AdminAuthCard from "@/components/admin/AdminAuthCard";
+import { useTranslations } from "use-intl";
 
 // /admin/activate (Bloque 3C, flujo completo en la Fase 9G-4). Consume una invitación desde un
 // enlace privado /admin/activate#token=<secreto>. Recorrido:
@@ -79,45 +80,35 @@ function returnedFromMfa(state: unknown): boolean {
   );
 }
 
+type ActivationErrorKey =
+  | "unexpected"
+  | "network"
+  | "transient"
+  | "session"
+  | "mfa"
+  | "reenroll"
+  | "cleanupPending";
+
 interface ActivationError {
-  message: string;
+  key: ActivationErrorKey;
   action?: "login" | "mfa";
 }
 
-const UNEXPECTED_ERROR: ActivationError = {
-  message: "Ocurrió un error inesperado. Inténtalo de nuevo.",
-};
+const UNEXPECTED_ERROR: ActivationError = { key: "unexpected" };
 
-const NETWORK_ERROR: ActivationError = {
-  message: "No se pudo conectar. Comprueba tu conexión e inténtalo de nuevo.",
-};
+const NETWORK_ERROR: ActivationError = { key: "network" };
 
-const TRANSIENT_ERROR: ActivationError = {
-  message: "Ocurrió un error interno. Inténtalo de nuevo más tarde.",
-};
+const TRANSIENT_ERROR: ActivationError = { key: "transient" };
 
-const SESSION_ERROR: ActivationError = {
-  message: "Tu sesión expiró o no es válida.",
-  action: "login",
-};
+const SESSION_ERROR: ActivationError = { key: "session", action: "login" };
 
-const MFA_ERROR: ActivationError = {
-  message: "Debes completar la verificación en dos pasos antes de activar el acceso.",
-  action: "mfa",
-};
+const MFA_ERROR: ActivationError = { key: "mfa", action: "mfa" };
 
 // MFA fase 1: tras perder el acceso privilegiado hay que configurar un autenticador NUEVO; el
 // anterior (aunque la sesión lo recuerde) no sirve para activar.
-const REENROLL_ERROR: ActivationError = {
-  message:
-    "Tu verificación en dos pasos anterior ya no es válida. Configura un autenticador nuevo para activar tu acceso. Si vuelves a esta pantalla sin que te lo pida, cierra sesión y vuelve a entrar.",
-  action: "mfa",
-};
+const REENROLL_ERROR: ActivationError = { key: "reenroll", action: "mfa" };
 
-const CLEANUP_PENDING_ERROR: ActivationError = {
-  message:
-    "Estamos terminando de restablecer tu autenticador anterior. Inténtalo de nuevo en unos minutos.",
-};
+const CLEANUP_PENDING_ERROR: ActivationError = { key: "cleanupPending" };
 
 /** Código de negocio de una respuesta de error (sin consumir el cuerpo original). */
 async function readErrorCode(response: Response): Promise<string | null> {
@@ -138,6 +129,8 @@ const BUTTON_SECONDARY =
   "inline-flex min-h-11 items-center rounded-md border border-border-subtle px-5 py-2.5 text-sm font-semibold text-text-secondary transition-colors duration-200 ease-smooth hover:border-accent-primary/60 hover:text-text-primary";
 
 export default function AdminActivatePage() {
+  const t = useTranslations("admin.activate");
+
   const { user, loading: sessionLoading, signOut } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
@@ -299,9 +292,9 @@ export default function AdminActivatePage() {
 
   if (finalStep?.kind === "activated") {
     return (
-      <AdminAuthCard title="Acceso activado">
+      <AdminAuthCard title={t("activatedTitle")}>
         <p className="text-sm text-text-secondary" role="status">
-          Tu acceso fue activado correctamente.
+          {t("activated")}
         </p>
       </AdminAuthCard>
     );
@@ -309,13 +302,13 @@ export default function AdminActivatePage() {
 
   if (finalStep?.kind === "rejected") {
     return (
-      <AdminAuthCard title="Activar acceso">
+      <AdminAuthCard title={t("title")}>
         <p role="alert" className="text-sm text-accent-live">
-          La invitación no es válida, expiró o ya fue utilizada.
+          {t("rejected")}
         </p>
         <p className="mt-4 text-sm text-text-secondary">
           <Link to="/account" className="font-medium text-accent-primary hover:underline">
-            Ir a mi cuenta
+            {t("goToAccount")}
           </Link>
         </p>
       </AdminAuthCard>
@@ -330,10 +323,9 @@ export default function AdminActivatePage() {
 
   if (linkUnavailable) {
     return (
-      <AdminAuthCard title="Activar acceso">
+      <AdminAuthCard title={t("title")}>
         <p role="alert" className="text-sm text-accent-live">
-          Este enlace de invitación ya no está disponible en esta sesión. Vuelve a abrir
-          el enlace original.
+          {t("unavailable")}
         </p>
       </AdminAuthCard>
     );
@@ -341,9 +333,9 @@ export default function AdminActivatePage() {
 
   if (sessionLoading) {
     return (
-      <AdminAuthCard title="Activar acceso">
+      <AdminAuthCard title={t("title")}>
         <p className="text-sm text-text-secondary" role="status">
-          Comprobando tu sesión…
+          {t("checkingSession")}
         </p>
       </AdminAuthCard>
     );
@@ -356,9 +348,9 @@ export default function AdminActivatePage() {
 
   if (bindState?.userId !== userId || status === "loading") {
     return (
-      <AdminAuthCard title="Activar acceso">
+      <AdminAuthCard title={t("title")}>
         <p className="text-sm text-text-secondary" role="status">
-          Comprobando tu estado de verificación…
+          {t("checkingMfa")}
         </p>
       </AdminAuthCard>
     );
@@ -366,16 +358,16 @@ export default function AdminActivatePage() {
 
   if (status === "unauthenticated" || status === "no-session") {
     return (
-      <AdminAuthCard title="Activar acceso">
+      <AdminAuthCard title={t("title")}>
         <p role="alert" className="text-sm text-accent-live">
-          Tu sesión ya no es válida. Cierra sesión e inicia sesión de nuevo.
+          {t("invalidSession")}
         </p>
         <button
           type="button"
           onClick={() => void signOut()}
           className={`mt-6 ${BUTTON_SECONDARY}`}
         >
-          Cerrar sesión
+          {t("signOut")}
         </button>
       </AdminAuthCard>
     );
@@ -383,16 +375,16 @@ export default function AdminActivatePage() {
 
   if (status === "error" || !access) {
     return (
-      <AdminAuthCard title="Activar acceso">
+      <AdminAuthCard title={t("title")}>
         <p role="alert" className="text-sm text-accent-live">
-          No se pudo comprobar tu estado de verificación en dos pasos.
+          {t("mfaCheckError")}
         </p>
         <button
           type="button"
           onClick={() => void refetch()}
           className={`mt-6 ${BUTTON_SECONDARY}`}
         >
-          Reintentar
+          {t("retry")}
         </button>
       </AdminAuthCard>
     );
@@ -402,9 +394,9 @@ export default function AdminActivatePage() {
     if (mfaReturnGuardRef.current) {
       // Volvió de un MFA y el servidor todavía no lo reconoce: no se redirige otra vez.
       return (
-        <AdminAuthCard title="Activar acceso">
+        <AdminAuthCard title={t("title")}>
           <p role="alert" className="text-sm text-accent-live">
-            No pudimos confirmar tu verificación en dos pasos reciente.
+            {t("mfaUnconfirmed")}
           </p>
           <div className="mt-6 flex flex-wrap gap-3">
             <button
@@ -412,14 +404,14 @@ export default function AdminActivatePage() {
               onClick={() => void refetch()}
               className={BUTTON_SECONDARY}
             >
-              Reintentar
+              {t("retry")}
             </button>
             <Link
               to={MFA_PATH}
               state={location.state}
               className="inline-flex min-h-11 items-center rounded-md border border-accent-primary/60 px-5 py-2.5 text-sm font-semibold text-accent-primary hover:underline"
             >
-              Verificar de nuevo
+              {t("verifyAgain")}
             </Link>
           </div>
         </AdminAuthCard>
@@ -430,17 +422,15 @@ export default function AdminActivatePage() {
 
   // Sesión + token asociado + MFA reciente: la activación exige un clic explícito.
   return (
-    <AdminAuthCard title="Activar acceso">
-      <p className="text-sm text-text-secondary">
-        Pulsa el botón para activar tu invitación con esta cuenta.
-      </p>
+    <AdminAuthCard title={t("title")}>
+      <p className="text-sm text-text-secondary">{t("pressToActivate")}</p>
 
       {activationError ? (
         <p role="alert" className="mt-4 text-sm text-accent-live">
-          {activationError.message}{" "}
+          {t(`errors.${activationError.key}`)}{" "}
           {activationError.action === "login" ? (
             <Link to={LOGIN_PATH} className="font-medium underline">
-              Iniciar sesión
+              {t("signIn")}
             </Link>
           ) : null}
           {activationError.action === "mfa" ? (
@@ -449,7 +439,7 @@ export default function AdminActivatePage() {
               state={{ cancelTo: ACTIVATE_PATH }}
               className="font-medium underline"
             >
-              Ir a verificación en dos pasos
+              {t("goToMfa")}
             </Link>
           ) : null}
         </p>
@@ -461,7 +451,7 @@ export default function AdminActivatePage() {
         disabled={isSubmitting}
         className="mt-6 inline-flex min-h-11 items-center rounded-md border border-accent-primary/60 bg-accent-primary px-5 py-2.5 text-sm font-bold uppercase tracking-[0.18em] text-text-inverse shadow-glow-primary transition duration-200 ease-bounce hover:-translate-y-1 hover:bg-accent-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-secondary focus-visible:ring-offset-2 focus-visible:ring-offset-bg-surface disabled:pointer-events-none disabled:opacity-50"
       >
-        {isSubmitting ? "Activando…" : "Activar acceso"}
+        {isSubmitting ? t("activating") : t("activate")}
       </button>
     </AdminAuthCard>
   );

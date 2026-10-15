@@ -1,0 +1,48 @@
+{
+  "page": {
+    "title": "Konto",
+    "checking": "Sitzung wird geprüft…",
+    "active": "Aktive Sitzung.",
+    "activeAs": "Aktive Sitzung als <emailTag>{email}</emailTag>.",
+    "signOut": "Abmelden",
+    "signingOut": "Abmeldung läuft…",
+    "signOutError": "Die Abmeldung war nicht möglich. Bitte versuche es erneut."
+  },
+  "profile": {
+    "heading": "Dein öffentliches Profil",
+    "loading": "Dein Profil wird geladen…",
+    "readError": "Dein Profil konnte nicht geladen werden.",
+    "retry": "Erneut versuchen",
+    "edit": "Profil bearbeiten",
+    "view": "Mein Profil ansehen",
+    "publicNote": "Dein Anzeigename, deine Bio und dein Username sind öffentlich.",
+    "username": "Username",
+    "displayName": "Anzeigename",
+    "bio": "Bio",
+    "save": "Speichern",
+    "saving": "Wird gespeichert…",
+    "cancel": "Abbrechen",
+    "chooseUsername": "Wähle deinen Username, um dein Profil zu erstellen.",
+    "create": "Profil erstellen",
+    "creating": "Profil wird erstellt…",
+    "usernameHelp": "3–24 Zeichen: Kleinbuchstaben, Zahlen, Unterstrich (_) und Punkt (.).",
+    "usernameInvalid": "Verwende 3–24 Zeichen: Kleinbuchstaben, Zahlen, Unterstrich (_) und Punkt (.).",
+    "usernameEditInvalid": "3–24 Zeichen: Kleinbuchstaben, Zahlen, Unterstrich (_) und Punkt (.). Er darf nicht mit einem Punkt beginnen oder enden und keine aufeinanderfolgenden Punkte enthalten.",
+    "usernamePublicNotice": "Dein Username ist öffentlich und bildet deine Profiladresse (/@username). Wenn du ihn änderst, ändert sich diese öffentliche Adresse. Du kannst ihn nur einmal alle 30 Tage ändern.",
+    "nameTooLong": "Der Anzeigename darf höchstens {max} Zeichen haben.",
+    "bioTooLong": "Die Bio darf höchstens {max} Zeichen haben.",
+    "errors": {
+      "badRequest": "Die Anfrage konnte nicht verarbeitet werden. Prüfe den Username.",
+      "taken": "Dieser Username ist nicht verfügbar.",
+      "chooseOther": "Wähle einen anderen Username.",
+      "session": "Deine Sitzung ist nicht mehr gültig. Melde dich ab und erneut an.",
+      "generic": "Dein Profil konnte nicht erstellt werden. Bitte versuche es erneut.",
+      "editBadRequest": "Die gesendeten Daten sind ungültig.",
+      "editInvalid": "Prüfe den Anzeigenamen und die Bio.",
+      "editGeneric": "Dein Profil konnte nicht gespeichert werden. Bitte versuche es erneut.",
+      "usernameTaken": "Dieser Username gehört bereits einem anderen Konto.",
+      "cooldown": "Du hast deinen Username kürzlich geändert. Du kannst ihn am {when} erneut ändern.",
+      "cooldownLater": "Du hast deinen Username kürzlich geändert. Du kannst ihn später erneut ändern."
+    }
+  }
+}

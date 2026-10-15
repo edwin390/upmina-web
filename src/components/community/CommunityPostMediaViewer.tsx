@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { CommunityFeedPost } from "@/types";
+import { useTranslations } from "use-intl";
 
 // Visor de media del detalle de una publicación (Fase 9J-3 follow-up "POST DETAIL MEDIA VIEWER"):
 // antes (PostDetailPage.tsx) TODA la media de un post se apilaba verticalmente a ancho completo,
@@ -108,6 +109,7 @@ export default function CommunityPostMediaViewer({
 }: {
   media: CommunityFeedPost["media"];
 }) {
+  const t = useTranslations("community.media");
   const [index, setIndex] = useState(0);
   const [displayIndex, setDisplayIndex] = useState(0);
   const videoRef = useRef<HTMLVideoElement | null>(null);
@@ -253,13 +255,13 @@ export default function CommunityPostMediaViewer({
       {canNavigate ? (
         <div
           role="group"
-          aria-label="Navegación multimedia"
+          aria-label={t("navigation")}
           className="flex w-full items-center justify-center gap-3 bg-bg-base px-2 py-3"
         >
           <button
             type="button"
             onClick={goPrev}
-            aria-label="Anterior"
+            aria-label={t("previous")}
             className={NAV_BUTTON}
           >
             ‹
@@ -267,7 +269,7 @@ export default function CommunityPostMediaViewer({
           <button
             type="button"
             onClick={goNext}
-            aria-label="Siguiente"
+            aria-label={t("next")}
             className={`${NAV_BUTTON} order-3`}
           >
             ›

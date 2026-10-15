@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { clampAspectRatio, wrapIndex } from "@/lib/media-ratio";
+import { useTranslations } from "use-intl";
 
 export interface ViewerSlide {
   id: string;
@@ -108,6 +109,7 @@ export default function InstagramMediaViewer({
   label,
   onRatio,
 }: InstagramMediaViewerProps) {
+  const t = useTranslations("site.instagram");
   const [requestedIndex, setIndex] = useState(0);
   // Si la lista de slides cambia (llegan los children), el índice sigue siendo válido.
   const index = Math.min(requestedIndex, Math.max(slides.length - 1, 0));
@@ -173,7 +175,7 @@ export default function InstagramMediaViewer({
         <>
           <button
             type="button"
-            aria-label="Elemento anterior"
+            aria-label={t("slidePrevious")}
             onClick={() => go(-1)}
             className={`${NAV_BUTTON} left-2`}
           >
@@ -181,7 +183,7 @@ export default function InstagramMediaViewer({
           </button>
           <button
             type="button"
-            aria-label="Elemento siguiente"
+            aria-label={t("slideNext")}
             onClick={() => go(1)}
             className={`${NAV_BUTTON} right-2`}
           >
@@ -195,7 +197,7 @@ export default function InstagramMediaViewer({
               <button
                 key={s.id}
                 type="button"
-                aria-label={`Ir al elemento ${i + 1} de ${slides.length}`}
+                aria-label={t("slideGo", { index: i + 1, total: slides.length })}
                 aria-current={i === index}
                 onClick={() => setIndex(i)}
                 className={`h-2 w-2 rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-secondary ${

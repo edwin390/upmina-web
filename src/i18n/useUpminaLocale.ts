@@ -30,3 +30,8 @@ export function formatDateOnly(iso: string, locale: Locale): string {
     new Date(`${iso}T00:00:00Z`),
   );
 }
+
+/** Variante tolerante: devuelve null fuera de un proveedor (pruebas unitarias de componentes sueltos). */
+export function useOptionalLocale(): LocaleContextValue | null {
+  return useContext(LocaleContext);
+}

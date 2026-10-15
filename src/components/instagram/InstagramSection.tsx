@@ -1,4 +1,6 @@
 import { useCallback, useState } from "react";
+import { useTranslations } from "use-intl";
+import PermissionPendingNotice from "@/components/ui/PermissionPendingNotice";
 import { useInstagramFeed } from "@/hooks/useInstagramFeed";
 import { useInstagramProfile } from "@/hooks/useInstagramProfile";
 import { wrapIndex } from "@/lib/media-ratio";
@@ -9,6 +11,7 @@ import ProfileAvatar from "./ProfileAvatar";
 const PROFILE_URL = "https://www.instagram.com/";
 
 export default function InstagramSection() {
+  const t = useTranslations("site.instagram");
   const { data: items, isLoading, isError } = useInstagramFeed();
   // Se guarda el id (no el índice): si el feed se refresca, el modal sigue en el mismo post.
   const [selected, setSelected] = useState<{
@@ -37,18 +40,9 @@ export default function InstagramSection() {
     <section className="mx-auto max-w-6xl px-4 py-16">
       <h2 className="mb-6 font-display text-3xl tracking-wide">INSTAGRAM</h2>
 
-      {isLoading && <p className="text-text-muted">Cargando publicaciones…</p>}
+      {isLoading && <p className="text-text-muted">{t("loading")}</p>}
 
-      {isError && (
-        <p role="status" className="text-text-muted">
-          No se pudieron cargar las publicaciones de Instagram ahora mismo. Inténtalo de
-          nuevo más tarde.
-        </p>
-      )}
-
-      {items && items.length === 0 && (
-        <p className="text-text-muted">Todavía no hay publicaciones para mostrar.</p>
-      )}
+      {(isError || (items && items.length === 0)) && <PermissionPendingNotice />}
 
       {items && items.length > 0 && (
         <>
@@ -64,7 +58,9 @@ export default function InstagramSection() {
                 name={username}
                 className="h-10 w-10 sm:h-11 sm:w-11"
               />
-              <span className="group-hover:underline">@{username} en Instagram →</span>
+              <span className="group-hover:underline">
+                {t("profileLink", { username })}
+              </span>
             </a>
           )}
           <InstagramGrid

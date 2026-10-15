@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import AdminAuthCard from "@/components/admin/AdminAuthCard";
+import { useTranslations } from "use-intl";
 
 // /admin/mfa/recovery/cancel#t=<token> — cancelar una recuperación de autenticador que NO pediste
 // (enlace del correo de aprobación). Pública a propósito: no pide sesión ni código, porque quien la
@@ -27,6 +28,8 @@ async function post(op: "check" | "cancel", token: string): Promise<Response> {
 }
 
 export default function AdminMfaRecoveryCancelPage() {
+  const t = useTranslations("admin.recoveryCancel");
+
   const tokenRef = useRef<string | null>(null);
   const [phase, setPhase] = useState<Phase>("checking");
   const [busy, setBusy] = useState(false);
@@ -76,52 +79,46 @@ export default function AdminMfaRecoveryCancelPage() {
   };
 
   return (
-    <AdminAuthCard title="Cancelar recuperación de autenticador">
+    <AdminAuthCard title={t("title")}>
       {phase === "checking" ? (
         <p role="status" className="text-sm text-text-secondary">
-          Comprobando el enlace…
+          {t("checking")}
         </p>
       ) : null}
       {phase === "ready" ? (
         <>
-          <p className="text-sm text-text-secondary">
-            Alguien pidió restablecer el autenticador de tu cuenta del equipo de Upminaa
-            Web. Si no fuiste tú, cancélalo ahora. Esto no modifica tu rol ni tu
-            autenticador actual.
-          </p>
+          <p className="text-sm text-text-secondary">{t("ready")}</p>
           <button
             type="button"
             className={`mt-6 ${PRIMARY}`}
             disabled={busy}
             onClick={() => void cancel()}
           >
-            {busy ? "Cancelando…" : "Cancelar la recuperación"}
+            {busy ? t("cancelling") : t("cancel")}
           </button>
         </>
       ) : null}
       {phase === "done" ? (
         <>
           <p role="status" className="text-sm text-text-secondary">
-            La recuperación se canceló y ya no puede ejecutarse. Si no fuiste tú, cambia
-            tu contraseña y avisa a un administrador.
+            {t("done")}
           </p>
           <Link
             to="/"
             className="mt-4 inline-flex min-h-11 items-center text-sm underline"
           >
-            Ir al inicio
+            {t("home")}
           </Link>
         </>
       ) : null}
       {phase === "invalid" ? (
         <p role="alert" className="text-sm text-accent-live">
-          Este enlace no es válido, ya se usó o caducó. Si necesitas ayuda, habla con un
-          administrador.
+          {t("invalid")}
         </p>
       ) : null}
       {phase === "error" ? (
         <p role="alert" className="text-sm text-accent-live">
-          No se pudo completar la operación. Inténtalo de nuevo.
+          {t("error")}
         </p>
       ) : null}
       {phase === "error" && tokenRef.current ? (
@@ -131,7 +128,7 @@ export default function AdminMfaRecoveryCancelPage() {
           disabled={busy}
           onClick={() => void cancel()}
         >
-          Reintentar la cancelación
+          {t("retry")}
         </button>
       ) : null}
     </AdminAuthCard>

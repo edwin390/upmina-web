@@ -13,6 +13,7 @@ import ContentNotice from "@/components/ui/ContentNotice";
 import HeroVideo from "./HeroVideo";
 import ShortsViewer from "./ShortsViewer";
 import VideoGrid from "./VideoGrid";
+import { useTranslations } from "use-intl";
 
 // Dos experiencias independientes (Fase 9H-2.5):
 //   - VIDEOS LARGOS: el último video y "Más videos" comparten el reproductor principal. Su selección
@@ -92,6 +93,7 @@ function ShortsGroup({
   onSelect,
   anchorRef,
 }: ShortsGroupProps) {
+  const t = useTranslations("site.youtube");
   const hasShorts = !!shorts && shorts.length > 0;
   const showError = isError && !hasShorts;
   if (!isLoading && !hasShorts && !showError) return null;
@@ -104,11 +106,10 @@ function ShortsGroup({
       >
         Shorts
       </h3>
-      {isLoading && <p className="text-text-muted">Cargando Shorts…</p>}
+      {isLoading && <p className="text-text-muted">{t("shortsLoading")}</p>}
       {showError && (
         <p role="status" className="text-text-muted">
-          No se pudieron cargar los Shorts de YouTube ahora mismo. Inténtalo de nuevo más
-          tarde.
+          {t("shortsError")}
         </p>
       )}
       {hasShorts && (
@@ -124,6 +125,7 @@ function ShortsGroup({
 }
 
 export default function YouTubeSection() {
+  const t = useTranslations("site.youtube");
   const latestQuery = useLatestYouTubeVideo();
   const videosQuery = useYouTubeVideos(YOUTUBE_VIDEOS_LIMIT, "videos");
   const shortsQuery = useYouTubeVideos(YOUTUBE_SHORTS_LIMIT, "shorts");
@@ -245,8 +247,7 @@ export default function YouTubeSection() {
 
       {allFailed && !activeVideo ? (
         <p role="status" className="text-text-muted">
-          No se pudo cargar el contenido de YouTube ahora mismo. Inténtalo de nuevo más
-          tarde.
+          {t("allFailed")}
         </p>
       ) : (
         <>
@@ -260,16 +261,16 @@ export default function YouTubeSection() {
               role="status"
               className="flex aspect-video items-center justify-center rounded-lg border border-border-subtle bg-bg-surface px-4 text-center text-text-muted"
             >
-              No se pudo cargar el último video de YouTube ahora mismo.
+              {t("latestFailed")}
             </div>
           ) : (
             activeVideo && <HeroVideo video={activeVideo} />
           )}
 
           <VideoGroup
-            title="Más videos"
-            loadingText="Cargando videos…"
-            errorText="No se pudieron cargar los videos de YouTube ahora mismo. Inténtalo de nuevo más tarde."
+            title={t("moreVideos")}
+            loadingText={t("videosLoading")}
+            errorText={t("videosError")}
             videos={videos}
             isLoading={isLoadingVideos}
             isError={videosQuery.isError}

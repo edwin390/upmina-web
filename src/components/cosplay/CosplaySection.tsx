@@ -12,6 +12,7 @@ import CosplayEditorDialog from "./admin/CosplayEditorDialog";
 import CosplayDraftChooser from "./admin/CosplayDraftChooser";
 import { refreshCosplayContent } from "@/lib/content-freshness";
 import { showActionSuccess } from "@/lib/action-notice";
+import PermissionPendingNotice from "@/components/ui/PermissionPendingNotice";
 
 /** Contenido de /cosplay (Fase 9I-1): hero + grid responsive + "Cargar más" (cursor, sin scroll
  *  infinito ni búsqueda/filtros, decisión congelada de 9I). El vacío es un estado de PRODUCTO
@@ -122,20 +123,7 @@ export default function CosplaySection() {
           </p>
         )}
 
-        {isError && (
-          <p role="status" className="text-text-muted">
-            {t("error")}
-          </p>
-        )}
-
-        {!isLoading && !isError && items.length === 0 && (
-          <div className="rounded-lg border border-border-subtle bg-bg-surface px-6 py-16 text-center">
-            <p className="font-display text-lg tracking-wide text-text-primary">
-              {t("empty.title")}
-            </p>
-            <p className="mt-2 text-text-secondary">{t("empty.body")}</p>
-          </div>
-        )}
+        {(isError || (!isLoading && items.length === 0)) && <PermissionPendingNotice />}
 
         {hero && (
           <>

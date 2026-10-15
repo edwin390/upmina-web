@@ -1,6 +1,7 @@
 import { useEffect, useRef, type TouchEvent } from "react";
 import type { TwitchClip } from "@/types";
-import { formatRelativeDate } from "@/lib/format";
+import { useTranslations } from "use-intl";
+import { useRelativeDate } from "@/i18n/useFormat";
 import { wrapIndex } from "@/lib/media-ratio";
 import TwitchClipPlayer from "./TwitchClipPlayer";
 import { safeTwitchUrl } from "./twitchUrl";
@@ -81,6 +82,9 @@ export default function TwitchClipViewer({
 
   const clip = clips[index];
   const total = clips.length;
+  const t = useTranslations("site.twitch.clip");
+  const tw = useTranslations("site.twitch");
+  const relativeDate = useRelativeDate();
   const canNavigate = total > 1;
 
   const go = (delta: 1 | -1) => {
@@ -246,7 +250,7 @@ export default function TwitchClipViewer({
               <button
                 type="button"
                 onClick={() => go(-1)}
-                aria-label="Clip anterior"
+                aria-label={t("previous")}
                 className={`${NAV_BUTTON} fixed left-4 top-1/2 -translate-y-1/2`}
               >
                 <span aria-hidden="true">‹</span>
@@ -254,7 +258,7 @@ export default function TwitchClipViewer({
               <button
                 type="button"
                 onClick={() => go(1)}
-                aria-label="Clip siguiente"
+                aria-label={t("next")}
                 className={`${NAV_BUTTON} fixed right-4 top-1/2 -translate-y-1/2`}
               >
                 <span aria-hidden="true">›</span>
@@ -271,12 +275,11 @@ export default function TwitchClipViewer({
                   : "sr-only"
               }
             >
-              {title || "Clip de Twitch"}
+              {title || t("playerTitle")}
             </h2>
             <p className="text-xs text-text-muted">
-              {clip.creatorName} · {clip.viewCount.toLocaleString("es")}{" "}
-              {clip.viewCount === 1 ? "vista" : "vistas"} ·{" "}
-              {formatRelativeDate(clip.createdAt)}
+              {clip.creatorName} · {t("views", { count: clip.viewCount })} ·{" "}
+              {relativeDate(clip.createdAt)}
             </p>
             {/* En móvil con navegación, este enlace se oculta aquí: vive en la fila de abajo,
                 junto a las flechas (ver "TWITCH MOBILE NAVIGATION ROW"). Sin navegación
@@ -291,8 +294,8 @@ export default function TwitchClipViewer({
                   rel="noreferrer noopener"
                   className={`${TWITCH_LINK} mt-1 short:py-1`}
                 >
-                  Ver en Twitch <span aria-hidden="true">↗</span>
-                  <span className="sr-only">(se abre en una pestaña nueva)</span>
+                  {tw("watch")} <span aria-hidden="true">↗</span>
+                  <span className="sr-only">{t("newTab")}</span>
                 </a>
               </div>
             )}
@@ -310,7 +313,7 @@ export default function TwitchClipViewer({
               <button
                 type="button"
                 onClick={() => go(-1)}
-                aria-label="Clip anterior"
+                aria-label={t("previous")}
                 className={NAV_BUTTON}
               >
                 <span aria-hidden="true">‹</span>
@@ -322,14 +325,14 @@ export default function TwitchClipViewer({
                   rel="noreferrer noopener"
                   className={TWITCH_LINK}
                 >
-                  Ver en Twitch <span aria-hidden="true">↗</span>
-                  <span className="sr-only">(se abre en una pestaña nueva)</span>
+                  {tw("watch")} <span aria-hidden="true">↗</span>
+                  <span className="sr-only">{t("newTab")}</span>
                 </a>
               )}
               <button
                 type="button"
                 onClick={() => go(1)}
-                aria-label="Clip siguiente"
+                aria-label={t("next")}
                 className={NAV_BUTTON}
               >
                 <span aria-hidden="true">›</span>
@@ -349,7 +352,7 @@ export default function TwitchClipViewer({
       <button
         type="button"
         onClick={onClose}
-        aria-label="Cerrar"
+        aria-label={t("close")}
         data-autofocus
         className={`${CLOSE_BUTTON} fixed right-3 top-3`}
       >
@@ -366,7 +369,7 @@ export default function TwitchClipViewer({
       )}
 
       <p className="sr-only" aria-live="polite">
-        {canNavigate ? `Clip ${index + 1} de ${total}` : ""}
+        {canNavigate ? t("counter", { index: index + 1, total }) : ""}
       </p>
     </dialog>
   );

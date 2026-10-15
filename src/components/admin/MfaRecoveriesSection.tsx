@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { usePrivilegedFailureReporter } from "@/hooks/privileged-failure";
 import { supabase } from "@/lib/supabase";
+import { useTranslations } from "use-intl";
 
 // Solicitudes de recuperación de autenticador (MFA fase 2) pendientes de revisar. Solo PRESENTA la
 // lista y envía la decisión: la autoridad es el servidor (JWT + MFA reciente + rol ADMIN en cada
@@ -26,34 +27,21 @@ interface Item {
   readiness: string;
 }
 
-const STATUS_LABEL: Record<string, string> = {
-  pending_approval: "Pendiente de aprobación",
-  approved: "Aprobada, en espera",
-  executing: "Invalidando autenticador",
-};
-const NOTICE_LABEL: Record<string, string> = {
-  pending: "aviso pendiente de envío",
-  accepted: "aviso enviado, sin confirmar entrega",
-  delivered: "aviso entregado",
-  failed: "aviso NO entregado",
-};
-
-const ERRORS: Record<number, string> = {
-  401: "Tu sesión ya no es válida. Inicia sesión de nuevo.",
-  403: "No se pudo autorizar esta acción. Comprueba tu verificación en dos pasos e inténtalo de nuevo.",
-  404: "Esta solicitud ya no está disponible. Actualizamos la lista.",
-  409: "La solicitud ya no admite esta acción. Actualizamos la lista.",
-  410: "La solicitud caducó. Actualizamos la lista.",
-};
-const GENERIC = "No se pudo completar la operación. Inténtalo de nuevo.";
-// Recordatorio del aviso ya entregado (máximo 3, mínimo 60 s entre ellos): mensajes por código del servidor.
-const REMINDER_ERRORS: Record<string, string> = {
-  too_soon: "Espera al menos un minuto antes de enviar otro recordatorio.",
-  reminder_limit: "Ya se enviaron los 3 recordatorios permitidos para esta solicitud.",
-  notice_not_delivered:
-    "El aviso original todavía no consta como entregado. Actualizamos la lista.",
-  mail_unavailable: "El envío de correos no está disponible ahora mismo.",
-};
+// Mensajes como marcadores `i18n:<clave>`; se traducen al renderizar (resolveMessage).
+const MSG_SESSION = "i18n:e401";
+const MSG_LIST = "i18n:listError";
+const MSG_GENERIC = "i18n:generic";
+const STATUS_ERRORS: ReadonlySet<number> = new Set([401, 403, 404, 409, 410]);
+const REMINDER_CODES: ReadonlySet<string> = new Set([
+  "too_soon",
+  "reminder_limit",
+  "notice_not_delivered",
+  "mail_unavailable",
+]);
+const statusMarker = (status: number): string | null =>
+  STATUS_ERRORS.has(status) ? `i18n:e${status}` : null;
+const reminderMarker = (code: string): string | null =>
+  REMINDER_CODES.has(code) ? `i18n:r_${code}` : null;
 
 function parse(raw: unknown): Item[] | null {
   const list = (raw as { recoveries?: unknown } | null)?.recoveries;
@@ -99,6 +87,15 @@ export default function MfaRecoveriesSection({
 }: {
   refreshKey?: number;
 }) {
+  const t = useTranslations("admin.recoveries");
+  const label = (group: "status" | "notice", key: string): string => {
+    const path = `${group}.${key}`;
+    return t.has(path as never) ? (t as unknown as (k: string) => string)(path) : key;
+  };
+  const resolveMessage = (message: string): string =>
+    message.startsWith("i18n:")
+      ? (t as unknown as (k: string) => string)(`msg.${message.slice(5)}`)
+      : message;
   const headingId = useId();
   const reportFailure = usePrivilegedFailureReporter();
   const [items, setItems] = useState<Item[] | null>(null);
@@ -125,7 +122,7 @@ export default function MfaRecoveriesSection({
     const jwt = await token();
     if (!current()) return;
     if (!jwt) {
-      setError(ERRORS[401]);
+      setError(MSG_SESSION);
       return;
     }
     try {
@@ -135,19 +132,19 @@ export default function MfaRecoveriesSection({
       if (!current()) return;
       if (!response.ok) {
         reportFailure(response);
-        setError(ERRORS[response.status] ?? "No se pudo cargar la lista de solicitudes.");
+        setError(statusMarker(response.status) ?? MSG_LIST);
         return;
       }
       const parsed = parse(await response.json().catch(() => null));
       if (!current()) return;
       if (!parsed) {
-        setError("No se pudo cargar la lista de solicitudes.");
+        setError(MSG_LIST);
         return;
       }
       setError(null);
       setItems(parsed);
     } catch {
-      if (current()) setError("No se pudo cargar la lista de solicitudes.");
+      if (current()) setError(MSG_LIST);
     }
   }, [reportFailure]);
 
@@ -169,7 +166,7 @@ export default function MfaRecoveriesSection({
     try {
       const jwt = await token();
       if (!jwt) {
-        setActionError(ERRORS[401]);
+        setActionError(MSG_SESSION);
         return;
       }
       const response = await fetch(ENDPOINT, {
@@ -184,7 +181,9 @@ export default function MfaRecoveriesSection({
           code?: unknown;
         } | null;
         const key = typeof errBody?.code === "string" ? errBody.code : "";
-        setActionError(REMINDER_ERRORS[key] ?? ERRORS[response.status] ?? GENERIC);
+        setActionError(
+          reminderMarker(key) ?? statusMarker(response.status) ?? MSG_GENERIC,
+        );
         void load();
         return;
       }
@@ -194,16 +193,12 @@ export default function MfaRecoveriesSection({
       } | null;
       const failedNotice =
         body?.notice?.status === "failed" || body?.reminder?.status === "failed";
-      setNotice(
-        failedNotice
-          ? `${done} Atención: el aviso al titular no se pudo enviar; sin entrega confirmada no podrá ejecutarlo. Puedes reenviarlo.`
-          : done,
-      );
+      setNotice(failedNotice ? `${done} ${t("failedNotice")}` : done);
       setDenying(null);
       setReason("");
       void load();
     } catch {
-      if (mounted.current) setActionError(GENERIC);
+      if (mounted.current) setActionError(MSG_GENERIC);
     } finally {
       lock.current = false;
       if (mounted.current) setBusyId(null);
@@ -213,12 +208,9 @@ export default function MfaRecoveriesSection({
   return (
     <section aria-labelledby={headingId} className="mt-8" data-testid="mfa-recoveries">
       <h2 id={headingId} className="font-display text-xl tracking-wide text-text-primary">
-        Recuperación de autenticadores
+        {t("heading")}
       </h2>
-      <p className="mt-2 text-sm text-text-secondary">
-        Solicitudes de miembros que perdieron su autenticador. Aprueba solo si reconoces
-        la petición; no puedes aprobar la tuya.
-      </p>
+      <p className="mt-2 text-sm text-text-secondary">{t("intro")}</p>
       {notice ? (
         <p role="status" className="mt-3 text-sm text-accent-success">
           {notice}
@@ -226,20 +218,22 @@ export default function MfaRecoveriesSection({
       ) : null}
       {actionError ? (
         <p role="alert" className="mt-3 text-sm text-accent-live">
-          {actionError}
+          {" "}
+          {resolveMessage(actionError)}
         </p>
       ) : null}
       {error ? (
         <p role="alert" className="mt-3 text-sm text-accent-live">
-          {error}
+          {" "}
+          {resolveMessage(error)}
         </p>
       ) : null}
       {items && items.length === 0 && !error ? (
-        <p className="mt-3 text-sm text-text-secondary">No hay solicitudes pendientes.</p>
+        <p className="mt-3 text-sm text-text-secondary">{t("empty")}</p>
       ) : null}
       <ul className="mt-4 flex flex-col gap-3">
         {(items ?? []).map((i) => {
-          const name = i.username ? `@${i.username}` : "Cuenta sin perfil";
+          const name = i.username ? `@${i.username}` : t("noProfile");
           // «Reenviar aviso» está disponible mientras esté aprobada: con el aviso entregado envía un recordatorio.
           const noticeDelivered = i.notice_state === "delivered";
           const canResend = i.status === "approved";
@@ -249,12 +243,12 @@ export default function MfaRecoveriesSection({
                 {name} · {i.role}
               </p>
               <p className="mt-1 text-sm text-text-secondary">
-                {STATUS_LABEL[i.status] ?? i.status}
+                {label("status", i.status)}
                 {i.status === "pending_approval" && i.email_verified_at
-                  ? " · correo verificado"
+                  ? ` · ${t("emailVerified")}`
                   : ""}
                 {i.status === "approved"
-                  ? ` · ${i.notice_state ? NOTICE_LABEL[i.notice_state] : "aviso no registrado"}`
+                  ? ` · ${i.notice_state ? label("notice", i.notice_state) : t("noticeUnregistered")}`
                   : ""}
               </p>
               <div className="mt-3 flex flex-wrap gap-3">
@@ -263,12 +257,10 @@ export default function MfaRecoveriesSection({
                     type="button"
                     disabled={busyId !== null}
                     className={SECONDARY}
-                    aria-label={`Aprobar la recuperación de ${name}`}
-                    onClick={() =>
-                      void act(i.id, "approve", {}, "Recuperación aprobada.")
-                    }
+                    aria-label={t("approveAria", { name })}
+                    onClick={() => void act(i.id, "approve", {}, t("approvedDone"))}
                   >
-                    Aprobar
+                    {t("approve")}
                   </button>
                 ) : null}
                 {canResend ? (
@@ -276,19 +268,17 @@ export default function MfaRecoveriesSection({
                     type="button"
                     disabled={busyId !== null}
                     className={SECONDARY}
-                    aria-label={`Reenviar el aviso a ${name}`}
+                    aria-label={t("resendAria", { name })}
                     onClick={() =>
                       void act(
                         i.id,
                         "resend_notice",
                         {},
-                        noticeDelivered
-                          ? "Recordatorio enviado al titular."
-                          : "Aviso reenviado.",
+                        noticeDelivered ? t("reminderSent") : t("noticeResent"),
                       )
                     }
                   >
-                    Reenviar aviso
+                    {t("resend")}
                   </button>
                 ) : null}
                 {i.status !== "executing" ? (
@@ -296,13 +286,13 @@ export default function MfaRecoveriesSection({
                     type="button"
                     disabled={busyId !== null}
                     className={SECONDARY}
-                    aria-label={`Rechazar la recuperación de ${name}`}
+                    aria-label={t("rejectAria", { name })}
                     onClick={() => {
                       setDenying(denying === i.id ? null : i.id);
                       setReason("");
                     }}
                   >
-                    Rechazar
+                    {t("reject")}
                   </button>
                 ) : null}
               </div>
@@ -311,16 +301,11 @@ export default function MfaRecoveriesSection({
                   className="mt-3 flex flex-col gap-2"
                   onSubmit={(e) => {
                     e.preventDefault();
-                    void act(
-                      i.id,
-                      "deny",
-                      { reason: reason.trim() },
-                      "Recuperación rechazada.",
-                    );
+                    void act(i.id, "deny", { reason: reason.trim() }, t("deniedDone"));
                   }}
                 >
                   <label className="text-sm text-text-secondary" htmlFor={`deny-${i.id}`}>
-                    Motivo del rechazo
+                    {t("reasonLabel")}
                   </label>
                   <input
                     id={`deny-${i.id}`}
@@ -334,7 +319,7 @@ export default function MfaRecoveriesSection({
                     className={SECONDARY}
                     disabled={busyId !== null || reason.trim().length === 0}
                   >
-                    Confirmar rechazo
+                    {t("confirmReject")}
                   </button>
                 </form>
               ) : null}

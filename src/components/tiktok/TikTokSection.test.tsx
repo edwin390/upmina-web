@@ -173,13 +173,17 @@ describe("TikTokSection: tarjetas", () => {
     stubApi(() => json([]));
     let view = renderSection();
     expect(screen.getByText("Cargando videos…")).toBeTruthy();
-    expect(await screen.findByText("Todavía no hay videos para mostrar.")).toBeTruthy();
+    expect(
+      await screen.findByText(/a la espera de la autorización de Mina/),
+    ).toBeTruthy();
     view.unmount();
 
     stubApi(() => json({ error: "No se pudieron obtener los videos de TikTok" }, 503));
     view = renderSection();
     expect(await screen.findByRole("status")).toBeTruthy();
-    expect(screen.getByRole("status").textContent).toMatch(/No se pudieron cargar/);
+    expect(screen.getByRole("status").textContent).toMatch(
+      /a la espera de la autorización de Mina/,
+    );
     expect(screen.queryByRole("button", { name: /Abrir/ })).toBeNull();
     view.unmount();
   });

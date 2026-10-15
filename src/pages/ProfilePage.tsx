@@ -10,6 +10,8 @@ import CommunityPostEditorDialog from "@/components/community/CommunityPostEdito
 import CommunityPostTileMenu from "@/components/community/CommunityPostTileMenu";
 import { CommunityLikeCountBadge } from "@/components/community/CommunityLikeButton";
 import type { CommunityOwnPost } from "@/lib/community-client";
+import { useTranslations } from "use-intl";
+import { useLocaleCode } from "@/i18n/useFormat";
 
 // /@username (Fase 9J-2B, ampliado en 9J-2B.1): perfil PÚBLICO de Comunidad — identidad/contenido
 // de solo lectura para un visitante, inspirado en la jerarquía de información de un perfil de
@@ -70,14 +72,6 @@ function toOwnerTile(post: CommunityOwnPost): GalleryTileData {
   };
 }
 
-function pluralizePosts(count: number): string {
-  return count === 1 ? "1 publicación" : `${count} publicaciones`;
-}
-
-function pluralizeLikes(count: number): string {
-  return count === 1 ? "1 Me gusta" : `${count} Me gusta`;
-}
-
 function ProfileAvatarPlaceholder({ username }: { username: string }) {
   const initial = username.charAt(0).toUpperCase();
   return (
@@ -118,22 +112,29 @@ function MultiMediaBadge({ count }: { count: number }) {
   );
 }
 
-function postTileLabel(tile: GalleryTileData): string {
+type ProfileT = ReturnType<typeof useTranslations<"community.profile">>;
+
+function postTileLabel(tile: GalleryTileData, t: ProfileT, locale: string): string {
   const when = new Date(tile.createdAt);
   const dateLabel = Number.isNaN(when.getTime())
     ? ""
-    : new Intl.DateTimeFormat("es", { dateStyle: "medium" }).format(when);
+    : new Intl.DateTimeFormat(locale, { dateStyle: "medium" }).format(when);
   if (tile.media.length > 0) {
     const videoCount = tile.media.filter((m) => m.kind === "video").length;
     const imageCount = tile.media.length - videoCount;
     const parts: string[] = [];
-    if (imageCount > 0)
-      parts.push(imageCount === 1 ? "1 imagen" : `${imageCount} imágenes`);
-    if (videoCount > 0) parts.push(videoCount === 1 ? "1 video" : `${videoCount} videos`);
-    return `Publicación con ${parts.join(" y ")}${dateLabel ? `, ${dateLabel}` : ""}`;
+    if (imageCount > 0) parts.push(t("tileImages", { count: imageCount }));
+    if (videoCount > 0) parts.push(t("tileVideos", { count: videoCount }));
+    const joined =
+      parts.length === 2 ? t("tileAnd", { a: parts[0], b: parts[1] }) : parts[0];
+    return dateLabel
+      ? t("tileWithMediaDate", { parts: joined, date: dateLabel })
+      : t("tileWithMedia", { parts: joined });
   }
   const preview = (tile.text ?? "").trim();
-  return `Publicación de texto${dateLabel ? ` del ${dateLabel}` : ""}: ${preview}`;
+  return dateLabel
+    ? t("tileTextDate", { date: dateLabel, preview })
+    : t("tileText", { preview });
 }
 
 interface PostTileProps {
@@ -150,6 +151,8 @@ interface PostTileProps {
  *  pointer-events-none para que el clic lo atraviese, y el menú posicionado encima con su propio
  *  z-index, así que activarlo nunca abre también la publicación. */
 function PostTile({ tile, ownerPost, onEdit, onDeleted }: PostTileProps) {
+  const t = useTranslations("community.profile");
+  const locale = useLocaleCode();
   const cover = tile.media[0] ?? null;
   return (
     <li>
@@ -157,7 +160,7 @@ function PostTile({ tile, ownerPost, onEdit, onDeleted }: PostTileProps) {
         <Link
           to={`/community/post/${tile.id}`}
           state={ownerPost ? { ownerProfilePostId: tile.id } : undefined}
-          aria-label={postTileLabel(tile)}
+          aria-label={postTileLabel(tile, t, locale)}
           className="absolute inset-0 z-0 rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-secondary"
         />
         <div className="pointer-events-none relative flex h-full w-full items-center justify-center overflow-hidden rounded-md">
@@ -196,13 +199,11 @@ function PostTile({ tile, ownerPost, onEdit, onDeleted }: PostTileProps) {
           {ownerPost?.status === "hidden_pending_review" ||
           ownerPost?.status === "removed_pending_purge" ? (
             <span className="absolute inset-x-1 bottom-8 rounded bg-bg-base/90 px-1 py-1 text-center text-xs text-text-primary">
-              {ownerPost.status === "hidden_pending_review"
-                ? "Publicación pausada"
-                : "Retirada"}
+              {ownerPost.status === "hidden_pending_review" ? t("paused") : t("removed")}
             </span>
           ) : ownerPost?.status === "published" && ownerPost.resolvedNoticeUnseen ? (
             <span className="absolute inset-x-1 bottom-8 rounded border border-accent-secondary/60 bg-bg-base/90 px-1 py-1 text-center text-xs text-accent-secondary">
-              Caso resuelto
+              {t("resolved")}
             </span>
           ) : null}
         </div>
@@ -228,6 +229,8 @@ const SECONDARY_BUTTON_CLASS =
 type EditorState = { mode: "create" } | { mode: "edit"; post: CommunityOwnPost } | null;
 
 export default function ProfilePage() {
+  const t = useTranslations("community.profile");
+  const tc = useTranslations("community.common");
   const queryClient = useQueryClient();
   // La ruta real es "/:usernameParam" (ver el comentario en App.tsx sobre por qué "/@:username"
   // no es válido en React Router v6): usernameParam es SIEMPRE el segmento completo tal como
@@ -283,7 +286,7 @@ export default function ProfilePage() {
     <div className="mx-auto max-w-3xl px-4 py-16">
       {isLoading ? (
         <p role="status" className="text-text-secondary" aria-live="polite">
-          Cargando perfil…
+          {t("loading")}
         </p>
       ) : null}
 
@@ -292,13 +295,13 @@ export default function ProfilePage() {
           role="alert"
           className="rounded-lg border border-border-subtle bg-bg-surface px-6 py-10 text-center"
         >
-          <p className="text-text-secondary">No se pudo cargar este perfil.</p>
+          <p className="text-text-secondary">{t("loadError")}</p>
           <button
             type="button"
             onClick={() => void refetch()}
             className="mt-4 inline-flex min-h-11 items-center justify-center rounded-md border border-accent-primary/60 bg-accent-primary px-5 py-2.5 text-sm font-bold text-text-inverse transition hover:bg-accent-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-secondary"
           >
-            Reintentar
+            {tc("retry")}
           </button>
         </div>
       ) : null}
@@ -306,16 +309,14 @@ export default function ProfilePage() {
       {notFound ? (
         <div className="rounded-lg border border-border-subtle bg-bg-surface px-6 py-16 text-center">
           <p className="font-display text-lg tracking-wide text-text-primary">
-            Este perfil no existe
+            {t("notFoundTitle")}
           </p>
-          <p className="mt-2 text-text-secondary">
-            No encontramos ninguna cuenta con ese @username.
-          </p>
+          <p className="mt-2 text-text-secondary">{t("notFoundBody")}</p>
           <Link
             to="/community"
             className="mt-4 inline-flex min-h-11 items-center justify-center rounded-md border border-border-subtle px-5 py-2.5 text-sm font-semibold text-text-secondary transition-colors hover:border-accent-primary/70 hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-secondary"
           >
-            Volver a Comunidad
+            {tc("backToCommunity")}
           </Link>
         </div>
       ) : null}
@@ -336,24 +337,24 @@ export default function ProfilePage() {
               </p>
             ) : null}
             <p className="flex items-center justify-center gap-3 text-sm font-semibold text-text-primary">
-              <span>{pluralizePosts(profile.postCount)}</span>
+              <span>{t("posts", { count: profile.postCount })}</span>
               <span aria-hidden="true" className="text-text-secondary">
                 ·
               </span>
-              <span>{pluralizeLikes(profile.totalLikes)}</span>
+              <span>{t("likes", { count: profile.totalLikes })}</span>
             </p>
 
             {isOwnProfile ? (
               <div className="mt-2 flex flex-wrap justify-center gap-3">
                 <Link to="/account" className={SECONDARY_BUTTON_CLASS}>
-                  Editar perfil
+                  {t("editProfile")}
                 </Link>
                 <button
                   type="button"
                   onClick={() => setEditorState({ mode: "create" })}
                   className={PRIMARY_BUTTON_CLASS}
                 >
-                  Nueva publicación
+                  {t("newPost")}
                 </button>
               </div>
             ) : null}
@@ -365,7 +366,7 @@ export default function ProfilePage() {
                   state={{ cancelTo: `/@${username}` }}
                   className="mt-1 text-sm font-semibold text-accent-primary underline decoration-accent-primary/40 underline-offset-4 hover:decoration-accent-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-secondary"
                 >
-                  Panel de administración
+                  {t("adminPanel")}
                 </Link>
               ) : null}
               {isOwnProfile &&
@@ -376,7 +377,7 @@ export default function ProfilePage() {
                   state={{ cancelTo: `/@${username}` }}
                   className="inline-flex min-h-11 items-center text-sm font-semibold text-accent-primary underline decoration-accent-primary/40 underline-offset-4 hover:decoration-accent-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-secondary"
                 >
-                  Panel de moderación
+                  {t("moderationPanel")}
                 </Link>
               ) : null}
               {isOwnProfile &&
@@ -387,7 +388,7 @@ export default function ProfilePage() {
                   state={{ cancelTo: `/@${username}` }}
                   className="inline-flex min-h-11 items-center text-sm font-semibold text-accent-primary underline decoration-accent-primary/40 underline-offset-4 hover:decoration-accent-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-secondary"
                 >
-                  Panel Developer
+                  {t("developerPanel")}
                 </Link>
               ) : null}
             </div>
@@ -395,16 +396,16 @@ export default function ProfilePage() {
 
           <div className="mt-6 border-t border-border-subtle pt-6">
             {isOwnProfile && ownPosts.isError ? (
-              <p role="alert">No se pudieron cargar tus publicaciones.</p>
+              <p role="alert">{t("ownPostsError")}</p>
             ) : tiles.length === 0 ? (
               <div className="rounded-lg border border-border-subtle bg-bg-surface px-6 py-16 text-center">
                 <p className="font-display text-lg tracking-wide text-text-primary">
-                  Todavía no hay publicaciones
+                  {t("emptyTitle")}
                 </p>
                 <p className="mt-2 text-text-secondary">
                   {isOwnProfile
-                    ? "Cuando publiques, tus publicaciones aparecerán aquí."
-                    : `Cuando @${profile.username} publique, sus publicaciones aparecerán aquí.`}
+                    ? t("emptyOwn")
+                    : t("emptyOther", { username: profile.username })}
                 </p>
               </div>
             ) : (
@@ -437,7 +438,7 @@ export default function ProfilePage() {
                       disabled={isFetchingNextPage}
                       className="rounded-md border border-border-subtle px-5 py-2.5 text-sm font-semibold text-text-secondary transition-colors hover:border-accent-primary/70 hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-secondary disabled:opacity-50"
                     >
-                      {isFetchingNextPage ? "Cargando…" : "Cargar más"}
+                      {isFetchingNextPage ? t("loadingMore") : t("loadMore")}
                     </button>
                   </div>
                 ) : null}

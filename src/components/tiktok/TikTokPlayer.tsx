@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import TikTokCover from "./TikTokCover";
 import { readTikTokPlayerEvent, sendTikTokPlayerCommand } from "./tiktokPlayerMessages";
 import { tikTokPlayerUrl } from "./tiktokUrl";
+import { useTranslations } from "use-intl";
 
 interface TikTokPlayerProps {
   videoId: string;
@@ -26,6 +27,7 @@ export const PLAYER_LOAD_TIMEOUT_MS = 10_000;
  * al visor. La zona central (Play) y las barras superior/inferior siguen siendo del reproductor.
  */
 export default function TikTokPlayer({ videoId, title, coverUrl }: TikTokPlayerProps) {
+  const t = useTranslations("site.tiktok");
   const [status, setStatus] = useState<"loading" | "ready" | "failed">("loading");
   const frameRef = useRef<HTMLIFrameElement>(null);
   // Abrir el visor es la intención de reproducir (solo vive en este reproductor montado): al
@@ -60,7 +62,7 @@ export default function TikTokPlayer({ videoId, title, coverUrl }: TikTokPlayerP
         <iframe
           ref={frameRef}
           src={tikTokPlayerUrl(videoId)}
-          title={title ? `Reproductor de TikTok: ${title}` : "Reproductor de TikTok"}
+          title={title ? t("playerTitleNamed", { title }) : t("playerTitle")}
           // Sin allow-top-navigation: el reproductor no puede sacar al usuario de la web.
           sandbox="allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox"
           // autoplay delegado al iframe: sin este permiso el navegador ignora autoplay=1.
@@ -79,7 +81,7 @@ export default function TikTokPlayer({ videoId, title, coverUrl }: TikTokPlayerP
           role="status"
           className="absolute inset-x-3 bottom-3 rounded-lg bg-black/70 px-3 py-2 text-center text-xs text-text-secondary backdrop-blur-sm"
         >
-          No se pudo cargar el reproductor. Puedes verlo en TikTok.
+          {t("playerError")}
         </p>
       )}
 

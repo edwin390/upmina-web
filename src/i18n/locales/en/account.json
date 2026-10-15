@@ -1,0 +1,48 @@
+{
+  "page": {
+    "title": "Account",
+    "checking": "Checking session…",
+    "active": "Active session.",
+    "activeAs": "Active session as <emailTag>{email}</emailTag>.",
+    "signOut": "Sign out",
+    "signingOut": "Signing out…",
+    "signOutError": "Couldn't sign out. Please try again."
+  },
+  "profile": {
+    "heading": "Your public profile",
+    "loading": "Loading your profile…",
+    "readError": "Couldn't load your profile.",
+    "retry": "Try again",
+    "edit": "Edit profile",
+    "view": "View my profile",
+    "publicNote": "Your display name, bio and username will be public.",
+    "username": "Username",
+    "displayName": "Display name",
+    "bio": "Bio",
+    "save": "Save",
+    "saving": "Saving…",
+    "cancel": "Cancel",
+    "chooseUsername": "Choose your username to create your profile.",
+    "create": "Create profile",
+    "creating": "Creating profile…",
+    "usernameHelp": "3–24 characters: lowercase letters, numbers, underscore (_) and period (.).",
+    "usernameInvalid": "Use 3–24 characters: lowercase letters, numbers, underscore (_) and period (.).",
+    "usernameEditInvalid": "3–24 characters: lowercase letters, numbers, underscore (_) and period (.). It can't start or end with a period or contain consecutive periods.",
+    "usernamePublicNotice": "Your username is public and forms your profile address (/@username). Changing it changes that public address. You can only change it once every 30 days.",
+    "nameTooLong": "The display name allows up to {max} characters.",
+    "bioTooLong": "The bio allows up to {max} characters.",
+    "errors": {
+      "badRequest": "The request couldn't be processed. Check the username.",
+      "taken": "This username isn't available.",
+      "chooseOther": "Choose another username.",
+      "session": "Your session is no longer valid. Sign out and sign in again.",
+      "generic": "Couldn't create your profile. Please try again.",
+      "editBadRequest": "The data sent isn't valid.",
+      "editInvalid": "Check the display name and the bio.",
+      "editGeneric": "Couldn't save your profile. Please try again.",
+      "usernameTaken": "That username already belongs to another account.",
+      "cooldown": "You recently changed your username. You can change it again on {when}.",
+      "cooldownLater": "You recently changed your username. You can change it again later."
+    }
+  }
+}

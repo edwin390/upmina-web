@@ -1,0 +1,48 @@
+{
+  "page": {
+    "title": "Cuenta",
+    "checking": "Comprobando sesión…",
+    "active": "Sesión activa.",
+    "activeAs": "Sesión activa como <emailTag>{email}</emailTag>.",
+    "signOut": "Cerrar sesión",
+    "signingOut": "Cerrando sesión…",
+    "signOutError": "No se pudo cerrar la sesión. Inténtalo de nuevo."
+  },
+  "profile": {
+    "heading": "Tu perfil público",
+    "loading": "Cargando tu perfil…",
+    "readError": "No se pudo cargar tu perfil.",
+    "retry": "Reintentar",
+    "edit": "Editar perfil",
+    "view": "Ver mi perfil",
+    "publicNote": "Tu nombre visible, tu bio y tu username serán públicos.",
+    "username": "Username",
+    "displayName": "Nombre visible",
+    "bio": "Bio",
+    "save": "Guardar",
+    "saving": "Guardando…",
+    "cancel": "Cancelar",
+    "chooseUsername": "Elige tu username para crear tu perfil.",
+    "create": "Crear perfil",
+    "creating": "Creando perfil…",
+    "usernameHelp": "3–24 caracteres: minúsculas, números, guion bajo (_) y punto (.).",
+    "usernameInvalid": "Usa 3–24 caracteres: minúsculas, números, guion bajo (_) y punto (.).",
+    "usernameEditInvalid": "3–24 caracteres: minúsculas, números, guion bajo (_) y punto (.). No puede empezar ni terminar en punto, ni tener puntos seguidos.",
+    "usernamePublicNotice": "Tu username es público y formará tu dirección de perfil (/@username). Cambiarlo cambia esa dirección pública. Solo puedes cambiarlo una vez cada 30 días.",
+    "nameTooLong": "El nombre visible admite hasta {max} caracteres.",
+    "bioTooLong": "La bio admite hasta {max} caracteres.",
+    "errors": {
+      "badRequest": "No se pudo procesar la solicitud. Revisa el username.",
+      "taken": "Este username no está disponible.",
+      "chooseOther": "Elige otro username.",
+      "session": "Tu sesión ya no es válida. Cierra sesión e inicia de nuevo.",
+      "generic": "No se pudo crear tu perfil. Inténtalo de nuevo.",
+      "editBadRequest": "Los datos enviados no son válidos.",
+      "editInvalid": "Revisa el nombre visible y la bio.",
+      "editGeneric": "No se pudo guardar tu perfil. Inténtalo de nuevo.",
+      "usernameTaken": "Ese username ya lo tiene otra cuenta.",
+      "cooldown": "Ya cambiaste tu username hace poco. Podrás cambiarlo de nuevo el {when}.",
+      "cooldownLater": "Ya cambiaste tu username hace poco. Podrás cambiarlo de nuevo más adelante."
+    }
+  }
+}

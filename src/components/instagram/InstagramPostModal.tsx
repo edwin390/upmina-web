@@ -8,7 +8,8 @@ import {
   useInstagramComments,
 } from "@/hooks/useInstagramPost";
 import { useInstagramProfile } from "@/hooks/useInstagramProfile";
-import { formatRelativeDate } from "@/lib/format";
+import { useTranslations } from "use-intl";
+import { useLongDate, useRelativeDate } from "@/i18n/useFormat";
 import { getKnownAspectRatio, rememberAspectRatio, wrapIndex } from "@/lib/media-ratio";
 import { CommentIcon, HeartIcon } from "./InstagramIcons";
 import InstagramMediaViewer, { type ViewerSlide } from "./InstagramMediaViewer";
@@ -26,13 +27,11 @@ interface InstagramPostModalProps {
   returnFocusTo?: HTMLElement | null;
 }
 
-const dateFormat = new Intl.DateTimeFormat("es", { dateStyle: "long" });
-const formatDate = (iso: string) => dateFormat.format(new Date(iso));
-
 const POST_NAV_BUTTON =
   "grid h-12 w-12 place-items-center rounded-full border-2 border-accent-secondary bg-bg-base/90 text-2xl text-accent-secondary shadow-glow-secondary transition-colors hover:bg-accent-secondary hover:text-text-inverse focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary";
 
 function ViewCommentsLink({ permalink }: { permalink: string }) {
+  const t = useTranslations("site.instagram");
   return (
     <a
       href={permalink}
@@ -40,33 +39,35 @@ function ViewCommentsLink({ permalink }: { permalink: string }) {
       rel="noreferrer noopener"
       className="text-sm font-medium text-accent-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-secondary"
     >
-      Ver comentarios en Instagram →
+      {t("viewComments")}
     </a>
   );
 }
 
 function CommentsBlock({ item }: { item: InstagramMediaItem }) {
+  const t = useTranslations("site.instagram");
+  const relativeDate = useRelativeDate();
   // Con 0 comentarios conocidos no hace falta preguntar a Meta.
   const hasNone = item.commentsCount === 0;
   const { data, isLoading, error } = useInstagramComments(item.id, !hasNone);
 
   const total = item.commentsCount;
-  const totalText =
-    total === undefined ? "" : `${total} ${total === 1 ? "comentario" : "comentarios"}`;
+  const totalText = total === undefined ? "" : t("commentsTotal", { count: total });
 
   let content;
   if (hasNone) {
-    content = <p className="text-text-muted">Todavía no hay comentarios.</p>;
+    content = <p className="text-text-muted">{t("noComments")}</p>;
   } else if (isLoading) {
-    content = <p className="text-text-muted">Cargando comentarios…</p>;
+    content = <p className="text-text-muted">{t("commentsLoading")}</p>;
   } else if (error instanceof InstagramCommentsPermissionError) {
     // Meta devolvió un error EXPLÍCITO de permisos (403): es el único caso en que se
     // habla de permisos. Sin comentarios inventados.
     content = (
       <div className="space-y-1 text-text-muted">
         <p>
-          {totalText ? `${totalText} en Instagram. ` : ""}
-          Los comentarios no se pueden mostrar aquí todavía.
+          {totalText
+            ? t("commentsHiddenWithTotal", { total: totalText })
+            : t("commentsHidden")}
         </p>
         <ViewCommentsLink permalink={item.permalink} />
         {import.meta.env.DEV && (
@@ -78,7 +79,7 @@ function CommentsBlock({ item }: { item: InstagramMediaItem }) {
       </div>
     );
   } else if (error) {
-    content = <p className="text-text-muted">No se pudieron cargar los comentarios.</p>;
+    content = <p className="text-text-muted">{t("commentsError")}</p>;
   } else if (data && data.comments.length > 0) {
     content = (
       <ul className="space-y-3">
@@ -92,13 +93,11 @@ function CommentsBlock({ item }: { item: InstagramMediaItem }) {
             {comment.text}
             {(comment.timestamp || comment.likeCount !== undefined) && (
               <span className="mt-0.5 flex items-center gap-3 text-xs text-text-muted">
-                {comment.timestamp && (
-                  <span>{formatRelativeDate(comment.timestamp)}</span>
-                )}
+                {comment.timestamp && <span>{relativeDate(comment.timestamp)}</span>}
                 {comment.likeCount !== undefined && (
                   <span className="inline-flex items-center gap-1">
                     <HeartIcon /> {comment.likeCount}
-                    <span className="sr-only">Me gusta</span>
+                    <span className="sr-only">{t("like")}</span>
                   </span>
                 )}
               </span>
@@ -123,15 +122,15 @@ function CommentsBlock({ item }: { item: InstagramMediaItem }) {
     // se llega aquí: ese caso se resuelve arriba sin consultar a Meta.)
     content = (
       <p className="flex flex-wrap items-center gap-x-3 gap-y-1 text-text-muted">
-        <span>Los comentarios pueden consultarse en Instagram.</span>
+        <span>{t("commentsOnInstagram")}</span>
         <ViewCommentsLink permalink={item.permalink} />
       </p>
     );
   }
 
   return (
-    <section aria-label="Comentarios" className="border-t border-border-subtle pt-4">
-      <h3 className="mb-3 text-sm font-semibold text-text-primary">Comentarios</h3>
+    <section aria-label={t("comments")} className="border-t border-border-subtle pt-4">
+      <h3 className="mb-3 text-sm font-semibold text-text-primary">{t("comments")}</h3>
       {content}
     </section>
   );
@@ -175,10 +174,12 @@ function PostView({
   }, [isCarousel, children, item]);
 
   // Perfil compartido (una sola petición para todo el modal, con caché).
+  const t = useTranslations("site.instagram");
+  const longDate = useLongDate();
   const { data: profile } = useInstagramProfile();
   const username = item.username ?? profile?.username;
 
-  const label = item.caption ?? "Publicación de Instagram";
+  const label = item.caption ?? t("defaultCaption");
   const isReel = item.productType === "REELS";
 
   return (
@@ -207,14 +208,16 @@ function PostView({
               {username ?? "Instagram"}
             </h2>
             <p className="text-xs text-text-muted">
-              {isReel && <span className="mr-2 text-accent-secondary">Reel</span>}
-              {total > 1 && `Publicación ${position} de ${total}`}
+              {isReel && (
+                <span className="mr-2 text-accent-secondary">{t("reelLabel")}</span>
+              )}
+              {total > 1 && t("position", { position, total })}
             </p>
           </div>
           <button
             type="button"
             onClick={onClose}
-            aria-label="Cerrar"
+            aria-label={t("close")}
             data-autofocus
             className="grid h-9 w-9 shrink-0 place-items-center rounded-full text-xl text-text-secondary transition-colors hover:bg-bg-elevated hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-secondary"
           >
@@ -234,18 +237,18 @@ function PostView({
               <span className="inline-flex items-center gap-1.5 text-accent-primary">
                 <HeartIcon />
                 <span className="text-text-primary">{item.likeCount}</span>
-                <span className="sr-only">Me gusta</span>
+                <span className="sr-only">{t("like")}</span>
               </span>
             )}
             {item.commentsCount !== undefined && (
               <span className="inline-flex items-center gap-1.5 text-accent-secondary">
                 <CommentIcon />
                 <span className="text-text-primary">{item.commentsCount}</span>
-                <span className="sr-only">Comentarios</span>
+                <span className="sr-only">{t("comments")}</span>
               </span>
             )}
             <time dateTime={item.timestamp} className="text-text-muted">
-              {formatDate(item.timestamp)}
+              {longDate(new Date(item.timestamp))}
             </time>
           </div>
 
@@ -259,7 +262,7 @@ function PostView({
             rel="noreferrer noopener"
             className="block rounded-md bg-accent-primary px-4 py-2 text-center text-sm font-semibold text-text-inverse transition-shadow hover:shadow-glow-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-secondary"
           >
-            Ver en Instagram →
+            {t("viewOnInstagram")}
           </a>
         </footer>
       </div>
@@ -291,6 +294,7 @@ export default function InstagramPostModal({
   const item = items[index];
   const total = items.length;
   const canNavigate = total > 1;
+  const t = useTranslations("site.instagram");
 
   // El padre pasa callbacks nuevos en cada render; los efectos no deben reiniciarse por eso.
   const onCloseRef = useRef(onClose);
@@ -402,7 +406,7 @@ export default function InstagramPostModal({
               <button
                 type="button"
                 onClick={() => onNavigate(-1)}
-                aria-label="Publicación anterior"
+                aria-label={t("previous")}
                 className="rounded-md px-3 py-2 text-sm font-semibold text-accent-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary"
               >
                 ‹ Anterior
@@ -413,7 +417,7 @@ export default function InstagramPostModal({
               <button
                 type="button"
                 onClick={() => onNavigate(1)}
-                aria-label="Publicación siguiente"
+                aria-label={t("next")}
                 className="rounded-md px-3 py-2 text-sm font-semibold text-accent-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary"
               >
                 Siguiente ›
@@ -436,7 +440,7 @@ export default function InstagramPostModal({
           <button
             type="button"
             onClick={() => onNavigate(-1)}
-            aria-label="Publicación anterior"
+            aria-label={t("previous")}
             className={`${POST_NAV_BUTTON} fixed left-3 top-1/2 hidden -translate-y-1/2 lg:grid`}
           >
             ‹
@@ -444,7 +448,7 @@ export default function InstagramPostModal({
           <button
             type="button"
             onClick={() => onNavigate(1)}
-            aria-label="Publicación siguiente"
+            aria-label={t("next")}
             className={`${POST_NAV_BUTTON} fixed right-3 top-1/2 hidden -translate-y-1/2 lg:grid`}
           >
             ›
@@ -453,7 +457,7 @@ export default function InstagramPostModal({
       )}
 
       <p className="sr-only" aria-live="polite">
-        {canNavigate ? `Publicación ${index + 1} de ${total}` : ""}
+        {canNavigate ? t("position", { position: index + 1, total }) : ""}
       </p>
     </dialog>
   );

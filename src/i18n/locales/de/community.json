@@ -1,0 +1,160 @@
+{
+  "common": {
+    "viewProfile": "Profil von @{username} ansehen",
+    "retry": "Erneut versuchen",
+    "backToCommunity": "Zurück zur Community"
+  },
+  "profile": {
+    "loading": "Profil wird geladen…",
+    "loadError": "Dieses Profil konnte nicht geladen werden.",
+    "notFoundTitle": "Dieses Profil existiert nicht",
+    "notFoundBody": "Wir haben kein Konto mit diesem @username gefunden.",
+    "posts": "{count, plural, one {# Beitrag} other {# Beiträge}}",
+    "likes": "{count, plural, one {# Like} other {# Likes}}",
+    "editProfile": "Profil bearbeiten",
+    "newPost": "Neuer Beitrag",
+    "adminPanel": "Admin-Bereich",
+    "moderationPanel": "Moderationsbereich",
+    "developerPanel": "Developer-Bereich",
+    "ownPostsError": "Deine Beiträge konnten nicht geladen werden.",
+    "emptyTitle": "Noch keine Beiträge",
+    "emptyOwn": "Sobald du etwas veröffentlichst, erscheinen deine Beiträge hier.",
+    "emptyOther": "Sobald @{username} etwas veröffentlicht, erscheinen die Beiträge hier.",
+    "loadMore": "Mehr laden",
+    "loadingMore": "Wird geladen…",
+    "paused": "Beitrag pausiert",
+    "removed": "Entfernt",
+    "resolved": "Fall gelöst",
+    "tileImages": "{count, plural, one {# Bild} other {# Bilder}}",
+    "tileVideos": "{count, plural, one {# Video} other {# Videos}}",
+    "tileAnd": "{a} und {b}",
+    "tileWithMedia": "Beitrag mit {parts}",
+    "tileWithMediaDate": "Beitrag mit {parts}, {date}",
+    "tileText": "Textbeitrag: {preview}",
+    "tileTextDate": "Textbeitrag vom {date}: {preview}"
+  },
+  "post": {
+    "loading": "Beitrag wird geladen…",
+    "loadError": "Dieser Beitrag konnte nicht geladen werden.",
+    "notFoundTitle": "Dieser Beitrag existiert nicht",
+    "notFoundBody": "Er wurde möglicherweise gelöscht oder ist nicht verfügbar."
+  },
+  "section": {
+    "heading": "Community",
+    "recent": "Neueste",
+    "popular": "Beliebt",
+    "loading": "Beiträge werden geladen…",
+    "loadError": "Die Beiträge konnten nicht geladen werden.",
+    "emptyTitle": "Noch keine Beiträge",
+    "emptyBody": "Sobald die Community etwas veröffentlicht, erscheinen die Beiträge hier.",
+    "loadMore": "Mehr laden",
+    "loadingMore": "Wird geladen…"
+  },
+  "like": {
+    "like": "Gefällt mir ({count})",
+    "unlike": "„Gefällt mir“ entfernen ({count})"
+  },
+  "feed": {
+    "viewFull": "Ganzen Beitrag ansehen"
+  },
+  "media": {
+    "navigation": "Medien-Navigation",
+    "previous": "Zurück",
+    "next": "Weiter"
+  },
+  "menu": {
+    "manage": "Diesen Beitrag verwalten",
+    "edit": "Bearbeiten",
+    "delete": "Löschen",
+    "confirmTitle": "Diesen Beitrag löschen?",
+    "confirmBody": "Diese Aktion kann nicht rückgängig gemacht werden.",
+    "cancel": "Abbrechen",
+    "deleted": "Beitrag erfolgreich gelöscht",
+    "deleteFailed": "Der Beitrag konnte nicht gelöscht werden",
+    "deleteConflict": "Der Beitrag konnte nicht gelöscht werden. Er hat sich in der Zwischenzeit geändert. Bitte versuche es erneut."
+  },
+  "editor": {
+    "titleNew": "Neuer Beitrag",
+    "titleEdit": "Beitrag bearbeiten",
+    "close": "Schließen",
+    "checking": "Der Status deines Kontos wird geprüft…",
+    "checkError": "Wir konnten den Status deines Kontos nicht prüfen und haben den Editor deshalb nicht geöffnet. Bitte versuche es erneut.",
+    "retry": "Erneut versuchen"
+  },
+  "form": {
+    "textLabel": "Text des Beitrags",
+    "placeholder": "Was möchtest du teilen?",
+    "mediaLabel": "Medien (höchstens {max}, davon höchstens {videos, plural, one {# Video} other {# Videos}})",
+    "addMedia": "Fotos oder Videos hinzufügen",
+    "helper": "Fotos und Videos (MP4, MOV oder WebM, bis 100 MB, höchstens {videos, plural, one {# Video} other {# Videos}} pro Beitrag).",
+    "attachedVideo": "Angehängtes Video",
+    "processing": "Wird verarbeitet…",
+    "removeVideo": "Video entfernen",
+    "removeImage": "Bild entfernen",
+    "itemError": "Fehler",
+    "itemVideo": "Video",
+    "itemImage": "Bild",
+    "publish": "Veröffentlichen",
+    "publishing": "Wird veröffentlicht…",
+    "cancel": "Abbrechen",
+    "pickerMax": "Höchstens {max} Fotos oder Videos pro Beitrag.",
+    "pickerMaxVideos": "Höchstens {videos, plural, one {# Video} other {# Videos}} pro Beitrag.",
+    "pickerSize": "Videos dürfen 100 MB nicht überschreiten.",
+    "created": "Beitrag erfolgreich erstellt",
+    "updated": "Beitrag erfolgreich aktualisiert",
+    "createFailed": "Der Beitrag konnte nicht erstellt werden",
+    "updateFailed": "Der Beitrag konnte nicht aktualisiert werden",
+    "errors": {
+      "session": "Deine Sitzung ist nicht mehr gültig. Melde dich ab und erneut an.",
+      "empty": "Ein Beitrag braucht Text oder mindestens ein Bild.",
+      "conflict": "Dieser Beitrag hat sich geändert, während du ihn bearbeitet hast. Bitte versuche es erneut.",
+      "tooManyMedia": "Höchstens {max} Fotos oder Videos.",
+      "tooManyVideos": "Höchstens {videos, plural, one {# Video} other {# Videos}} pro Beitrag.",
+      "invalidText": "Höchstens {max} Zeichen.",
+      "invalidAsset": "Ein Foto oder Video ist nicht mehr verfügbar. Entferne die Dateien, die nicht angezeigt werden, und lade sie erneut hoch.",
+      "operation": "Der Vorgang konnte nicht abgeschlossen werden.",
+      "operationRetry": "Der Vorgang konnte nicht abgeschlossen werden. Bitte versuche es erneut."
+    },
+    "uploadErrors": {
+      "unsupported_type": "Nicht unterstützter Dateityp",
+      "too_large": "Die Datei ist zu groß",
+      "processing_failed": "Die Verarbeitung konnte nicht abgeschlossen werden",
+      "heic_unsupported_profile": "Dieses HEIC-Bild konnte nicht verarbeitet werden",
+      "verification_failed": "Die Datei konnte nicht überprüft werden",
+      "upload_incomplete": "Der Upload wurde nicht abgeschlossen",
+      "duration": "Das Video überschreitet die zulässige Dauer"
+    }
+  },
+  "author": {
+    "loading": "Beitrag wird geladen…",
+    "signInPrompt": "Melde dich an, um auf deinen Beitrag zuzugreifen.",
+    "signIn": "Anmelden",
+    "loadError": "Dieser Beitrag konnte nicht geladen werden.",
+    "retry": "Erneut versuchen",
+    "unavailable": "Dieser Beitrag ist nicht verfügbar.",
+    "backToProfile": "Zurück zu meinem Profil",
+    "statusLabel": "Status des Beitrags",
+    "pausedTitle": "Beitrag pausiert",
+    "removedTitle": "Beitrag entfernt",
+    "pausedBody": "Dieser Beitrag wurde vorübergehend ausgeblendet, während das Moderationsteam Meldungen prüft.",
+    "removedBody": "Dieser Beitrag wurde von der Moderation entfernt.",
+    "deleteAfter": "Er wird nach dem <time>{date}</time> endgültig gelöscht. Die anfängliche Aufbewahrungsfrist beträgt 72 Stunden (3 Tage).",
+    "moderationMessage": "Nachricht der Moderation",
+    "noProcede": "Der Fall wurde geprüft und es wurde kein Verstoß gegen die Community-Regeln festgestellt."
+  },
+  "restriction": {
+    "reason": "Grund:",
+    "changed": "Der Status deiner Einschränkung hat sich geändert. Bitte versuche es erneut.",
+    "title": "Veröffentlichen eingeschränkt",
+    "deleteHint": "Du kannst weiterhin deine eigenen Beiträge löschen.",
+    "noDetailHeadline": "Dein Konto hat eine aktive Einschränkung in der Community.",
+    "noDetailDuration": "Du kannst vorerst keine Community-Beiträge erstellen oder bearbeiten.",
+    "levelHeadline": "Dein Konto hat einen aktiven Strike {level} in der Community.",
+    "permanentDuration": "Du kannst dauerhaft keine Community-Beiträge erstellen oder bearbeiten.",
+    "until": "Du kannst bis {date} keine Beiträge erstellen oder bearbeiten.",
+    "firstHeadline": "Du hast deinen ersten Strike wegen eines Verstoßes gegen die Community-Regeln erhalten.",
+    "firstWarning": "Warnung: Strikes zählen weiter, auch wenn ihre befristete Einschränkung endet, sofern sie nicht aufgehoben werden. Ein zweiter Strike bedeutet eine Einschränkung von einem Monat und ein dritter den dauerhaften Verlust der Berechtigung zum Veröffentlichen.",
+    "secondHeadline": "Du hast deinen zweiten Strike erhalten.",
+    "secondWarning": "Letzte Warnung: Wenn du einen dritten Strike erhältst, verlierst du dauerhaft die Berechtigung, Beiträge in der Community zu erstellen und zu bearbeiten. Frühere Strikes zählen auch nach Ablauf ihrer Einschränkung weiter, sofern sie nicht aufgehoben werden."
+  }
+}

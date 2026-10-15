@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useId, useRef, useState, type FormEvent } from "react";
 import { usePrivilegedFailureReporter } from "@/hooks/privileged-failure";
 import { supabase } from "@/lib/supabase";
-import { reverifyTotp, type ReverifyResult } from "@/lib/totp-reverify";
+import { reverifyTotp } from "@/lib/totp-reverify";
+import { useTranslations } from "use-intl";
+import { useLocaleCode } from "@/i18n/useFormat";
 
 // Recuperaciones EXCEPCIONALES de MFA (Developer Panel V1). Solo se listan las solicitudes de un Admin
 // que es el único administrador elegible; cualquier otra la aprueba otro Admin por el flujo normal.
@@ -44,56 +46,10 @@ interface Pending {
   op: Op;
 }
 
-const STATUS_LABEL: Record<string, string> = {
-  pending_approval: "Pendiente de aprobación",
-  approved: "Aprobada, en espera",
-  executing: "Invalidando autenticador",
-  factors_deleted: "Autenticador invalidado, falta registrar el nuevo",
-  completed: "Completada",
-  denied: "Rechazada",
-  cancelled: "Cancelada",
-  expired: "Caducada",
-};
-const NOTICE_LABEL: Record<string, string> = {
-  pending: "aviso pendiente de envío",
-  accepted: "aviso enviado, sin confirmar entrega",
-  delivered: "aviso entregado",
-  failed: "aviso NO entregado",
-};
-const REVERIFY_ERRORS: Record<Exclude<ReverifyResult, "ok">, string> = {
-  invalid_format: "Introduce el código de 6 dígitos de tu autenticador.",
-  no_factor: "No encontramos un autenticador verificado en tu cuenta.",
-  invalid_code: "Código incorrecto o expirado.",
-  failed: "No se pudo verificar el código. Inténtalo de nuevo.",
-};
-const CODE_ERRORS: Record<string, string> = {
-  cooldown_active:
-    "Todavía no puedes aprobar: tu cuenta se convirtió en Developer hace poco. Actualizamos el tiempo restante.",
-  peer_available:
-    "Ahora existe otro administrador elegible: esta solicitud debe aprobarla otro administrador. Actualizamos la lista.",
-  not_eligible: "Esta solicitud no admite aprobación excepcional. Actualizamos la lista.",
-  self_approval: "No puedes decidir sobre tu propia recuperación.",
-  not_pending: "La solicitud ya no admite esta acción. Actualizamos la lista.",
-  expired: "La solicitud caducó. Actualizamos la lista.",
-  email_changed: "El correo de la cuenta cambió: la solicitud se canceló.",
-  role_changed: "El rol de la cuenta cambió: la solicitud se canceló.",
-  no_request: "Esta solicitud ya no está disponible. Actualizamos la lista.",
-  reason_required: "Escribe el motivo del rechazo.",
-  too_soon: "Espera al menos un minuto antes de enviar otro recordatorio.",
-  reminder_limit: "Ya se enviaron los 3 recordatorios permitidos para esta solicitud.",
-  notice_not_delivered:
-    "El aviso original todavía no consta como entregado. Actualizamos la lista.",
-  mail_unavailable: "El envío de correos no está disponible ahora mismo.",
-};
-const GENERIC = "No se pudo completar la operación. Inténtalo de nuevo.";
-const DONE: Record<Op, string> = {
-  approve: "Recuperación aprobada de forma excepcional.",
-  deny: "Recuperación rechazada.",
-  resend_notice: "Aviso reenviado.",
-};
+// Mensajes como marcadores `i18n:<clave>`; se traducen al renderizar.
+const MSG_SESSION = "i18n:session";
+const MSG_LIST = "i18n:listError";
 
-// Espera de seguridad tras convertirse en Developer: la calcula y exige el SERVIDOR (base de datos); aquí solo
-// se MUESTRA el tiempo restante que informa el servidor en el momento de cargar.
 interface Cooldown {
   ready: boolean;
   ready_at: string | null;
@@ -113,28 +69,32 @@ function parseCooldown(raw: unknown): Cooldown | null {
   };
 }
 
-function formatRemaining(seconds: number): string {
+type RecoveriesT = ReturnType<typeof useTranslations<"developer.recoveries">>;
+
+function formatRemaining(seconds: number, t: RecoveriesT): string {
   const minutes = Math.max(1, Math.ceil(seconds / 60));
-  if (minutes < 60) return `${minutes} ${minutes === 1 ? "minuto" : "minutos"}`;
+  if (minutes < 60) return t("minutes", { count: minutes });
   const hours = Math.floor(minutes / 60);
   const rest = minutes % 60;
-  const h = `${hours} ${hours === 1 ? "hora" : "horas"}`;
-  return rest === 0 ? h : `${h} y ${rest} ${rest === 1 ? "minuto" : "minutos"}`;
+  const h = t("hours", { count: hours });
+  return rest === 0
+    ? h
+    : t("hoursAndMinutes", { hours: h, minutes: t("minutes", { count: rest }) });
 }
 
-function formatTime(value: string): string {
+function formatTime(value: string, locale: string): string {
   const date = new Date(value);
   return Number.isNaN(date.getTime())
     ? ""
-    : date.toLocaleTimeString("es", { hour: "2-digit", minute: "2-digit" });
+    : date.toLocaleTimeString(locale, { hour: "2-digit", minute: "2-digit" });
 }
 
-function formatDate(value: string | null): string {
+function formatDate(value: string | null, locale: string): string {
   if (!value) return "—";
   const date = new Date(value);
   return Number.isNaN(date.getTime())
     ? "—"
-    : date.toLocaleString("es", { dateStyle: "medium", timeStyle: "short" });
+    : date.toLocaleString(locale, { dateStyle: "medium", timeStyle: "short" });
 }
 
 function parse(raw: unknown): Item[] | null {
@@ -174,6 +134,20 @@ async function token(): Promise<string | null> {
 }
 
 export default function DeveloperRecoveriesSection() {
+  const t = useTranslations("developer.recoveries");
+  const locale = useLocaleCode();
+  const label = (
+    group: "status" | "notice" | "codes" | "reverify",
+    key: string,
+  ): string | null => {
+    const path = `${group}.${key}`;
+    return t.has(path as never) ? (t as unknown as (k: string) => string)(path) : null;
+  };
+  const resolveMessage = (message: string): string =>
+    message.startsWith("i18n:")
+      ? (t as unknown as (k: string) => string)(`msg.${message.slice(5)}`)
+      : message;
+
   const headingId = useId();
   const reportFailure = usePrivilegedFailureReporter();
   const [items, setItems] = useState<Item[] | null>(null);
@@ -205,7 +179,7 @@ export default function DeveloperRecoveriesSection() {
     const jwt = await token();
     if (!current()) return;
     if (!jwt) {
-      setError("Tu sesión ya no es válida. Inicia sesión de nuevo.");
+      setError(MSG_SESSION);
       return;
     }
     try {
@@ -215,14 +189,14 @@ export default function DeveloperRecoveriesSection() {
       if (!current()) return;
       if (!response.ok) {
         reportFailure(response);
-        setError("No se pudo cargar la lista de solicitudes.");
+        setError(MSG_LIST);
         return;
       }
       const json: unknown = await response.json().catch(() => null);
       const parsed = parse(json);
       if (!current()) return;
       if (!parsed) {
-        setError("No se pudo cargar la lista de solicitudes.");
+        setError(MSG_LIST);
         return;
       }
       setError(null);
@@ -231,7 +205,7 @@ export default function DeveloperRecoveriesSection() {
       setCooldown(cd ? { value: cd, loadedAt: Date.now() } : null);
       setNow(Date.now());
     } catch {
-      if (current()) setError("No se pudo cargar la lista de solicitudes.");
+      if (current()) setError(MSG_LIST);
     }
   }, [reportFailure]);
 
@@ -268,7 +242,7 @@ export default function DeveloperRecoveriesSection() {
     event.preventDefault();
     if (!pending || lock.current) return;
     if (pending.op === "deny" && reason.trim().length === 0) {
-      setActionError(CODE_ERRORS.reason_required);
+      setActionError(t("codes.reason_required"));
       return;
     }
     lock.current = true;
@@ -280,14 +254,14 @@ export default function DeveloperRecoveriesSection() {
       const verified = await reverifyTotp(code);
       if (!mounted.current) return;
       if (verified !== "ok") {
-        setActionError(REVERIFY_ERRORS[verified]);
+        setActionError(label("reverify", verified) ?? t("generic"));
         return;
       }
       setCode("");
       // 2) La decisión, con el token nuevo. El servidor revalida rol, capacidad y recencia.
       const jwt = await token();
       if (!jwt) {
-        setActionError("Tu sesión ya no es válida. Inicia sesión de nuevo.");
+        setActionError(t("msg.session"));
         return;
       }
       const response = await fetch(ENDPOINT, {
@@ -306,11 +280,7 @@ export default function DeveloperRecoveriesSection() {
           code?: unknown;
         } | null;
         const key = typeof body?.code === "string" ? body.code : "";
-        setActionError(
-          response.status === 403 && key === "step_up_required"
-            ? "Tu verificación en dos pasos no es lo bastante reciente. Vuelve a introducir el código."
-            : (CODE_ERRORS[key] ?? GENERIC),
-        );
+        setActionError(label("codes", key) ?? t("generic"));
         if ([404, 409, 410].includes(response.status) && key !== "reminder_limit") {
           close();
           void load();
@@ -326,16 +296,12 @@ export default function DeveloperRecoveriesSection() {
       const wasDelivered =
         pending.op === "resend_notice" &&
         (items ?? []).find((i) => i.id === pending.id)?.notice_state === "delivered";
-      const done = wasDelivered ? "Recordatorio enviado a la persona." : DONE[pending.op];
-      setNotice(
-        failedNotice
-          ? `${done} Atención: el aviso a la persona no se pudo enviar; sin entrega confirmada no podrá ejecutarlo. Puedes reenviarlo.`
-          : done,
-      );
+      const done = wasDelivered ? t("done.reminder") : t(`done.${pending.op}`);
+      setNotice(failedNotice ? `${done} ${t("failedNotice")}` : done);
       close();
       void load();
     } catch {
-      if (mounted.current) setActionError(GENERIC);
+      if (mounted.current) setActionError(t("generic"));
     } finally {
       lock.current = false;
       if (mounted.current) setBusy(false);
@@ -349,18 +315,12 @@ export default function DeveloperRecoveriesSection() {
     pending?.id === i.id ? (
       <form className="mt-3 flex flex-col gap-2" onSubmit={(e) => void submit(e)}>
         <p className="text-sm text-text-secondary">
-          Confirma con tu autenticador para{" "}
-          {pending.op === "approve"
-            ? `aprobar de forma excepcional la recuperación de ${name}`
-            : pending.op === "deny"
-              ? `rechazar la recuperación de ${name}`
-              : `reenviar el aviso a ${name}`}
-          .
+          {t("confirmWith", { action: t(`action.${pending.op}`, { name }) })}
         </p>
         {pending.op === "deny" ? (
           <>
             <label className="text-sm text-text-secondary" htmlFor={`reason-${i.id}`}>
-              Motivo del rechazo
+              {t("reasonLabel")}
             </label>
             <input
               id={`reason-${i.id}`}
@@ -372,7 +332,7 @@ export default function DeveloperRecoveriesSection() {
           </>
         ) : null}
         <label className="text-sm text-text-secondary" htmlFor={`totp-${i.id}`}>
-          Código del autenticador
+          {t("totpLabel")}
         </label>
         <input
           id={`totp-${i.id}`}
@@ -389,10 +349,10 @@ export default function DeveloperRecoveriesSection() {
             className={SECONDARY}
             disabled={busy || code.length !== 6}
           >
-            {busy ? "Verificando…" : "Confirmar"}
+            {busy ? t("verifying") : t("confirm")}
           </button>
           <button type="button" className={SECONDARY} disabled={busy} onClick={close}>
-            Cancelar
+            {t("cancel")}
           </button>
         </div>
       </form>
@@ -413,26 +373,21 @@ export default function DeveloperRecoveriesSection() {
       data-testid="developer-recoveries"
     >
       <h2 id={headingId} className="font-display text-xl tracking-wide text-text-primary">
-        Recuperaciones excepcionales
+        {t("heading")}
       </h2>
-      <p className="mt-2 text-sm text-text-secondary">
-        Solicitudes de un administrador que es el único administrador elegible. Aprueba
-        solo si reconoces la petición por otro canal; no puedes decidir sobre la tuya. Si
-        existe otro administrador elegible, la solicitud desaparece de esta lista y la
-        aprueba él.
-      </p>
+      <p className="mt-2 text-sm text-text-secondary">{t("intro")}</p>
       {waiting ? (
         <p
           role="status"
           className="mt-3 text-sm text-text-secondary"
           data-testid="developer-cooldown"
         >
-          Acabas de convertirte en Developer. Por seguridad, podrás aprobar recuperaciones
-          excepcionales dentro de {formatRemaining(remaining)}
-          {cooldown?.value.ready_at
-            ? ` (a las ${formatTime(cooldown.value.ready_at)})`
-            : ""}
-          . Mientras tanto puedes revisarlas y rechazarlas.
+          {t("cooldown", {
+            remaining: formatRemaining(remaining, t),
+            at: cooldown?.value.ready_at
+              ? ` ${t("atTime", { time: formatTime(cooldown.value.ready_at, locale) })}`
+              : "",
+          })}
         </p>
       ) : null}
       {notice ? (
@@ -447,50 +402,49 @@ export default function DeveloperRecoveriesSection() {
       ) : null}
       {error ? (
         <p role="alert" className="mt-3 text-sm text-accent-live">
-          {error}
+          {" "}
+          {resolveMessage(error)}
         </p>
       ) : null}
       {items && !error ? (
         <>
           <h3 className="mt-4 text-sm font-semibold text-text-primary">
-            Pendientes de decisión ({eligible.length})
+            {t("pendingHeading", { count: eligible.length })}
           </h3>
           {eligible.length === 0 ? (
-            <p className="mt-2 text-sm text-text-secondary">
-              No hay solicitudes elegibles para aprobación excepcional.
-            </p>
+            <p className="mt-2 text-sm text-text-secondary">{t("noEligible")}</p>
           ) : (
             <ul className="mt-2 flex flex-col gap-3">
               {eligible.map((i) => {
-                const name = i.username ? `@${i.username}` : "Cuenta sin perfil";
+                const name = i.username ? `@${i.username}` : t("noProfile");
                 return (
                   <li key={i.id} className="rounded-md border border-border-subtle p-4">
                     <p className="font-semibold text-text-primary">
                       {name} · {i.role ?? "—"}
                     </p>
                     <p className="mt-1 text-sm text-text-secondary">
-                      {STATUS_LABEL[i.status] ?? i.status}
-                      {i.email_verified_at ? " · correo verificado" : ""} · solicitada{" "}
-                      {formatDate(i.requested_at)}
+                      {label("status", i.status) ?? i.status}
+                      {i.email_verified_at ? ` · ${t("emailVerified")}` : ""} ·{" "}
+                      {t("requestedOn", { date: formatDate(i.requested_at, locale) })}
                     </p>
                     <div className="mt-3 flex flex-wrap gap-3">
                       <button
                         type="button"
                         disabled={busy || waiting}
                         className={SECONDARY}
-                        aria-label={`Aprobar de forma excepcional la recuperación de ${name}`}
+                        aria-label={t("approveAria", { name })}
                         onClick={() => open(i.id, "approve")}
                       >
-                        Aprobar excepcionalmente
+                        {t("approveButton")}
                       </button>
                       <button
                         type="button"
                         disabled={busy}
                         className={SECONDARY}
-                        aria-label={`Rechazar la recuperación de ${name}`}
+                        aria-label={t("rejectAria", { name })}
                         onClick={() => open(i.id, "deny")}
                       >
-                        Rechazar
+                        {t("reject")}
                       </button>
                     </div>
                     {form(i, name)}
@@ -501,14 +455,14 @@ export default function DeveloperRecoveriesSection() {
           )}
 
           <h3 className="mt-6 text-sm font-semibold text-text-primary">
-            Historial ({history.length})
+            {t("historyHeading", { count: history.length })}
           </h3>
           {history.length === 0 ? (
-            <p className="mt-2 text-sm text-text-secondary">Sin decisiones recientes.</p>
+            <p className="mt-2 text-sm text-text-secondary">{t("noHistory")}</p>
           ) : (
             <ul className="mt-2 flex flex-col gap-3">
               {history.map((i) => {
-                const name = i.username ? `@${i.username}` : "Cuenta sin perfil";
+                const name = i.username ? `@${i.username}` : t("noProfile");
                 const exceptionalApproved =
                   i.status === "approved" && i.approval_kind === "exceptional";
                 return (
@@ -517,15 +471,24 @@ export default function DeveloperRecoveriesSection() {
                       {name} · {i.role ?? "—"}
                     </p>
                     <p className="mt-1 text-sm text-text-secondary">
-                      {STATUS_LABEL[i.status] ?? i.status}
+                      {label("status", i.status) ?? i.status}
                       {i.approval_kind === "exceptional"
-                        ? ` · aprobación excepcional${i.approver_username ? ` de @${i.approver_username}` : ""} (${formatDate(i.approved_at)})`
+                        ? ` · ${
+                            i.approver_username
+                              ? t("exceptionalApprovalBy", {
+                                  approver: i.approver_username,
+                                  date: formatDate(i.approved_at, locale),
+                                })
+                              : t("exceptionalApproval", {
+                                  date: formatDate(i.approved_at, locale),
+                                })
+                          }`
                         : ""}
                       {i.closed_reason === "denied_by_developer"
-                        ? " · rechazada por un Developer"
+                        ? ` · ${t("deniedByDeveloper")}`
                         : ""}
                       {exceptionalApproved
-                        ? ` · ${i.notice_state ? NOTICE_LABEL[i.notice_state] : "aviso no registrado"}`
+                        ? ` · ${i.notice_state ? (label("notice", i.notice_state) ?? i.notice_state) : t("noticeUnregistered")}`
                         : ""}
                     </p>
                     {exceptionalApproved ? (
@@ -534,19 +497,19 @@ export default function DeveloperRecoveriesSection() {
                           type="button"
                           disabled={busy}
                           className={SECONDARY}
-                          aria-label={`Reenviar el aviso a ${name}`}
+                          aria-label={t("resendAria", { name })}
                           onClick={() => open(i.id, "resend_notice")}
                         >
-                          Reenviar aviso
+                          {t("resend")}
                         </button>
                         <button
                           type="button"
                           disabled={busy}
                           className={SECONDARY}
-                          aria-label={`Revertir la aprobación de ${name}`}
+                          aria-label={t("revertAria", { name })}
                           onClick={() => open(i.id, "deny")}
                         >
-                          Revertir aprobación
+                          {t("revert")}
                         </button>
                       </div>
                     ) : null}

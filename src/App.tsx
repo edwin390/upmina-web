@@ -1,4 +1,5 @@
 import { lazy, Suspense, useEffect, useState } from "react";
+import { lazyPage } from "./i18n/lazyPage";
 import { Navigate, Route, Routes } from "react-router-dom";
 import Header from "./components/layout/Header";
 import Footer from "./components/layout/Footer";
@@ -19,15 +20,24 @@ const TwitchSection = lazy(() => import("./components/twitch/TwitchSection"));
 const YouTubeSection = lazy(() => import("./components/youtube/YouTubeSection"));
 const InstagramSection = lazy(() => import("./components/instagram/InstagramSection"));
 const TikTokSection = lazy(() => import("./components/tiktok/TikTokSection"));
-const CommunitySection = lazy(() => import("./components/community/CommunitySection"));
+const CommunitySection = lazyPage(
+  () => import("./components/community/CommunitySection"),
+  ["auth", "community", "moderation"],
+);
 // /@username (Fase 9J-2B): perfil público de Comunidad, su propio chunk.
-const ProfilePage = lazy(() => import("./pages/ProfilePage"));
+const ProfilePage = lazyPage(() => import("./pages/ProfilePage"), ["auth", "community"]);
 // /community/post/:postId (Fase 9J-2B.1): detalle público de una publicación, su propio chunk.
-const PostDetailPage = lazy(() => import("./pages/PostDetailPage"));
+const PostDetailPage = lazyPage(
+  () => import("./pages/PostDetailPage"),
+  ["auth", "community", "moderation"],
+);
 // Fase 9I-1: su propio chunk, con use-intl y los mensajes ES/EN/DE dentro (CosplayLocaleProvider)
 // — nunca entran en el bundle de las demás secciones.
-const CosplayPage = lazy(() => import("./pages/CosplayPage"));
-const CosplayDetailPage = lazy(() => import("./pages/CosplayDetailPage"));
+const CosplayPage = lazyPage(() => import("./pages/CosplayPage"), ["cosplay"]);
+const CosplayDetailPage = lazyPage(
+  () => import("./pages/CosplayDetailPage"),
+  ["cosplay"],
+);
 // Arnés de desarrollo del pipeline de medios (Fase 9I-2B): import.meta.env.DEV se resuelve en
 // tiempo de build, así que Vite elimina por completo este import y la ruta que lo monta de
 // cualquier build de producción — no es "oculto", literalmente no existe en ese bundle.
@@ -35,26 +45,54 @@ const MediaHarnessPage = import.meta.env.DEV
   ? lazy(() => import("./pages/dev/MediaHarnessPage"))
   : null;
 // Su propio chunk: las páginas /admin/* solo se descargan al entrar a /admin/*.
-const LoginPage = lazy(() => import("./pages/LoginPage"));
-const SignupPage = lazy(() => import("./pages/SignupPage"));
-const ForgotPasswordPage = lazy(() => import("./pages/ForgotPasswordPage"));
-const CopyrightClaimPage = lazy(() => import("./pages/CopyrightClaimPage"));
-const CopyrightAppealPage = lazy(() => import("./pages/CopyrightAppealPage"));
-const ResetPasswordPage = lazy(() => import("./pages/ResetPasswordPage"));
-const AccountPage = lazy(() => import("./pages/AccountPage"));
-const AccountDeletionPage = lazy(() => import("./pages/AccountDeletionPage"));
-const AdminAuthLayout = lazy(() => import("./pages/admin/AdminAuthLayout"));
-const AdminLoginPage = lazy(() => import("./pages/admin/AdminLoginPage"));
-const AdminSignupPage = lazy(() => import("./pages/admin/AdminSignupPage"));
-const AdminMfaPage = lazy(() => import("./pages/admin/AdminMfaPage"));
-const AdminActivatePage = lazy(() => import("./pages/admin/AdminActivatePage"));
-const AdminMfaRecoveryPage = lazy(() => import("./pages/admin/AdminMfaRecoveryPage"));
-const AdminMfaRecoveryCancelPage = lazy(
-  () => import("./pages/admin/AdminMfaRecoveryCancelPage"),
+const LoginPage = lazyPage(() => import("./pages/LoginPage"), ["auth"]);
+const SignupPage = lazyPage(() => import("./pages/SignupPage"), ["auth"]);
+const ForgotPasswordPage = lazyPage(() => import("./pages/ForgotPasswordPage"), ["auth"]);
+const CopyrightClaimPage = lazyPage(
+  () => import("./pages/CopyrightClaimPage"),
+  ["moderation"],
 );
-const AdminDashboardPage = lazy(() => import("./pages/admin/AdminDashboardPage"));
-const DeveloperPage = lazy(() => import("./pages/admin/DeveloperPage"));
-const AdminModerationPage = lazy(() => import("./pages/admin/AdminModerationPage"));
+const CopyrightAppealPage = lazyPage(
+  () => import("./pages/CopyrightAppealPage"),
+  ["moderation"],
+);
+const ResetPasswordPage = lazyPage(() => import("./pages/ResetPasswordPage"), ["auth"]);
+const AccountPage = lazyPage(() => import("./pages/AccountPage"), ["account", "auth"]);
+const AccountDeletionPage = lazyPage(
+  () => import("./pages/AccountDeletionPage"),
+  ["auth"],
+);
+const AdminAuthLayout = lazy(() => import("./pages/admin/AdminAuthLayout"));
+const AdminLoginPage = lazyPage(() => import("./pages/admin/AdminLoginPage"), ["admin"]);
+const AdminSignupPage = lazyPage(
+  () => import("./pages/admin/AdminSignupPage"),
+  ["admin", "auth"],
+);
+const AdminMfaPage = lazyPage(() => import("./pages/admin/AdminMfaPage"), ["admin"]);
+const AdminActivatePage = lazyPage(
+  () => import("./pages/admin/AdminActivatePage"),
+  ["admin"],
+);
+const AdminMfaRecoveryPage = lazyPage(
+  () => import("./pages/admin/AdminMfaRecoveryPage"),
+  ["admin"],
+);
+const AdminMfaRecoveryCancelPage = lazyPage(
+  () => import("./pages/admin/AdminMfaRecoveryCancelPage"),
+  ["admin"],
+);
+const AdminDashboardPage = lazyPage(
+  () => import("./pages/admin/AdminDashboardPage"),
+  ["admin"],
+);
+const DeveloperPage = lazyPage(
+  () => import("./pages/admin/DeveloperPage"),
+  ["auth", "developer"],
+);
+const AdminModerationPage = lazyPage(
+  () => import("./pages/admin/AdminModerationPage"),
+  ["moderation"],
+);
 
 function SectionFallback() {
   return (

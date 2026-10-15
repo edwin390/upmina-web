@@ -3,16 +3,19 @@ import { Link, NavLink } from "react-router-dom";
 import clsx from "clsx";
 import { useAuth } from "@/lib/auth-context";
 import { useOwnProfile } from "@/hooks/useOwnProfile";
+import { useTranslations } from "use-intl";
+import LanguageSwitcher from "./LanguageSwitcher";
 
+// Orden de la navegación: Inicio, Twitch, YouTube, Instagram, TikTok, Cosplays, Comunidad (Comunidad al final).
 const NAV_LINKS = [
-  { to: "/", label: "Inicio" },
-  { to: "/twitch", label: "Twitch" },
-  { to: "/youtube", label: "YouTube" },
-  { to: "/instagram", label: "Instagram" },
-  { to: "/tiktok", label: "TikTok" },
-  { to: "/community", label: "Comunidad" },
-  { to: "/cosplay", label: "Cosplay" },
-];
+  { to: "/", key: "home" },
+  { to: "/twitch", key: "twitch" },
+  { to: "/youtube", key: "youtube" },
+  { to: "/instagram", key: "instagram" },
+  { to: "/tiktok", key: "tiktok" },
+  { to: "/cosplay", key: "cosplay" },
+  { to: "/community", key: "community" },
+] as const;
 
 // Estado de sesión en la navegación (Bloques 6B/6C/6E; renombrado a "Perfil" en 9J-2B.1): el
 // perfil público /@username es ahora la experiencia social/de cuenta PRIMARIA — visitante ->
@@ -33,6 +36,7 @@ function SessionAction({
 }) {
   const { session, loading } = useAuth();
   const { profile } = useOwnProfile();
+  const t = useTranslations("site.header");
 
   if (loading) {
     return (
@@ -61,7 +65,7 @@ function SessionAction({
           : "block rounded-md px-3 py-2 text-sm text-text-secondary transition-colors duration-200 ease-smooth hover:bg-bg-elevated hover:text-accent-primary"
       }
     >
-      {session ? "Perfil" : "Iniciar sesión"}
+      {session ? t("profile") : t("login")}
     </Link>
   );
 }
@@ -73,6 +77,7 @@ interface HeaderProps {
 export default function Header({ onLogoDoubleClick }: HeaderProps) {
   const [isScrolled, setIsScrolled] = useState(false);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const t = useTranslations("site.header");
 
   useEffect(() => {
     const handleScroll = () => setIsScrolled(window.scrollY > 80);
@@ -108,7 +113,7 @@ export default function Header({ onLogoDoubleClick }: HeaderProps) {
         <Link
           to="/"
           onDoubleClick={onLogoDoubleClick}
-          title="Doble click para una sorpresa"
+          title={t("logoTitle")}
           className="font-display text-2xl tracking-wide text-text-primary transition-transform duration-200 ease-bounce hover:scale-105 hover:text-accent-primary"
         >
           UPMINAA
@@ -129,7 +134,7 @@ export default function Header({ onLogoDoubleClick }: HeaderProps) {
             >
               {({ isActive }) => (
                 <>
-                  {link.label}
+                  {t(link.key)}
                   <span
                     className={clsx(
                       "absolute -bottom-2 left-1/2 h-px -translate-x-1/2 bg-accent-primary transition-all duration-200 ease-bounce group-hover:w-full",
@@ -143,6 +148,7 @@ export default function Header({ onLogoDoubleClick }: HeaderProps) {
         </nav>
 
         <div className="flex items-center gap-2">
+          <LanguageSwitcher className="hidden md:inline-flex" />
           <SessionAction variant="desktop" />
           <a
             href="https://twitch.tv/upminaa"
@@ -150,7 +156,7 @@ export default function Header({ onLogoDoubleClick }: HeaderProps) {
             rel="noreferrer noopener"
             className="rounded-md bg-accent-primary px-4 py-2 text-sm font-semibold text-text-inverse shadow-glow-primary transition-transform duration-200 ease-bounce hover:scale-105 hover:bg-accent-secondary"
           >
-            Ver en Twitch
+            {t("watchOnTwitch")}
           </a>
 
           <button
@@ -158,7 +164,7 @@ export default function Header({ onLogoDoubleClick }: HeaderProps) {
             onClick={() => setIsMenuOpen((open) => !open)}
             aria-expanded={isMenuOpen}
             aria-controls="mobile-nav"
-            aria-label={isMenuOpen ? "Cerrar menú" : "Abrir menú"}
+            aria-label={isMenuOpen ? t("closeMenu") : t("openMenu")}
             className="inline-flex h-9 w-9 flex-col items-center justify-center gap-1.5 rounded-md text-text-primary transition-colors duration-200 ease-smooth hover:text-accent-primary md:hidden"
           >
             <span
@@ -203,10 +209,11 @@ export default function Header({ onLogoDoubleClick }: HeaderProps) {
                 )
               }
             >
-              {link.label}
+              {t(link.key)}
             </NavLink>
           ))}
           <SessionAction variant="mobile" onNavigate={closeMenu} />
+          <LanguageSwitcher className="mt-1 self-start" />
         </nav>
       )}
     </header>

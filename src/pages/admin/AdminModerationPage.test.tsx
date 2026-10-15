@@ -1089,7 +1089,9 @@ describe("R5-E strike UX in moderation History", () => {
   async function openHistory() {
     renderPage();
     const slow = { timeout: 5000 };
-    fireEvent.click(await screen.findByRole("button", { name: "Historial" }, slow));
+    fireEvent.click(
+      await screen.findByRole("button", { name: /^(Historial|History)$/ }, slow),
+    );
     fireEvent.click(await screen.findByRole("button", { name: /Contenido 1/ }, slow));
     await screen.findByRole(
       "region",
@@ -1628,7 +1630,7 @@ describe("R5-E strike UX in moderation History", () => {
       expect(audit).toHaveTextContent("Sanción");
       expect(audit.textContent).not.toContain("strike_applied");
     });
-    it("con el idioma en inglés la auditoría se traduce (el resto del panel no cambia)", async () => {
+    it("con el idioma en inglés la auditoría y el panel se traducen", async () => {
       window.localStorage.setItem("upmina:locale", "en");
       strikeSetup({
         ...closedCase(),

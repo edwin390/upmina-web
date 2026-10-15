@@ -2,6 +2,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { notifySocialDisconnected } from "@/lib/social-content-cache";
 import { supabase } from "@/lib/supabase";
 import { usePrivilegedFailureReporter } from "@/hooks/privileged-failure";
+import { useTranslations } from "use-intl";
+import { useLocaleCode } from "@/i18n/useFormat";
 
 // Sección "Redes sociales" de /admin (Bloque 8E, ciclo de vida en la Fase 9H-3). Vive DENTRO del
 // shell ya autorizado por GET /api/admin/me: el frontend no decide quién es ADMIN. Las llamadas que
@@ -38,13 +40,6 @@ const PROVIDERS: { id: SocialProvider; name: string; host: string }[] = [
   { id: "tiktok", name: "TikTok", host: "www.tiktok.com" },
 ];
 
-const STATUS_LABEL: Record<SocialConnectionStatus, string> = {
-  connected: "Conectado",
-  expiring_soon: "Caduca pronto",
-  not_connected: "No conectado",
-  reauth_required: "Requiere autorización",
-};
-
 const STATUS_DOT: Record<SocialConnectionStatus, string> = {
   connected: "bg-accent-success",
   expiring_soon: "bg-accent-warning",
@@ -52,20 +47,12 @@ const STATUS_DOT: Record<SocialConnectionStatus, string> = {
   reauth_required: "bg-accent-warning",
 };
 
-const STATUS_HINT: Partial<Record<SocialConnectionStatus, string>> = {
-  expiring_soon:
-    "La autorización necesita renovarse pronto: reconecta antes de que caduque.",
-  reauth_required:
-    "La autorización guardada ya no es válida. Reconecta para que la sección vuelva a mostrar contenido.",
-};
-
-const MSG_SESSION = "Tu sesión ya no es válida. Inicia sesión de nuevo.";
-const MSG_FORBIDDEN =
-  "No se pudo autorizar esta acción. Comprueba tu verificación en dos pasos e inténtalo de nuevo.";
-const MSG_LOAD = "No se pudo cargar el estado de las conexiones.";
-const MSG_CONNECT = "No pudimos iniciar la conexión. Inténtalo de nuevo.";
-const MSG_UNAVAILABLE = "Esta conexión solo está disponible en el entorno de producción.";
-// Cuerpo EXACTO con el que el servidor rechaza el inicio fuera de Production (403 tras autorizar).
+// Mensajes como marcadores `i18n:<clave>[|<nombre>]`; se traducen al renderizar (resolveMessage).
+const MSG_SESSION = "i18n:session";
+const MSG_FORBIDDEN = "i18n:forbidden";
+const MSG_LOAD = "i18n:load";
+const MSG_CONNECT = "i18n:connect";
+const MSG_UNAVAILABLE = "i18n:unavailable";
 const ENV_UNAVAILABLE_ERROR = "No disponible en este entorno";
 
 const PRIMARY_BUTTON_CLASS =
@@ -111,8 +98,8 @@ function parseConnections(body: unknown): Connections | null {
 }
 
 /** Fecha legible y determinista (UTC): nunca depende de la zona horaria del navegador. */
-function formatDate(iso: string): string {
-  return new Date(iso).toLocaleDateString("es", {
+function formatDate(iso: string, locale: string): string {
+  return new Date(iso).toLocaleDateString(locale, {
     day: "numeric",
     month: "short",
     year: "numeric",
@@ -138,10 +125,22 @@ function connectMessage(status: number): string {
   return MSG_CONNECT;
 }
 
+type SocialT = ReturnType<typeof useTranslations<"admin.social">>;
+
+/** Traduce un marcador `i18n:<clave>[|<nombre>]`; cualquier otro texto se muestra tal cual. */
+function resolveMessage(message: string, t: SocialT): string {
+  if (!message.startsWith("i18n:")) return message;
+  const [key, name = ""] = message.slice(5).split("|");
+  return (t as unknown as (k: string, v?: Record<string, string>) => string)(
+    `msg.${key}`,
+    { name },
+  );
+}
+
 function disconnectMessage(status: number, name: string): string {
   if (status === 401) return MSG_SESSION;
   if (status === 403) return MSG_FORBIDDEN;
-  return `No pudimos desconectar ${name}. Inténtalo de nuevo.`;
+  return `i18n:disconnectFailed|${name}`;
 }
 
 /** ¿Es el 403 "no disponible en este entorno"? Solo ese cuerpo exacto; cualquier otro 403 (incluido
@@ -204,6 +203,8 @@ export function SocialConnectionCard({
   onConnect,
   disconnect,
 }: CardProps) {
+  const t = useTranslations("admin.social");
+  const locale = useLocaleCode();
   const triggerRef = useRef<HTMLButtonElement | null>(null);
   const cancelRef = useRef<HTMLButtonElement | null>(null);
   const wasConfirmingRef = useRef(false);
@@ -222,11 +223,14 @@ export function SocialConnectionCard({
 
   const action =
     status === "not_connected"
-      ? `Conectar ${name}`
+      ? t("connect", { name })
       : status === "reauth_required" || status === "expiring_soon"
-        ? `Reconectar ${name}`
+        ? t("reconnect", { name })
         : null;
-  const hint = STATUS_HINT[status];
+  const hint =
+    status === "expiring_soon" || status === "reauth_required"
+      ? t(`hint.${status}`)
+      : null;
   const canDisconnect = disconnect !== undefined && status !== "not_connected";
   const warn = status === "reauth_required" || status === "expiring_soon";
 
@@ -250,12 +254,12 @@ export function SocialConnectionCard({
             aria-hidden="true"
             className={`inline-block h-2 w-2 shrink-0 rounded-full ${STATUS_DOT[status]}`}
           />
-          <span>{STATUS_LABEL[status]}</span>
+          <span>{t(`status.${status}`)}</span>
         </p>
         {expiresAt && (status === "connected" || status === "expiring_soon") ? (
           <p className="mt-1 text-xs text-text-muted">
-            {status === "expiring_soon" ? "Caduca el" : "Vigente hasta el"}{" "}
-            <time dateTime={expiresAt}>{formatDate(expiresAt)}</time>
+            {status === "expiring_soon" ? t("expiresOn") : t("validUntil")}{" "}
+            <time dateTime={expiresAt}>{formatDate(expiresAt, locale)}</time>
           </p>
         ) : null}
         {hint ? <p className="mt-2 text-sm text-text-secondary">{hint}</p> : null}
@@ -270,7 +274,7 @@ export function SocialConnectionCard({
             aria-busy={pending}
             className={PRIMARY_BUTTON_CLASS}
           >
-            {pending ? `Conectando ${name}…` : action}
+            {pending ? t("connecting", { name }) : action}
           </button>
         ) : null}
         {canDisconnect && !confirming ? (
@@ -281,7 +285,7 @@ export function SocialConnectionCard({
             disabled={disabled}
             className={DANGER_BUTTON_CLASS}
           >
-            Desconectar {name}
+            {t("disconnect", { name })}
           </button>
         ) : null}
       </div>
@@ -289,13 +293,10 @@ export function SocialConnectionCard({
       {canDisconnect && confirming ? (
         <div
           role="group"
-          aria-label={`Confirmar desconexión de ${name}`}
+          aria-label={t("confirmGroup", { name })}
           className="mt-4 rounded-md border border-accent-live/40 p-3"
         >
-          <p className="text-sm text-text-secondary">
-            ¿Desconectar {name}? El sitio dejará de mostrar contenido de esta cuenta hasta
-            que la vuelvas a conectar.
-          </p>
+          <p className="text-sm text-text-secondary">{t("confirmText", { name })}</p>
           <div className="mt-3 flex flex-wrap gap-2">
             <button
               type="button"
@@ -305,8 +306,8 @@ export function SocialConnectionCard({
               className={DANGER_BUTTON_CLASS}
             >
               {disconnect.busy
-                ? `Desconectando ${name}…`
-                : `Confirmar desconexión de ${name}`}
+                ? t("disconnecting", { name })
+                : t("confirmGroup", { name })}
             </button>
             <button
               ref={cancelRef}
@@ -315,7 +316,7 @@ export function SocialConnectionCard({
               disabled={disconnect.busy}
               className={SECONDARY_BUTTON_CLASS}
             >
-              Cancelar
+              {t("cancel")}
             </button>
           </div>
         </div>
@@ -323,17 +324,19 @@ export function SocialConnectionCard({
 
       {status === "not_connected" && !notice ? (
         <p role="status" className="mt-3 text-sm text-text-secondary">
-          {name} está desconectado
+          {t("isDisconnected", { name })}
         </p>
       ) : null}
       {notice ? (
         <p role="status" className="mt-3 text-sm text-text-secondary">
-          {notice}
+          {" "}
+          {resolveMessage(notice, t)}
         </p>
       ) : null}
       {error ? (
         <p role="alert" className="mt-3 text-sm text-accent-live">
-          {error}
+          {" "}
+          {resolveMessage(error, t)}
         </p>
       ) : null}
     </li>
@@ -348,6 +351,7 @@ interface SectionProps {
 export default function SocialConnectionsSection({
   navigate = (url) => window.location.assign(url),
 }: SectionProps) {
+  const t = useTranslations("admin.social");
   const reportFailure = usePrivilegedFailureReporter();
   const [load, setLoad] = useState<LoadState>({ kind: "loading" });
   const [pending, setPending] = useState<SocialProvider | null>(null);
@@ -551,8 +555,8 @@ export default function SocialConnectionsSection({
         setNotice({
           provider,
           message: cleaned
-            ? `${name} desconectado.`
-            : `${name} desconectado. Las copias públicas pueden tardar hasta 1 minuto en desaparecer.`,
+            ? `i18n:disconnected|${name}`
+            : `i18n:disconnectedLater|${name}`,
         });
         void loadStatus();
         return;
@@ -585,29 +589,27 @@ export default function SocialConnectionsSection({
         id="admin-social-heading"
         className="font-display text-xl tracking-wide text-text-primary"
       >
-        Redes sociales
+        {t("heading")}
       </h2>
-      <p className="mt-2 text-sm text-text-secondary">
-        Las cuentas oficiales que alimentan las secciones de Instagram y TikTok.
-      </p>
+      <p className="mt-2 text-sm text-text-secondary">{t("intro")}</p>
 
       {load.kind === "loading" ? (
         <p className="mt-4 text-sm text-text-secondary" role="status">
-          Cargando conexiones…
+          {t("loading")}
         </p>
       ) : null}
 
       {load.kind === "error" ? (
         <div className="mt-4">
           <p role="alert" className="text-sm text-accent-live">
-            {load.message}
+            {resolveMessage(load.message, t)}
           </p>
           <button
             type="button"
             onClick={() => void loadStatus()}
             className={`${SECONDARY_BUTTON_CLASS} mt-3`}
           >
-            Reintentar
+            {t("retry")}
           </button>
         </div>
       ) : null}

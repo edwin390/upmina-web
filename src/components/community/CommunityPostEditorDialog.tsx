@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import CommunityPostEditorGate from "./CommunityPostEditorGate";
 import type { CommunityOwnPost } from "@/lib/community-client";
+import { useTranslations } from "use-intl";
 
 // Modal ligero para "Nueva publicación"/"Editar publicación" desde el perfil público PROPIO
 // (Fase 9J-2B.1, ver ProfilePage.tsx). Nunca reimplementa el formulario: envuelve
@@ -22,6 +23,7 @@ export default function CommunityPostEditorDialog({
   onClose,
   onSaved,
 }: CommunityPostEditorDialogProps) {
+  const t = useTranslations("community.editor");
   const panelRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -52,12 +54,12 @@ export default function CommunityPostEditorDialog({
             id="community-post-editor-heading"
             className="font-display text-xl tracking-wide text-text-primary"
           >
-            {initialPost ? "Editar publicación" : "Nueva publicación"}
+            {initialPost ? t("titleEdit") : t("titleNew")}
           </h2>
           <button
             type="button"
             onClick={onClose}
-            aria-label="Cerrar"
+            aria-label={t("close")}
             className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-border-subtle text-text-secondary transition-colors hover:border-accent-primary/60 hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-secondary"
           >
             <span aria-hidden="true">×</span>

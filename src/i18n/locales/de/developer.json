@@ -1,0 +1,150 @@
+{
+  "page": {
+    "title": "Developer-Bereich",
+    "checking": "Deine Sitzung wird geprüft…",
+    "invalidSession": "Deine Sitzung ist nicht mehr gültig. Melde dich ab und erneut an.",
+    "signOut": "Abmelden",
+    "accessError": "Dein Zugriff konnte nicht geprüft werden. Bitte versuche es erneut.",
+    "retry": "Erneut versuchen",
+    "accessLost": "Dein Developer-Zugriff ist nicht mehr verfügbar.",
+    "noAccess": "Du hast keinen Zugriff auf den Developer-Bereich.",
+    "goToAccount": "Zu meinem Konto",
+    "mfaUnconfirmed": "Wir konnten deine aktuelle Zwei-Faktor-Verifizierung nicht bestätigen.",
+    "verifyAgain": "Erneut verifizieren",
+    "intro": "Technische Developer-Werkzeuge: Überwachung von MFA-Bereinigungen und außergewöhnliche Genehmigung von Wiederherstellungen. Sie gewähren keine Admin-Rechte."
+  },
+  "cleanups": {
+    "heading": "Ausstehende MFA-Bereinigungen",
+    "refresh": "Aktualisieren",
+    "refreshing": "Wird aktualisiert…",
+    "intro": "Überwachung und manueller Neuversuch. Der Neuversuch löscht nur die beim Entzug der Rolle gespeicherten Faktoren, niemals neue Faktoren.",
+    "retryPending": "Ausstehende erneut versuchen",
+    "retrying": "Neuer Versuch läuft…",
+    "retryDone": "Neuversuch abgeschlossen: {completed} abgeschlossen, {pending} weiterhin ausstehend.",
+    "retryDoneSimple": "Neuversuch abgeschlossen.",
+    "pendingHeading": "Ausstehend ({count})",
+    "noPending": "Es gibt keine ausstehenden Bereinigungen.",
+    "historyHeading": "Letzter Verlauf ({count})",
+    "noHistory": "Keine abgeschlossenen Bereinigungen.",
+    "noProfile": "Konto ohne Profil",
+    "previousRole": "frühere Rolle: {role}",
+    "role": {
+      "admin": "ADMIN",
+      "moderator": "MODERATOR",
+      "developer": "DEVELOPER"
+    },
+    "state": "Status: ",
+    "statePending": "Bereinigung ausstehend",
+    "stateCompleted": "Abgeschlossen",
+    "factors": "Faktoren: ",
+    "factorsDone": "{done} von {total} gelöscht",
+    "factorsTodo": "{total} zu löschen",
+    "attempts": "Versuche: ",
+    "lastAttempt": "Letzter Versuch: ",
+    "requested": "Angefordert: ",
+    "completed": "Abgeschlossen: ",
+    "lastError": "Letzter Fehler: {error}",
+    "errors": {
+      "auth_delete_failed": "Löschen beim Authentifizierungsanbieter fehlgeschlagen",
+      "auth_list_failed": "Die Liste der Faktoren konnte nicht geprüft werden",
+      "auth_unavailable": "Authentifizierungsanbieter nicht verfügbar",
+      "factor_still_present": "Der Faktor war nach dem Löschen noch vorhanden",
+      "record_failed": "Die Faktoren wurden gelöscht, konnten aber nicht erfasst werden"
+    },
+    "msg": {
+      "session": "Deine Sitzung ist nicht mehr gültig. Melde dich erneut an.",
+      "listError": "Die Liste der Bereinigungen konnte nicht geladen werden.",
+      "retryError": "Die Bereinigung konnte nicht erneut versucht werden."
+    }
+  },
+  "recoveries": {
+    "heading": "Außergewöhnliche Wiederherstellungen",
+    "intro": "Anfragen eines Administrators, der der einzige berechtigte Administrator ist. Genehmige nur, wenn du die Anfrage über einen anderen Kanal erkennst; über deine eigene kannst du nicht entscheiden. Wenn es einen anderen berechtigten Administrator gibt, verschwindet die Anfrage aus dieser Liste und er genehmigt sie.",
+    "cooldown": "Du bist gerade Developer geworden. Aus Sicherheitsgründen kannst du außergewöhnliche Wiederherstellungen in {remaining}{at} genehmigen. Bis dahin kannst du sie prüfen und ablehnen.",
+    "atTime": "(um {time})",
+    "minutes": "{count, plural, one {# Minute} other {# Minuten}}",
+    "hours": "{count, plural, one {# Stunde} other {# Stunden}}",
+    "hoursAndMinutes": "{hours} und {minutes}",
+    "status": {
+      "pending_approval": "Genehmigung ausstehend",
+      "approved": "Genehmigt, wartet",
+      "executing": "Authenticator wird ungültig gemacht",
+      "factors_deleted": "Authenticator ungültig gemacht, der neue muss noch registriert werden",
+      "completed": "Abgeschlossen",
+      "denied": "Abgelehnt",
+      "cancelled": "Abgebrochen",
+      "expired": "Abgelaufen"
+    },
+    "notice": {
+      "pending": "Mitteilung wartet auf Versand",
+      "accepted": "Mitteilung gesendet, Zustellung unbestätigt",
+      "delivered": "Mitteilung zugestellt",
+      "failed": "Mitteilung NICHT zugestellt"
+    },
+    "noticeUnregistered": "Mitteilung nicht erfasst",
+    "emailVerified": "E-Mail bestätigt",
+    "requestedOn": "angefordert {date}",
+    "exceptionalApproval": "außergewöhnliche Genehmigung ({date})",
+    "exceptionalApprovalBy": "außergewöhnliche Genehmigung von @{approver} ({date})",
+    "deniedByDeveloper": "von einem Developer abgelehnt",
+    "noProfile": "Konto ohne Profil",
+    "reverify": {
+      "invalid_format": "Gib den 6-stelligen Code deines Authenticators ein.",
+      "no_factor": "Wir haben keinen verifizierten Authenticator in deinem Konto gefunden.",
+      "invalid_code": "Code falsch oder abgelaufen.",
+      "failed": "Der Code konnte nicht überprüft werden. Bitte versuche es erneut."
+    },
+    "codes": {
+      "cooldown_active": "Du kannst noch nicht genehmigen: Dein Konto ist erst kürzlich Developer geworden. Wir haben die verbleibende Zeit aktualisiert.",
+      "peer_available": "Es gibt jetzt einen anderen berechtigten Administrator: Diese Anfrage muss von einem anderen Administrator genehmigt werden. Wir haben die Liste aktualisiert.",
+      "not_eligible": "Diese Anfrage lässt keine außergewöhnliche Genehmigung zu. Wir haben die Liste aktualisiert.",
+      "self_approval": "Über deine eigene Wiederherstellung kannst du nicht entscheiden.",
+      "not_pending": "Die Anfrage lässt diese Aktion nicht mehr zu. Wir haben die Liste aktualisiert.",
+      "expired": "Die Anfrage ist abgelaufen. Wir haben die Liste aktualisiert.",
+      "email_changed": "Die E-Mail-Adresse des Kontos hat sich geändert: Die Anfrage wurde abgebrochen.",
+      "role_changed": "Die Rolle des Kontos hat sich geändert: Die Anfrage wurde abgebrochen.",
+      "no_request": "Diese Anfrage ist nicht mehr verfügbar. Wir haben die Liste aktualisiert.",
+      "reason_required": "Schreibe den Grund der Ablehnung.",
+      "too_soon": "Warte mindestens eine Minute, bevor du eine weitere Erinnerung sendest.",
+      "reminder_limit": "Die 3 für diese Anfrage erlaubten Erinnerungen wurden bereits gesendet.",
+      "notice_not_delivered": "Die ursprüngliche Mitteilung gilt noch nicht als zugestellt. Wir haben die Liste aktualisiert.",
+      "mail_unavailable": "Der E-Mail-Versand ist gerade nicht verfügbar.",
+      "step_up_required": "Deine Zwei-Faktor-Verifizierung ist nicht aktuell genug. Gib den Code erneut ein."
+    },
+    "generic": "Der Vorgang konnte nicht abgeschlossen werden. Bitte versuche es erneut.",
+    "done": {
+      "approve": "Wiederherstellung außergewöhnlich genehmigt.",
+      "deny": "Wiederherstellung abgelehnt.",
+      "resend_notice": "Mitteilung erneut gesendet.",
+      "reminder": "Erinnerung an die Person gesendet."
+    },
+    "failedNotice": "Hinweis: Die Mitteilung an die Person konnte nicht gesendet werden; ohne bestätigte Zustellung kann sie den Vorgang nicht ausführen. Du kannst sie erneut senden.",
+    "msg": {
+      "session": "Deine Sitzung ist nicht mehr gültig. Melde dich erneut an.",
+      "listError": "Die Liste der Anfragen konnte nicht geladen werden."
+    },
+    "confirmWith": "Bestätige mit deinem Authenticator, um {action}.",
+    "action": {
+      "approve": "die Wiederherstellung von {name} außergewöhnlich zu genehmigen",
+      "deny": "die Wiederherstellung von {name} abzulehnen",
+      "resend_notice": "die Mitteilung erneut an {name} zu senden"
+    },
+    "reasonLabel": "Grund der Ablehnung",
+    "totpLabel": "Authenticator-Code",
+    "verifying": "Wird überprüft…",
+    "confirm": "Bestätigen",
+    "cancel": "Abbrechen",
+    "pendingHeading": "Entscheidung ausstehend ({count})",
+    "noEligible": "Es gibt keine Anfragen, die für eine außergewöhnliche Genehmigung infrage kommen.",
+    "historyHeading": "Verlauf ({count})",
+    "noHistory": "Keine aktuellen Entscheidungen.",
+    "approveButton": "Außergewöhnlich genehmigen",
+    "approveAria": "Wiederherstellung von {name} außergewöhnlich genehmigen",
+    "reject": "Ablehnen",
+    "rejectAria": "Wiederherstellung von {name} ablehnen",
+    "resend": "Mitteilung erneut senden",
+    "resendAria": "Mitteilung erneut an {name} senden",
+    "revert": "Genehmigung widerrufen",
+    "revertAria": "Genehmigung von {name} widerrufen"
+  }
+}

@@ -1,3 +1,4 @@
+import { useTranslations } from "use-intl";
 import { useEffect, useRef, useState, type CSSProperties } from "react";
 
 const PARTICLES = Array.from({ length: 18 }, (_, index) => ({
@@ -13,6 +14,7 @@ interface AmbientBackgroundProps {
 }
 
 export default function AmbientBackground({ onStarClick }: AmbientBackgroundProps) {
+  const t = useTranslations("site.header");
   const [starPosition, setStarPosition] = useState({ top: 24, left: 82 });
   const [isStarVisible, setIsStarVisible] = useState(false);
   const starCooldownUntil = useRef(0);
@@ -75,7 +77,7 @@ export default function AmbientBackground({ onStarClick }: AmbientBackgroundProp
       {isStarVisible && (
         <button
           type="button"
-          aria-label="Descubrir una sorpresa"
+          aria-label={t("surprise")}
           onClick={handleStarClick}
           className="ambient-star pointer-events-auto fixed z-40 text-lg text-accent-secondary opacity-70 transition duration-200 ease-bounce hover:scale-150 hover:opacity-100"
           style={{ top: `${starPosition.top}%`, left: `${starPosition.left}%` }}

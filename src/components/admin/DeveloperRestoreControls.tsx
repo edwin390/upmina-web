@@ -1,7 +1,8 @@
 import { useId, useRef, useState, type FormEvent } from "react";
 import { usePrivilegedFailureReporter } from "@/hooks/privileged-failure";
 import { supabase } from "@/lib/supabase";
-import { reverifyTotp, type ReverifyResult } from "@/lib/totp-reverify";
+import { reverifyTotp } from "@/lib/totp-reverify";
+import { useTranslations } from "use-intl";
 
 // Controles de UN Developer en la gestión del equipo: otro Admin lo devuelve a Moderador o a Admin con el mismo
 // selector «Nuevo rol» + «Aplicar» que las demás cuentas, confirmación y código del autenticador. También puede
@@ -24,31 +25,7 @@ const FIELD =
 
 type Target = "moderator" | "admin";
 type Action = Target | "remove";
-const LABEL: Record<Target, string> = { moderator: "Moderador", admin: "Admin" };
-const REVERIFY_ERRORS: Record<Exclude<ReverifyResult, "ok">, string> = {
-  invalid_format: "Introduce el código de 6 dígitos de tu app autenticadora.",
-  no_factor: "No encontramos una app autenticadora verificada en tu cuenta.",
-  invalid_code: "Código incorrecto o expirado.",
-  failed: "No se pudo verificar el código. Inténtalo de nuevo.",
-};
 const TARGETS: readonly Target[] = ["moderator", "admin"];
-const CODE_ERRORS: Record<string, string> = {
-  not_developer: "Esta persona ya no es Developer. Actualizamos la lista.",
-  recovery_in_progress:
-    "Esta persona tiene una recuperación de autenticador en curso. Inténtalo cuando termine.",
-  mfa_not_enrolled:
-    "Para volver a ser Admin necesita tener activada la verificación en dos pasos.",
-  not_found: "Esta persona ya no está en el equipo. Actualizamos la lista.",
-  approval_in_progress:
-    "Esta persona aprobó una recuperación de autenticador que sigue en curso. Inténtalo cuando termine.",
-  mfa_cleanup_pending:
-    "Esta persona tiene una limpieza de autenticador pendiente. Resuélvela en «Autenticadores pendientes de restablecer».",
-  recovery_depends_on_developer:
-    "Hay una solicitud de recuperación de un Admin que solo esta persona puede aprobar. Resuélvela antes de quitarle el acceso.",
-  not_allowed: "No puedes hacer este cambio sobre tu propia cuenta.",
-};
-const GENERIC = "No se pudo completar el cambio. Inténtalo de nuevo.";
-
 async function token(): Promise<string | null> {
   if (!supabase) return null;
   try {
@@ -78,8 +55,14 @@ export default function DeveloperRestoreControls({
   /** El servidor dice que la lista cambió (ya no es Developer, ya no existe…): se relee. */
   onStale: () => void;
 }) {
+  const t = useTranslations("admin.restore");
+  const text = (group: "codes" | "reverify", key: string): string | null => {
+    const path = `${group}.${key}`;
+    return t.has(path as never) ? (t as unknown as (k: string) => string)(path) : null;
+  };
   const codeId = useId();
   const selectId = useId();
+
   const reportFailure = usePrivilegedFailureReporter();
   const [selected, setSelected] = useState<Target | "">("");
   const [target, setTarget] = useState<Action | null>(null);
@@ -104,13 +87,13 @@ export default function DeveloperRestoreControls({
     try {
       const verified = await reverifyTotp(code);
       if (verified !== "ok") {
-        setError(REVERIFY_ERRORS[verified]);
+        setError(text("reverify", verified) ?? t("generic"));
         return;
       }
       setCode("");
       const jwt = await token();
       if (!jwt) {
-        setError("Tu sesión ya no es válida. Inicia sesión de nuevo.");
+        setError(t("session"));
         return;
       }
       const removing = target === "remove";
@@ -128,35 +111,28 @@ export default function DeveloperRestoreControls({
         } | null;
         close();
         if (!removing) {
-          onRestored(`${name} vuelve a ser ${LABEL[target]}.`);
+          onRestored(t("restored", { name, role: t(`role.${target}`) }));
           return;
         }
         // Nunca se afirma que el autenticador se invalidó si la limpieza está pendiente o no se sabe.
         const mfa = ok?.mfa_reset?.status;
         const mfaText =
           mfa === "completed"
-            ? " Su verificación en dos pasos asociada al acceso de equipo también quedó retirada."
+            ? ` ${t("mfaCompleted")}`
             : mfa === "pending"
-              ? " Atención: el acceso se retiró, pero su verificación en dos pasos todavía no se pudo retirar. Puedes reintentarlo en «Autenticadores pendientes de restablecer»."
+              ? ` ${t("mfaPending")}`
               : "";
-        const lastText =
-          ok?.last_developer === true
-            ? " Ya no queda ningún Developer: las recuperaciones excepcionales no tendrán quien las apruebe."
-            : "";
-        onRestored(`${name} ya no tiene acceso al equipo.${mfaText}${lastText}`, true);
+        const lastText = ok?.last_developer === true ? ` ${t("lastDeveloperLeft")}` : "";
+        onRestored(`${t("removed", { name })}${mfaText}${lastText}`, true);
         return;
       }
       reportFailure(response);
       const body = (await response.json().catch(() => null)) as { code?: unknown } | null;
       const key = typeof body?.code === "string" ? body.code : "";
-      setError(
-        response.status === 403 && key === "step_up_required"
-          ? "Tu verificación en dos pasos no es lo bastante reciente. Vuelve a introducir el código."
-          : (CODE_ERRORS[key] ?? GENERIC),
-      );
+      setError(text("codes", key) ?? t("generic"));
       if (key === "not_developer" || key === "not_found") onStale();
     } catch {
-      setError(GENERIC);
+      setError(t("generic"));
     } finally {
       lock.current = false;
       setBusy(false);
@@ -165,10 +141,7 @@ export default function DeveloperRestoreControls({
 
   return (
     <div className="mt-3">
-      <p className="text-xs text-text-muted">
-        Esta persona es Developer. Solo otro Admin puede devolverle un rol de equipo o
-        quitarle el acceso.
-      </p>
+      <p className="text-xs text-text-muted">{t("isDeveloper")}</p>
       {target === null ? (
         <div className="mt-2 flex flex-wrap items-end gap-3">
           <div className="min-w-0 sm:w-56">
@@ -176,7 +149,7 @@ export default function DeveloperRestoreControls({
               htmlFor={selectId}
               className="block text-sm font-medium text-text-primary"
             >
-              Nuevo rol
+              {t("newRole")}
             </label>
             <select
               id={selectId}
@@ -184,14 +157,14 @@ export default function DeveloperRestoreControls({
               disabled={disabled}
               onChange={(e) => {
                 const value = e.target.value;
-                setSelected(TARGETS.find((t) => t === value) ?? "");
+                setSelected(TARGETS.find((r) => r === value) ?? "");
               }}
               className={`${FIELD} mt-1`}
             >
-              <option value="">Elegir rol…</option>
-              {TARGETS.map((t) => (
-                <option key={t} value={t}>
-                  {LABEL[t].toUpperCase()}
+              <option value="">{t("chooseRole")}</option>
+              {TARGETS.map((r) => (
+                <option key={r} value={r}>
+                  {t(`role.${r}`).toUpperCase()}
                 </option>
               ))}
             </select>
@@ -200,21 +173,21 @@ export default function DeveloperRestoreControls({
             type="button"
             disabled={disabled || selected === ""}
             className={SECONDARY}
-            aria-label={`Aplicar cambio de rol a ${name}`}
+            aria-label={t("applyAria", { name })}
             onClick={() => {
               if (selected !== "") setTarget(selected);
             }}
           >
-            Aplicar
+            {t("apply")}
           </button>
           <button
             type="button"
             disabled={disabled}
             className={DANGER}
-            aria-label={`Quitar acceso a ${name}`}
+            aria-label={t("removeAria", { name })}
             onClick={() => setTarget("remove")}
           >
-            Quitar acceso
+            {t("removeAccess")}
           </button>
         </div>
       ) : (
@@ -222,37 +195,28 @@ export default function DeveloperRestoreControls({
           role="group"
           aria-label={
             target === "remove"
-              ? `Confirmar quitar el acceso a ${name}`
-              : `Confirmar la restauración de ${name}`
+              ? t("confirmRemoveGroup", { name })
+              : t("confirmRestoreGroup", { name })
           }
           className="mt-2 flex flex-col gap-2 rounded-md border border-border-subtle p-3"
           onSubmit={(e) => void submit(e)}
         >
           {target === "remove" ? (
             <>
-              <p className="text-sm text-text-primary">
-                ¿Quitar el acceso al equipo de {name}? Perderá todos sus privilegios de
-                equipo, incluido el panel Developer, y también se retirará la verificación
-                en dos pasos asociada a ese acceso (tendrá que activar una nueva si vuelve
-                al equipo). Su cuenta personal NO se elimina: conserva su perfil y su
-                contenido.
-              </p>
+              <p className="text-sm text-text-primary">{t("confirmRemove", { name })}</p>
               {isLastDeveloper ? (
                 <p role="note" className="text-sm font-semibold text-accent-live">
-                  Es el único Developer. Sin Developer, si un Admin pierde su autenticador
-                  y no hay otro Admin que pueda aprobarlo, nadie podrá aprobar esa
-                  recuperación.
+                  {t("lastDeveloper")}
                 </p>
               ) : null}
             </>
           ) : (
             <p className="text-sm text-text-primary">
-              ¿Devolver a {name} el rol de {LABEL[target]}? Dejará de ser Developer y
-              perderá el acceso al panel Developer.
+              {t("confirmRestore", { name, role: t(`role.${target}`) })}
             </p>
           )}
           <label htmlFor={codeId} className="text-sm text-text-secondary">
-            Código de tu app autenticadora
+            {t("codeLabel")}
           </label>
           <input
             id={codeId}
@@ -276,13 +240,13 @@ export default function DeveloperRestoreControls({
               disabled={busy || code.length !== 6}
             >
               {busy
-                ? "Comprobando…"
+                ? t("checking")
                 : target === "remove"
-                  ? "Sí, quitar acceso"
-                  : "Sí, restaurar"}
+                  ? t("yesRemove")
+                  : t("yesRestore")}
             </button>
             <button type="button" className={SECONDARY} disabled={busy} onClick={close}>
-              Cancelar
+              {t("cancel")}
             </button>
           </div>
         </form>

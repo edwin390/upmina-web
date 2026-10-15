@@ -4,7 +4,8 @@ import {
   YOUTUBE_VIDEOS_LIMIT,
   useYouTubeVideos,
 } from "@/hooks/useYouTubeVideos";
-import { formatRelativeDate } from "@/lib/format";
+import { useTranslations } from "use-intl";
+import { useRelativeDate } from "@/i18n/useFormat";
 import { twitchClipPath, youTubeShortPath, youTubeVideoPath } from "@/lib/deep-links";
 import PreviewCard, { PreviewCardSkeleton } from "./PreviewCard";
 import SectionHeading from "./SectionHeading";
@@ -13,6 +14,8 @@ import SectionHeading from "./SectionHeading";
 // consultas (misma URL y queryKey, luego misma caché) que /youtube y /twitch, así el elemento
 // enlazado con ?video= / ?clip= siempre está en las listas de esas secciones.
 export default function LatestContentSection() {
+  const t = useTranslations("site.latest");
+  const relativeDate = useRelativeDate();
   const { data: videos, isLoading: videosLoading } = useYouTubeVideos(
     YOUTUBE_VIDEOS_LIMIT,
     "videos",
@@ -34,7 +37,7 @@ export default function LatestContentSection() {
 
   return (
     <section aria-labelledby="ultimo-contenido" className="mx-auto max-w-6xl px-4 py-10">
-      <SectionHeading id="ultimo-contenido" title="ÚLTIMO CONTENIDO" />
+      <SectionHeading id="ultimo-contenido" title={t("title")} />
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-3">
         {videosLoading ? (
           <PreviewCardSkeleton />
@@ -42,12 +45,12 @@ export default function LatestContentSection() {
           video && (
             <PreviewCard
               to={youTubeVideoPath(video.id)}
-              badge="YouTube · Video"
+              badge={t("video")}
               title={video.title}
               thumbnailUrl={video.thumbnailUrl}
               duration={video.duration}
-              meta={formatRelativeDate(video.publishedAt)}
-              cta="Ver videos"
+              meta={relativeDate(video.publishedAt)}
+              cta={t("videos")}
             />
           )
         )}
@@ -57,13 +60,13 @@ export default function LatestContentSection() {
           short && (
             <PreviewCard
               to={youTubeShortPath(short.id)}
-              badge="YouTube · Short"
+              badge={t("short")}
               title={short.title}
               thumbnailUrl={short.thumbnailUrl}
               vertical
               duration={short.duration}
-              meta={formatRelativeDate(short.publishedAt)}
-              cta="Ver Shorts"
+              meta={relativeDate(short.publishedAt)}
+              cta={t("shorts")}
             />
           )
         )}
@@ -73,11 +76,11 @@ export default function LatestContentSection() {
           clip && (
             <PreviewCard
               to={twitchClipPath(clip.id)}
-              badge="Twitch · Clip"
+              badge={t("clip")}
               title={clip.title}
               thumbnailUrl={clip.thumbnailUrl}
-              meta={`${clip.creatorName} · ${formatRelativeDate(clip.createdAt)}`}
-              cta="Ver clips"
+              meta={`${clip.creatorName} · ${relativeDate(clip.createdAt)}`}
+              cta={t("clips")}
             />
           )
         )}

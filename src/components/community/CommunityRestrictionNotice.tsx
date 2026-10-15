@@ -1,8 +1,6 @@
-import {
-  restrictionCopy,
-  RESTRICTION_CHANGED_MESSAGE,
-  type AuthorRestrictionView,
-} from "@/lib/author-restriction";
+import { useTranslations } from "use-intl";
+import { useLocaleCode } from "@/i18n/useFormat";
+import { restrictionCopy, type AuthorRestrictionView } from "@/lib/author-restriction";
 
 // R5-E: aviso ÚNICO de restricción de publicación (strike). Lo usan el editor de Community y
 // cualquier otra superficie que reciba `author_restricted`; no hay copias del texto por componente.
@@ -20,6 +18,8 @@ export default function CommunityRestrictionNotice({
   restriction,
   changed = false,
 }: Props) {
+  const t = useTranslations("community.restriction");
+  const locale = useLocaleCode();
   if (changed) {
     return (
       <p
@@ -27,7 +27,7 @@ export default function CommunityRestrictionNotice({
         data-testid="restriction-changed"
         className="mt-4 rounded-md border border-border-subtle p-3 text-sm text-text-secondary"
       >
-        {RESTRICTION_CHANGED_MESSAGE}
+        {t("changed")}
       </p>
     );
   }
@@ -46,11 +46,27 @@ export default function CommunityRestrictionNotice({
         data-testid="restriction-changed"
         className="mt-4 rounded-md border border-border-subtle p-3 text-sm text-text-secondary"
       >
-        {RESTRICTION_CHANGED_MESSAGE}
+        {t("changed")}
       </p>
     );
   }
-  const copy = restrictionCopy(restriction);
+  const copy = restrictionCopy(
+    restriction,
+    {
+      title: t("title"),
+      deleteHint: t("deleteHint"),
+      noDetailHeadline: t("noDetailHeadline"),
+      noDetailDuration: t("noDetailDuration"),
+      permanentDuration: t("permanentDuration"),
+      levelHeadline: (level) => t("levelHeadline", { level }),
+      until: (date) => t("until", { date }),
+      firstHeadline: t("firstHeadline"),
+      firstWarning: t("firstWarning"),
+      secondHeadline: t("secondHeadline"),
+      secondWarning: t("secondWarning"),
+    },
+    locale,
+  );
   return (
     <section
       role="alert"
@@ -73,7 +89,7 @@ export default function CommunityRestrictionNotice({
       )}
       {copy.reason && (
         <p className="whitespace-pre-wrap break-words [overflow-wrap:anywhere]">
-          <strong className="font-semibold text-text-primary">Motivo:</strong>{" "}
+          <strong className="font-semibold text-text-primary">{t("reason")}</strong>{" "}
           {copy.reason}
         </p>
       )}

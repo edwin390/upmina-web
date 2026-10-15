@@ -1,0 +1,178 @@
+{
+  "header": {
+    "home": "Home",
+    "twitch": "Twitch",
+    "youtube": "YouTube",
+    "instagram": "Instagram",
+    "tiktok": "TikTok",
+    "cosplay": "Cosplays",
+    "community": "Community",
+    "profile": "Profile",
+    "login": "Sign in",
+    "watchOnTwitch": "Watch on Twitch",
+    "logoTitle": "Double-click for a surprise",
+    "openMenu": "Open menu",
+    "closeMenu": "Close menu",
+    "language": {
+      "label": "Language",
+      "es": "Español",
+      "en": "English",
+      "de": "Deutsch"
+    },
+    "surprise": "Discover a surprise"
+  },
+  "twitch": {
+    "clipsConfigError": "Couldn't set up the connection with Twitch.",
+    "clipsLoadError": "Couldn't load the clips. Please try again later.",
+    "loadingContent": "Loading Twitch content...",
+    "loadError": "Couldn't load the Twitch content.",
+    "empty": "There is no Twitch content available yet.",
+    "livePlayerTitle": "Twitch live stream",
+    "lastStreamPlayerTitle": "Latest Twitch stream",
+    "lastStream": "Latest recorded stream",
+    "watch": "Watch on Twitch",
+    "statusError": "Couldn't check the live status. You can watch the channel directly on Twitch.",
+    "latestClips": "Latest clips",
+    "viewChannel": "View channel",
+    "loadingClips": "Loading clips…",
+    "noClips": "There are no clips available yet.",
+    "badge": {
+      "loading": "Checking…",
+      "live": "LIVE",
+      "offline": "OFFLINE",
+      "error": "NO DATA",
+      "viewers": "{count, number} viewers"
+    },
+    "clip": {
+      "play": "Play clip",
+      "playNamed": "Play clip: {title}",
+      "views": "{count, number} {count, plural, one {view} other {views}}",
+      "playerTitle": "Twitch clip",
+      "playerTitleNamed": "Twitch clip: {title}",
+      "playerError": "Couldn't load the player. You can watch it on Twitch.",
+      "previous": "Previous clip",
+      "next": "Next clip",
+      "close": "Close",
+      "newTab": "(opens in a new tab)",
+      "counter": "Clip {index} of {total}"
+    }
+  },
+  "home": {
+    "badge": "fansite",
+    "subtitle": "Streams, content and community — all in one place.",
+    "seeContent": "Watch content",
+    "scrollHint": "SCROLL ↓"
+  },
+  "explore": {
+    "title": "EXPLORE UPMINA",
+    "go": "Explore →",
+    "twitch": "Streams, VODs and clips",
+    "youtube": "Videos and Shorts",
+    "instagram": "Posts and Reels",
+    "tiktok": "Videos and moments",
+    "cosplay": "Photos and galleries",
+    "community": "Fan content",
+    "communityLabel": "Community",
+    "cosplayLabel": "Cosplays"
+  },
+  "now": {
+    "title": "NOW",
+    "subtitle": "The latest from the channel, at a glance.",
+    "checking": "Checking the channel…",
+    "statusError": "Couldn't check the channel status",
+    "live": "Mina is live",
+    "offline": "Mina isn't live right now",
+    "twitchLive": "Twitch · Live",
+    "twitchLast": "Twitch · Latest stream",
+    "goTwitch": "Go to Twitch →",
+    "youtubeFallback": "Mina's videos and Shorts",
+    "goYoutube": "Go to YouTube →",
+    "youtubeBadge": "YouTube · Latest video",
+    "watchYoutube": "Watch on YouTube"
+  },
+  "latest": {
+    "title": "LATEST CONTENT",
+    "video": "YouTube · Video",
+    "short": "YouTube · Short",
+    "clip": "Twitch · Clip",
+    "videos": "Watch videos",
+    "shorts": "Watch Shorts",
+    "clips": "Watch clips"
+  },
+  "cta": {
+    "title": "MADE BY THE COMMUNITY <heart>♡</heart>",
+    "text": "A space for fan art, clips and moments shared by the community.",
+    "button": "Explore the community"
+  },
+  "notice": {
+    "expired": "This content is no longer available among the most recent."
+  },
+  "youtube": {
+    "shortsLoading": "Loading Shorts…",
+    "shortsError": "Couldn't load YouTube Shorts right now. Please try again later.",
+    "allFailed": "Couldn't load the YouTube content right now. Please try again later.",
+    "latestFailed": "Couldn't load the latest YouTube video right now.",
+    "moreVideos": "More videos",
+    "videosLoading": "Loading videos…",
+    "videosError": "Couldn't load the YouTube videos right now. Please try again later.",
+    "playing": "Now playing",
+    "short": {
+      "title": "YouTube Short: {title}",
+      "play": "Play Short: {title}",
+      "previous": "Previous Short",
+      "next": "Next Short",
+      "list": "Shorts list",
+      "view": "View Short: {title}"
+    }
+  },
+  "permissionPending": "This content isn't available yet. We're waiting for Mina's permission to share it here.",
+  "instagram": {
+    "loading": "Loading posts…",
+    "profileLink": "@{username} on Instagram →",
+    "type": {
+      "IMAGE": "Photo",
+      "VIDEO": "Video",
+      "CAROUSEL_ALBUM": "Carousel",
+      "reel": "Reel",
+      "reelBadge": "Reel ▶"
+    },
+    "defaultCaption": "Instagram post",
+    "openPost": "{label}: {description}. Open post",
+    "commentsTotal": "{count} {count, plural, one {comment} other {comments}}",
+    "noComments": "There are no comments yet.",
+    "commentsLoading": "Loading comments…",
+    "commentsHidden": "Comments can't be shown here yet.",
+    "commentsHiddenWithTotal": "{total} on Instagram. Comments can't be shown here yet.",
+    "commentsError": "Couldn't load the comments.",
+    "like": "Likes",
+    "comments": "Comments",
+    "commentsOnInstagram": "Comments can be viewed on Instagram.",
+    "viewComments": "View comments on Instagram →",
+    "reelLabel": "Reel",
+    "position": "Post {position} of {total}",
+    "close": "Close",
+    "previous": "Previous post",
+    "next": "Next post",
+    "viewOnInstagram": "View on Instagram →",
+    "slidePrevious": "Previous item",
+    "slideNext": "Next item",
+    "slideGo": "Go to item {index} of {total}"
+  },
+  "tiktok": {
+    "loading": "Loading videos…",
+    "open": "Open TikTok: {title}",
+    "openUntitled": "Open TikTok video",
+    "cover": "Cover: {title}",
+    "coverUntitled": "TikTok video cover",
+    "viewerTitle": "TikTok video",
+    "watch": "Watch on TikTok",
+    "newTab": "(opens in a new tab)",
+    "close": "Close",
+    "previous": "Previous video",
+    "next": "Next video",
+    "counter": "Video {index} of {total}",
+    "playerTitle": "TikTok player",
+    "playerTitleNamed": "TikTok player: {title}",
+    "playerError": "Couldn't load the player. You can watch it on TikTok."
+  }
+}

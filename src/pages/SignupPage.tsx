@@ -15,6 +15,7 @@ import {
   isSignupLegalConsentEnabled,
   type LegalChecks,
 } from "@/lib/legal-consent";
+import { useTranslations } from "use-intl";
 
 // /signup (Bloque 6D). Registro público con email + contraseña sobre el MISMO cliente de
 // Supabase y el MISMO AuthProvider global (un solo listener). Crea exclusivamente una
@@ -28,28 +29,25 @@ import {
 //
 // Errores: nunca se muestra error.message del proveedor ni se revela si un email ya está
 // registrado (sin enumeración de cuentas). Mensajes públicos controlados.
-const MISMATCH_MESSAGE = "Las contraseñas no coinciden.";
-const MISSING_FIELDS_MESSAGE = "Completa todos los campos.";
-const WEAK_PASSWORD_MESSAGE = "La contraseña no cumple los requisitos de seguridad.";
-const LEGAL_REQUIRED_MESSAGE =
-  "Debes confirmar que eres mayor de 18 años y aceptar los documentos para crear tu cuenta.";
-const GENERIC_ERROR_MESSAGE = "No se pudo crear la cuenta. Inténtalo de nuevo.";
+type SignupError =
+  "mismatch" | "missingFields" | "weakPassword" | "legalRequired" | "genericError";
 
-function signupErrorMessage(error: unknown): string {
+function signupErrorMessage(error: unknown): SignupError {
   const code =
     typeof error === "object" && error !== null && "code" in error
       ? String((error as { code?: unknown }).code)
       : "";
   const message = error instanceof Error ? error.message : "";
   if (code === "weak_password" || /password/i.test(message)) {
-    return WEAK_PASSWORD_MESSAGE;
+    return "weakPassword";
   }
-  return GENERIC_ERROR_MESSAGE;
+  return "genericError";
 }
 
 const SECONDARY_LINK_CLASS = "font-medium text-accent-primary hover:underline";
 
 export default function SignupPage() {
+  const t = useTranslations("auth.signup");
   const { session, loading: sessionLoading } = useAuth();
   const location = useLocation();
   // «Crear cuenta con [correo]» desde /forgot-password: el correo llega por el ESTADO del router (nunca por la URL), solo
@@ -57,7 +55,7 @@ export default function SignupPage() {
   const [email, setEmail] = useState(() => prefilledEmailFromState(location.state));
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<SignupError | null>(null);
   // Desactivado por defecto (VITE_SIGNUP_LEGAL_CONSENT): los documentos aún no están aprobados.
   const legalEnabled = isSignupLegalConsentEnabled();
   const [legal, setLegal] = useState<LegalChecks>(NO_CHECKS);
@@ -83,19 +81,19 @@ export default function SignupPage() {
     setError(null);
 
     if (!email.trim() || !password || !confirmPassword) {
-      setError(MISSING_FIELDS_MESSAGE);
+      setError("missingFields");
       return;
     }
     if (password !== confirmPassword) {
-      setError(MISMATCH_MESSAGE);
+      setError("mismatch");
       return;
     }
     if (legalEnabled && !allAccepted(legal)) {
-      setError(LEGAL_REQUIRED_MESSAGE);
+      setError("legalRequired");
       return;
     }
     if (!supabase) {
-      setError(GENERIC_ERROR_MESSAGE);
+      setError("genericError");
       return;
     }
 
@@ -136,9 +134,9 @@ export default function SignupPage() {
   // para una persona ya autenticada antes de la redirección).
   if (sessionLoading) {
     return (
-      <AdminAuthCard title="Crear cuenta">
+      <AdminAuthCard title={t("title")}>
         <p className="text-sm text-text-secondary" role="status">
-          Comprobando sesión…
+          {t("checking")}
         </p>
       </AdminAuthCard>
     );
@@ -156,16 +154,16 @@ export default function SignupPage() {
 
   return (
     <AdminAuthCard
-      title="Crear cuenta"
+      title={t("title")}
       footer={
         <Link to="/login" className={SECONDARY_LINK_CLASS}>
-          Ya tengo una cuenta
+          {t("haveAccount")}
         </Link>
       }
     >
       <form onSubmit={handleSubmit} noValidate className="flex flex-col gap-4">
         <AdminAuthField
-          label="Email"
+          label={t("email")}
           id="public-signup-email"
           name="email"
           type="email"
@@ -176,7 +174,7 @@ export default function SignupPage() {
           disabled={isSubmitting}
         />
         <AdminAuthField
-          label="Contraseña"
+          label={t("password")}
           id="public-signup-password"
           name="password"
           type="password"
@@ -187,7 +185,7 @@ export default function SignupPage() {
           disabled={isSubmitting}
         />
         <AdminAuthField
-          label="Confirmar contraseña"
+          label={t("confirmPassword")}
           id="public-signup-confirm-password"
           name="confirmPassword"
           type="password"
@@ -209,7 +207,7 @@ export default function SignupPage() {
 
         {error ? (
           <p id="public-signup-error" role="alert" className="text-sm text-accent-live">
-            {error}
+            {t(error)}
           </p>
         ) : null}
 
@@ -218,7 +216,7 @@ export default function SignupPage() {
           disabled={isSubmitting || (legalEnabled && !allAccepted(legal))}
           className="mt-2 inline-flex min-h-11 items-center justify-center rounded-md border border-accent-primary/60 bg-accent-primary px-5 py-2.5 text-sm font-bold uppercase tracking-[0.18em] text-text-inverse shadow-glow-primary transition duration-200 ease-bounce hover:-translate-y-1 hover:bg-accent-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-secondary focus-visible:ring-offset-2 focus-visible:ring-offset-bg-surface disabled:pointer-events-none disabled:opacity-50"
         >
-          {isSubmitting ? "Creando cuenta…" : "Crear cuenta"}
+          {isSubmitting ? t("submitting") : t("submit")}
         </button>
       </form>
     </AdminAuthCard>

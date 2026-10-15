@@ -52,10 +52,11 @@ export function restrictionOutcome(err: unknown): RestrictionOutcome | null {
   return null;
 }
 
-export function formatRestrictionDate(iso: string): string {
-  return new Intl.DateTimeFormat("es", { dateStyle: "long", timeStyle: "short" }).format(
-    new Date(iso),
-  );
+export function formatRestrictionDate(iso: string, locale = "es"): string {
+  return new Intl.DateTimeFormat(locale, {
+    dateStyle: "long",
+    timeStyle: "short",
+  }).format(new Date(iso));
 }
 
 export interface RestrictionCopy {
@@ -69,6 +70,21 @@ export interface RestrictionCopy {
   deleteHint: string;
 }
 
+/** Textos de producto del aviso. El español es el valor por defecto; la UI pasa los textos del idioma activo. */
+export interface RestrictionStrings {
+  title: string;
+  deleteHint: string;
+  noDetailHeadline: string;
+  noDetailDuration: string;
+  permanentDuration: string;
+  levelHeadline: (level: number) => string;
+  until: (date: string) => string;
+  firstHeadline: string;
+  firstWarning: string;
+  secondHeadline: string;
+  secondWarning: string;
+}
+
 export const RESTRICTION_TITLE = "Publicación restringida";
 export const RESTRICTION_DELETE_HINT =
   "Puedes seguir eliminando tus propias publicaciones.";
@@ -80,64 +96,77 @@ export const RESTRICTION_CHANGED_MESSAGE =
 // strike de la escalada; solo la revocación lo hace. Los avisos se redactan con esa semántica y solo
 // se generan a partir de una restricción VIGENTE leída del servidor: si expira o se revoca, el
 // servidor deja de devolverla y no queda ningún aviso que afirme que continúa activa.
-const FIRST_STRIKE_HEADLINE =
-  "Has recibido tu primer strike por incumplir las normas de la comunidad.";
-const FIRST_STRIKE_WARNING =
-  "Advertencia: los strikes siguen contando aunque termine su restricción temporal, salvo que sean revocados. Un segundo strike supondrá una restricción de un mes y un tercero, la pérdida permanente del permiso para publicar.";
-const SECOND_STRIKE_HEADLINE = "Has recibido tu segundo strike.";
-const SECOND_STRIKE_WARNING =
-  "Última advertencia: si recibes un tercer strike, perderás permanentemente el permiso para crear y editar publicaciones en la comunidad. Los strikes anteriores siguen contando incluso después de cumplir su restricción, salvo que sean revocados.";
+export const ES_RESTRICTION_STRINGS: RestrictionStrings = {
+  title: RESTRICTION_TITLE,
+  deleteHint: RESTRICTION_DELETE_HINT,
+  noDetailHeadline: "Tu cuenta tiene una restricción activa en Community.",
+  noDetailDuration: "No puedes crear ni editar publicaciones de Community por ahora.",
+  permanentDuration:
+    "No puedes crear ni editar publicaciones de Community de forma permanente.",
+  levelHeadline: (level) => `Tu cuenta tiene un Strike ${level} activo en Community.`,
+  until: (date) => `No puedes crear ni editar publicaciones hasta ${date}.`,
+  firstHeadline:
+    "Has recibido tu primer strike por incumplir las normas de la comunidad.",
+  firstWarning:
+    "Advertencia: los strikes siguen contando aunque termine su restricción temporal, salvo que sean revocados. Un segundo strike supondrá una restricción de un mes y un tercero, la pérdida permanente del permiso para publicar.",
+  secondHeadline: "Has recibido tu segundo strike.",
+  secondWarning:
+    "Última advertencia: si recibes un tercer strike, perderás permanentemente el permiso para crear y editar publicaciones en la comunidad. Los strikes anteriores siguen contando incluso después de cumplir su restricción, salvo que sean revocados.",
+};
 
-export function restrictionCopy(r: AuthorRestrictionView | null): RestrictionCopy {
+export function restrictionCopy(
+  r: AuthorRestrictionView | null,
+  s: RestrictionStrings = ES_RESTRICTION_STRINGS,
+  locale = "es",
+): RestrictionCopy {
   if (!r) {
     return {
-      title: RESTRICTION_TITLE,
-      headline: "Tu cuenta tiene una restricción activa en Community.",
-      duration: "No puedes crear ni editar publicaciones de Community por ahora.",
+      title: s.title,
+      headline: s.noDetailHeadline,
+      duration: s.noDetailDuration,
       warning: null,
       reason: null,
-      deleteHint: RESTRICTION_DELETE_HINT,
+      deleteHint: s.deleteHint,
     };
   }
   if (r.permanent || !r.endsAt) {
     return {
-      title: RESTRICTION_TITLE,
-      headline: `Tu cuenta tiene un Strike ${r.level} activo en Community.`,
-      duration:
-        "No puedes crear ni editar publicaciones de Community de forma permanente.",
+      title: s.title,
+      headline: s.levelHeadline(r.level),
+      duration: s.permanentDuration,
       warning: null,
       reason: r.reason,
-      deleteHint: RESTRICTION_DELETE_HINT,
+      deleteHint: s.deleteHint,
     };
   }
-  const until = `No puedes crear ni editar publicaciones hasta ${formatRestrictionDate(r.endsAt)}.`;
+  const until = s.until(formatRestrictionDate(r.endsAt, locale));
   if (r.level === 1) {
     return {
-      title: RESTRICTION_TITLE,
-      headline: FIRST_STRIKE_HEADLINE,
+      title: s.title,
+      headline: s.firstHeadline,
       duration: until,
-      warning: FIRST_STRIKE_WARNING,
+      warning: s.firstWarning,
       reason: r.reason,
-      deleteHint: RESTRICTION_DELETE_HINT,
+      deleteHint: s.deleteHint,
     };
   }
   if (r.level === 2) {
     return {
-      title: RESTRICTION_TITLE,
-      headline: SECOND_STRIKE_HEADLINE,
+      title: s.title,
+      headline: s.secondHeadline,
       duration: until,
-      warning: SECOND_STRIKE_WARNING,
+      warning: s.secondWarning,
       reason: r.reason,
-      deleteHint: RESTRICTION_DELETE_HINT,
+      deleteHint: s.deleteHint,
     };
   }
   // Un nivel 3 siempre es permanente (parseAuthorRestriction lo exige); defensa para formas imposibles.
   return {
-    title: RESTRICTION_TITLE,
-    headline: `Tu cuenta tiene un Strike ${r.level} activo en Community.`,
+    title: s.title,
+    headline: s.levelHeadline(r.level),
     duration: until,
     warning: null,
     reason: r.reason,
-    deleteHint: RESTRICTION_DELETE_HINT,
+    deleteHint: s.deleteHint,
   };
 }

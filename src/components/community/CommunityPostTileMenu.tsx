@@ -6,6 +6,7 @@ import {
   deleteCommunityPost,
   type CommunityOwnPost,
 } from "@/lib/community-client";
+import { useTranslations } from "use-intl";
 
 // Menú contextual "⋯" por tarjeta de la galería del DUEÑO en su propio /@username (Fase
 // 9J-2B.1) — mismo patrón que CosplayCardAdminMenu.tsx: un botón "⋯" con un menú desplegable
@@ -35,6 +36,7 @@ export default function CommunityPostTileMenu({
   onDeleted,
   allowEdit = true,
 }: Props) {
+  const t = useTranslations("community.menu");
   const rootRef = useRef<HTMLDivElement>(null);
   const dialogRef = useRef<HTMLDialogElement>(null);
   const headingId = useId();
@@ -100,21 +102,19 @@ export default function CommunityPostTileMenu({
     try {
       await deleteCommunityPost({ postId: post.id, expectedVersion: post.version });
       setConfirming(false);
-      showActionSuccess("Publicación eliminada correctamente");
+      showActionSuccess(t("deleted"));
       onDeleted();
     } catch (err) {
       if (err instanceof CommunityClientError) {
         if (err.code === "community_version_conflict") {
-          setErrorText(
-            "No se pudo eliminar la publicación. Esta publicación cambió mientras tanto. Vuelve a intentarlo.",
-          );
+          setErrorText(t("deleteConflict"));
           setConfirming(false);
           return;
         }
-        setErrorText("No se pudo eliminar la publicación");
+        setErrorText(t("deleteFailed"));
         return;
       }
-      setErrorText("No se pudo eliminar la publicación");
+      setErrorText(t("deleteFailed"));
     } finally {
       setDeleting(false);
     }
@@ -134,7 +134,7 @@ export default function CommunityPostTileMenu({
         }}
         aria-haspopup="menu"
         aria-expanded={menuOpen}
-        aria-label="Gestionar esta publicación"
+        aria-label={t("manage")}
         className="flex h-8 w-8 items-center justify-center rounded-full bg-black/50 text-base leading-none text-white shadow-sm ring-1 ring-inset ring-white/10 transition-colors hover:bg-black/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-secondary"
       >
         <span aria-hidden="true">⋯</span>
@@ -143,7 +143,7 @@ export default function CommunityPostTileMenu({
       {menuOpen && (
         <div
           role="menu"
-          aria-label="Gestionar esta publicación"
+          aria-label={t("manage")}
           className="absolute right-0 top-full z-20 mt-1 w-32 max-w-full rounded-md border border-border-subtle bg-bg-surface p-1 shadow-lg"
         >
           {allowEdit && post.status === "published" && (
@@ -153,7 +153,7 @@ export default function CommunityPostTileMenu({
               onClick={handleEditClick}
               className={MENU_ITEM}
             >
-              Editar
+              {t("edit")}
             </button>
           )}
           <button
@@ -162,7 +162,7 @@ export default function CommunityPostTileMenu({
             onClick={handleDeleteClick}
             className={MENU_ITEM}
           >
-            Eliminar
+            {t("delete")}
           </button>
         </div>
       )}
@@ -179,11 +179,9 @@ export default function CommunityPostTileMenu({
             className="fixed inset-0 m-auto max-h-[calc(100dvh-2rem)] w-[calc(100%-2rem)] max-w-sm overflow-y-auto rounded-md border border-accent-live/40 bg-bg-surface p-6 shadow-lg backdrop:bg-bg-base/80"
           >
             <p id={headingId} className="text-sm font-semibold text-text-primary">
-              ¿Borrar esta publicación?
+              {t("confirmTitle")}
             </p>
-            <p className="mt-1 text-sm text-text-secondary">
-              Esta acción no se puede deshacer.
-            </p>
+            <p className="mt-1 text-sm text-text-secondary">{t("confirmBody")}</p>
             {errorText && (
               <p role="alert" className="mt-3 text-sm text-accent-live">
                 {errorText}
@@ -197,7 +195,7 @@ export default function CommunityPostTileMenu({
                 aria-busy={deleting}
                 className={DANGER_BUTTON}
               >
-                Eliminar
+                {t("delete")}
               </button>
               <button
                 type="button"
@@ -206,7 +204,7 @@ export default function CommunityPostTileMenu({
                 disabled={deleting}
                 className={SECONDARY_BUTTON}
               >
-                Cancelar
+                {t("cancel")}
               </button>
             </div>
           </dialog>,

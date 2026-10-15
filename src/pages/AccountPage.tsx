@@ -5,6 +5,7 @@ import { useAuth } from "@/lib/auth-context";
 import AdminAuthCard from "@/components/admin/AdminAuthCard";
 import ProfileSection from "@/components/account/ProfileSection";
 import DeleteAccountLink from "@/components/account/DeleteAccountLink";
+import { useTranslations } from "use-intl";
 
 // /account (Bloque 6E). Punto de entrada privado mínimo: solo requiere una sesión
 // autenticada normal, la misma que expone el AuthProvider global (un solo listener). No
@@ -24,11 +25,10 @@ import DeleteAccountLink from "@/components/account/DeleteAccountLink";
 // refleja la desaparición de la sesión y esta misma página redirige a /login (no hay
 // navegación imperativa que pueda llegar tarde). Si falla, la sesión se mantiene y se
 // muestra un mensaje público genérico (nunca error.message del proveedor).
-const SIGN_OUT_ERROR_MESSAGE = "No se pudo cerrar la sesión. Inténtalo de nuevo.";
-
 export default function AccountPage() {
+  const t = useTranslations("account.page");
   const { session, loading: sessionLoading } = useAuth();
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<boolean>(false);
   const [isSigningOut, setIsSigningOut] = useState(false);
   // Guard síncrono contra doble click (el estado tarda un render en reflejarse).
   const signingOutRef = useRef(false);
@@ -45,10 +45,10 @@ export default function AccountPage() {
 
   async function handleSignOut() {
     if (signingOutRef.current) return;
-    setError(null);
+    setError(false);
 
     if (!supabase) {
-      setError(SIGN_OUT_ERROR_MESSAGE);
+      setError(true);
       return;
     }
 
@@ -57,9 +57,9 @@ export default function AccountPage() {
     try {
       const { error: signOutError } = await supabase.auth.signOut();
       if (!isMountedRef.current) return;
-      if (signOutError) setError(SIGN_OUT_ERROR_MESSAGE);
+      if (signOutError) setError(true);
     } catch {
-      if (isMountedRef.current) setError(SIGN_OUT_ERROR_MESSAGE);
+      if (isMountedRef.current) setError(true);
     } finally {
       signingOutRef.current = false;
       if (isMountedRef.current) setIsSigningOut(false);
@@ -69,9 +69,9 @@ export default function AccountPage() {
   // Mientras se resuelve la sesión inicial no se muestra nada privado ni se redirige.
   if (sessionLoading) {
     return (
-      <AdminAuthCard title="Cuenta">
+      <AdminAuthCard title={t("title")}>
         <p className="text-sm text-text-secondary" role="status">
-          Comprobando sesión…
+          {t("checking")}
         </p>
       </AdminAuthCard>
     );
@@ -84,16 +84,16 @@ export default function AccountPage() {
   const email = session.user.email;
 
   return (
-    <AdminAuthCard title="Cuenta">
+    <AdminAuthCard title={t("title")}>
       <p className="text-sm text-text-secondary" role="status">
-        Sesión activa
-        {email ? (
-          <>
-            {" "}
-            como <span className="font-medium text-text-primary">{email}</span>
-          </>
-        ) : null}
-        .
+        {email
+          ? t.rich("activeAs", {
+              email,
+              emailTag: (chunks) => (
+                <span className="font-medium text-text-primary">{chunks}</span>
+              ),
+            })
+          : t("active")}
       </p>
 
       {/* key por cuenta: un cambio A → B desmonta por completo la instancia de A (borradores,
@@ -104,7 +104,7 @@ export default function AccountPage() {
 
       {error ? (
         <p role="alert" className="mt-4 text-sm text-accent-live">
-          {error}
+          {t("signOutError")}
         </p>
       ) : null}
 
@@ -114,7 +114,7 @@ export default function AccountPage() {
         disabled={isSigningOut}
         className="mt-6 inline-flex min-h-11 items-center rounded-md border border-border-subtle px-5 py-2.5 text-sm font-semibold text-text-secondary transition-colors duration-200 ease-smooth hover:border-accent-primary/60 hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-secondary disabled:pointer-events-none disabled:opacity-50"
       >
-        {isSigningOut ? "Cerrando sesión…" : "Cerrar sesión"}
+        {isSigningOut ? t("signingOut") : t("signOut")}
       </button>
     </AdminAuthCard>
   );

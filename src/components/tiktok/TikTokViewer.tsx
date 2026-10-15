@@ -4,6 +4,8 @@ import { wrapIndex } from "@/lib/media-ratio";
 import TikTokCover from "./TikTokCover";
 import TikTokPlayer from "./TikTokPlayer";
 import { safeTikTokUrl, tikTokVideoId } from "./tiktokUrl";
+import { useTranslations } from "use-intl";
+import { useLongDate } from "@/i18n/useFormat";
 
 interface TikTokViewerProps {
   /** Vídeos del feed, en el orden de la rejilla. */
@@ -21,8 +23,6 @@ interface TikTokViewerProps {
 export const SWIPE_THRESHOLD_PX = 60;
 /** Un swipe debe ser claramente vertical: |dy| ≥ 1,5 × |dx|. */
 const SWIPE_VERTICAL_BIAS = 1.5;
-
-const dateFormat = new Intl.DateTimeFormat("es", { dateStyle: "long" });
 
 const GLASS_BUTTON =
   "grid h-11 w-11 place-items-center rounded-full border border-white/25 bg-black/45 text-lg text-white backdrop-blur-sm transition-colors hover:border-accent-secondary hover:text-accent-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-secondary";
@@ -54,6 +54,8 @@ export default function TikTokViewer({
   onClose,
   returnFocusTo,
 }: TikTokViewerProps) {
+  const t = useTranslations("site.tiktok");
+  const longDate = useLongDate();
   const dialogRef = useRef<HTMLDialogElement>(null);
   const pressStartedOnBackdrop = useRef(false);
   const touchStart = useRef<{ x: number; y: number } | null>(null);
@@ -236,7 +238,7 @@ export default function TikTokViewer({
               // Sin id de vídeo (p. ej. enlace corto vm.tiktok.com): solo portada.
               <TikTokCover
                 url={video.coverImageUrl}
-                alt={title ? `Portada: ${title}` : "Portada del video de TikTok"}
+                alt={title ? t("cover", { title }) : t("coverUntitled")}
               />
             )}
           </div>
@@ -250,11 +252,11 @@ export default function TikTokViewer({
                   : "sr-only"
               }
             >
-              {title || "Video de TikTok"}
+              {title || t("viewerTitle")}
             </h2>
             {hasDate && (
               <time dateTime={video.createTime} className="text-xs text-text-muted">
-                {dateFormat.format(date)}
+                {longDate(date)}
               </time>
             )}
             {href && (
@@ -264,8 +266,8 @@ export default function TikTokViewer({
                 rel="noreferrer noopener"
                 className="mt-1 inline-flex items-center gap-1.5 rounded-full border border-white/25 bg-black/40 px-4 py-2 text-sm font-medium text-text-primary backdrop-blur-sm transition-colors hover:border-accent-primary hover:text-accent-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-secondary"
               >
-                Ver en TikTok <span aria-hidden="true">↗</span>
-                <span className="sr-only">(se abre en una pestaña nueva)</span>
+                {t("watch")} <span aria-hidden="true">↗</span>
+                <span className="sr-only">{t("newTab")}</span>
               </a>
             )}
           </div>
@@ -275,7 +277,7 @@ export default function TikTokViewer({
       <button
         type="button"
         onClick={onClose}
-        aria-label="Cerrar"
+        aria-label={t("close")}
         data-autofocus
         className={`${GLASS_BUTTON} fixed right-3 top-3`}
       >
@@ -295,7 +297,7 @@ export default function TikTokViewer({
             <button
               type="button"
               onClick={() => go(-1)}
-              aria-label="Video anterior"
+              aria-label={t("previous")}
               className={GLASS_BUTTON}
             >
               <span aria-hidden="true">↑</span>
@@ -303,7 +305,7 @@ export default function TikTokViewer({
             <button
               type="button"
               onClick={() => go(1)}
-              aria-label="Video siguiente"
+              aria-label={t("next")}
               className={GLASS_BUTTON}
             >
               <span aria-hidden="true">↓</span>
@@ -313,7 +315,7 @@ export default function TikTokViewer({
       )}
 
       <p className="sr-only" aria-live="polite">
-        {canNavigate ? `Video ${index + 1} de ${total}` : ""}
+        {canNavigate ? t("counter", { index: index + 1, total }) : ""}
       </p>
     </dialog>
   );

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type ChangeEvent, type FormEvent } from "react";
+import { useTranslations } from "use-intl";
 import { useMediaUpload } from "@/hooks/useMediaUpload";
 import { showActionSuccess } from "@/lib/action-notice";
 import { restrictionOutcome, type RestrictionOutcome } from "@/lib/author-restriction";
@@ -82,27 +83,32 @@ function codePoints(value: string): number {
   return Array.from(value).length;
 }
 
-function errorMessage(err: unknown): string {
+type FormT = ReturnType<typeof useTranslations<"community.form">>;
+
+function uploadErrorText(code: string | null, message: string | null, t: FormT): string {
+  const path = `uploadErrors.${code}`;
+  if (code && t.has(path as never)) return (t as unknown as (k: string) => string)(path);
+  return message ?? t("itemError");
+}
+
+function errorMessage(err: unknown, t: FormT): string {
   if (err instanceof CommunityClientError) {
-    if (err.status === 401)
-      return "Tu sesión ya no es válida. Cierra sesión e inicia de nuevo.";
-    if (err.code === "empty_post")
-      return "Una publicación necesita texto o al menos una imagen.";
-    if (err.code === "community_version_conflict")
-      return "Esta publicación cambió mientras editabas. Vuelve a intentarlo.";
+    if (err.status === 401) return t("errors.session");
+    if (err.code === "empty_post") return t("errors.empty");
+    if (err.code === "community_version_conflict") return t("errors.conflict");
     if (err.code === "too_many_media")
-      return `Máximo ${COMMUNITY_POST_MAX_MEDIA} fotos o videos.`;
+      return t("errors.tooManyMedia", { max: COMMUNITY_POST_MAX_MEDIA });
     if (err.code === "too_many_videos")
-      return `Máximo ${COMMUNITY_POST_MAX_VIDEOS} video por publicación.`;
+      return t("errors.tooManyVideos", { videos: COMMUNITY_POST_MAX_VIDEOS });
     if (err.code === "invalid_text")
-      return `Máximo ${COMMUNITY_POST_TEXT_MAX} caracteres.`;
+      return t("errors.invalidText", { max: COMMUNITY_POST_TEXT_MAX });
     // Un archivo ya subido caducó (limpieza de subidas sin publicar) o fue descartado: el texto y el
     // resto de archivos siguen en el formulario; solo hay que quitar el afectado y subirlo de nuevo.
     if (err.code === "invalid_asset" || err.code === "asset_not_ready")
-      return "Alguna foto o video ya no está disponible. Quita los archivos que no se vean y vuelve a subirlos.";
-    return err.message || "No se pudo completar la operación.";
+      return t("errors.invalidAsset");
+    return err.message || t("errors.operation");
   }
-  return "No se pudo completar la operación. Inténtalo de nuevo.";
+  return t("errors.operationRetry");
 }
 
 const PRIMARY_BUTTON_CLASS =
@@ -125,6 +131,7 @@ export default function CommunityPostEditorForm({
   onSaved,
   onCancel,
 }: CommunityPostEditorFormProps) {
+  const t = useTranslations("community.form");
   const [form, setForm] = useState<FormState>(() => initialFormState(initialPost));
   const [saveError, setSaveError] = useState<string | null>(null);
   // R5-E: rechazo autoritativo por strike (guardado) — se conserva el borrador, nunca se reintenta.
@@ -195,13 +202,11 @@ export default function CommunityPostEditorForm({
     const incomingVideoCount = files.filter((f) => f.type.startsWith("video/")).length;
 
     if (totalMediaCount + files.length > COMMUNITY_POST_MAX_MEDIA) {
-      setPickerError(
-        `Máximo ${COMMUNITY_POST_MAX_MEDIA} fotos o videos por publicación.`,
-      );
+      setPickerError(t("pickerMax", { max: COMMUNITY_POST_MAX_MEDIA }));
       return;
     }
     if (totalVideoCount + incomingVideoCount > COMMUNITY_POST_MAX_VIDEOS) {
-      setPickerError(`Máximo ${COMMUNITY_POST_MAX_VIDEOS} video por publicación.`);
+      setPickerError(t("pickerMaxVideos", { videos: COMMUNITY_POST_MAX_VIDEOS }));
       return;
     }
     // Rechazo temprano en el navegador (sección 7 del checkpoint: "the browser should also reject
@@ -211,7 +216,7 @@ export default function CommunityPostEditorForm({
       (f) => f.type.startsWith("video/") && f.size > MAX_VIDEO_BYTES_CLIENT,
     );
     if (oversizedVideo) {
-      setPickerError("Los videos no pueden superar 100 MB.");
+      setPickerError(t("pickerSize"));
       return;
     }
 
@@ -247,11 +252,7 @@ export default function CommunityPostEditorForm({
           upload.remove(item.localId);
         }
       }
-      showActionSuccess(
-        form.postId === null
-          ? "Publicación creada correctamente"
-          : "Publicación actualizada correctamente",
-      );
+      showActionSuccess(form.postId === null ? t("created") : t("updated"));
       onSaved();
     } catch (err) {
       const incomplete = accountIncompleteReason(err);
@@ -263,7 +264,7 @@ export default function CommunityPostEditorForm({
         if (isMountedRef.current) setRestrictionNotice(outcome);
       } else if (isMountedRef.current)
         setSaveError(
-          `${form.postId === null ? "No se pudo crear la publicación" : "No se pudo actualizar la publicación"}. ${errorMessage(err)}`,
+          `${form.postId === null ? t("createFailed") : t("updateFailed")}. ${errorMessage(err, t)}`,
         );
     } finally {
       if (isMountedRef.current) setIsSaving(false);
@@ -287,7 +288,7 @@ export default function CommunityPostEditorForm({
   return (
     <form onSubmit={(e) => void handleSave(e)} noValidate className="mt-4">
       <label htmlFor="account-community-text" className="sr-only">
-        Texto de la publicación
+        {t("textLabel")}
       </label>
       <textarea
         id="account-community-text"
@@ -297,7 +298,7 @@ export default function CommunityPostEditorForm({
         rows={4}
         disabled={isSaving}
         className="w-full rounded-md border border-border-subtle bg-bg-surface p-3 text-sm text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-secondary"
-        placeholder="¿Qué quieres compartir?"
+        placeholder={t("placeholder")}
       />
       <p className="mt-1 text-xs text-text-secondary">
         {textCount}/{COMMUNITY_POST_TEXT_MAX}
@@ -308,8 +309,10 @@ export default function CommunityPostEditorForm({
           id="account-community-media-label"
           className="block text-sm text-text-secondary"
         >
-          Multimedia (máximo {COMMUNITY_POST_MAX_MEDIA}, hasta {COMMUNITY_POST_MAX_VIDEOS}{" "}
-          video)
+          {t("mediaLabel", {
+            max: COMMUNITY_POST_MAX_MEDIA,
+            videos: COMMUNITY_POST_MAX_VIDEOS,
+          })}
         </span>
         {/* Input REAL, accesible por teclado (sr-only, nunca display:none/hidden — sigue en el
             orden de tabulación). El control VISIBLE es el <button> de abajo (mismo patrón que
@@ -335,14 +338,13 @@ export default function CommunityPostEditorForm({
           disabled={isSaving || totalMediaCount >= COMMUNITY_POST_MAX_MEDIA}
           className={`${SECONDARY_BUTTON_CLASS} mt-3 disabled:pointer-events-none disabled:opacity-50`}
         >
-          Añadir fotos o videos
+          {t("addMedia")}
         </button>
         <p
           id="account-community-media-helper"
           className="mt-2 text-xs text-text-secondary"
         >
-          Fotos y videos (MP4, MOV o WebM, hasta 100 MB, máximo{" "}
-          {COMMUNITY_POST_MAX_VIDEOS} video por publicación).
+          {t("helper", { videos: COMMUNITY_POST_MAX_VIDEOS })}
         </p>
         {pickerError ? (
           <p role="alert" className="mt-2 text-xs text-accent-live">
@@ -362,7 +364,7 @@ export default function CommunityPostEditorForm({
                     muted
                     playsInline
                     preload="metadata"
-                    aria-label="Video adjunto"
+                    aria-label={t("attachedVideo")}
                     className="h-20 w-20 rounded bg-black object-cover"
                   />
                 ) : (
@@ -370,14 +372,14 @@ export default function CommunityPostEditorForm({
                 )
               ) : (
                 <div className="flex h-20 w-20 items-center justify-center rounded border border-border-subtle text-xs text-text-secondary">
-                  Procesando…
+                  {t("processing")}
                 </div>
               )}
               <button
                 type="button"
                 onClick={() => removeExistingMedia(m.key)}
                 disabled={isSaving}
-                aria-label={m.kind === "video" ? "Quitar video" : "Quitar imagen"}
+                aria-label={m.kind === "video" ? t("removeVideo") : t("removeImage")}
                 className="absolute -right-2 -top-2 flex h-6 w-6 items-center justify-center rounded-full border border-border-subtle bg-bg-surface text-xs text-text-primary"
               >
                 ×
@@ -392,7 +394,7 @@ export default function CommunityPostEditorForm({
                   muted
                   playsInline
                   preload="metadata"
-                  aria-label="Video adjunto"
+                  aria-label={t("attachedVideo")}
                   className="h-20 w-20 rounded bg-black object-cover"
                 />
               ) : item.status === "ready" && item.variants ? (
@@ -404,15 +406,15 @@ export default function CommunityPostEditorForm({
               ) : (
                 <div className="flex h-20 w-20 flex-col items-center justify-center rounded border border-border-subtle p-1 text-center text-[10px] text-text-secondary">
                   {item.status === "failed"
-                    ? (item.errorMessage ?? "Error")
-                    : `${item.kind === "video" ? "Video" : "Imagen"}: ${item.status}`}
+                    ? uploadErrorText(item.errorCode, item.errorMessage, t)
+                    : `${item.kind === "video" ? t("itemVideo") : t("itemImage")}: ${item.status}`}
                 </div>
               )}
               <button
                 type="button"
                 onClick={() => upload.remove(item.localId)}
                 disabled={isSaving}
-                aria-label={item.kind === "video" ? "Quitar video" : "Quitar imagen"}
+                aria-label={item.kind === "video" ? t("removeVideo") : t("removeImage")}
                 className="absolute -right-2 -top-2 flex h-6 w-6 items-center justify-center rounded-full border border-border-subtle bg-bg-surface text-xs text-text-primary"
               >
                 ×
@@ -448,7 +450,7 @@ export default function CommunityPostEditorForm({
 
       <div className="mt-4 flex flex-wrap gap-3">
         <button type="submit" disabled={!canSave} className={PRIMARY_BUTTON_CLASS}>
-          {isSaving ? "Publicando…" : "Publicar"}
+          {isSaving ? t("publishing") : t("publish")}
         </button>
         <button
           type="button"
@@ -456,7 +458,7 @@ export default function CommunityPostEditorForm({
           disabled={isSaving}
           className={SECONDARY_BUTTON_CLASS}
         >
-          Cancelar
+          {t("cancel")}
         </button>
       </div>
     </form>
