@@ -47,3 +47,6 @@ Otros países: `[PENDIENTE: lista de jurisdicciones objetivo y requisitos adicio
 
 ## 7. Implementación futura (no realizada)
 Añadir la declaración de edad al registro y al contrato de `legal_acceptances` (sin fecha de nacimiento); texto ES/EN/DE; privacidad por defecto si se decide; flujo de autorización parental si se exige; pruebas.
+
+## Actualización Fase 2B — decisiones del propietario
+Contenido apto para todos los públicos; publicaciones y perfiles **públicos**, sin perfiles privados ni etiquetas de edad, y sin identificar públicamente a menores. Edad mínima 13; entre 13 y 17 según la jurisdicción y con autorización parental cuando corresponda. **No se afirma** que la plataforma verifique edades o autorizaciones (no implementado). No se recopilan fechas completas de nacimiento ni documentos. La implementación de requisitos de registro para menores queda **pendiente y fuera de esta fase**. La «privacidad más restrictiva por defecto para menores» es una intención no implementada: al ser perfiles públicos, los documentos solo **advierten** claramente de la visibilidad pública y recomiendan no incluir datos personales.

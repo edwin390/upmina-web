@@ -1,4 +1,4 @@
-# Normas de Community — BORRADOR v0.2 (no publicado, pendiente de revisión)
+# Normas de Community — BORRADOR v0.3 (no publicado, pendiente de revisión)
 
 > Estas normas describen **solo** los mecanismos que Upmina Web implementa hoy. Lo que no existe se indica como tal. No hay niveles, plazos ni procedimientos adicionales.
 
@@ -41,8 +41,8 @@ Un strike lo emite una persona del equipo, asociado a una decisión “Procede�
 ## 7. Reincidencia
 La escalada de strikes (sección 5) es el único mecanismo de reincidencia implementado. `[PENDIENTE: definir si habrá terminación de cuenta por faltas graves]`
 
-## 8. Menores
-La cuenta requiere al menos 13 años y, entre 13 y 17, las condiciones legales de tu país (ver Términos §3). No publiques datos personales de menores ni imágenes de menores sin autorización de quien ejerza su tutela.
+## 8. Menores y visibilidad
+La cuenta requiere al menos 13 años y, entre 13 y 17, las obligaciones legales de tu país (ver Términos §3). Tu perfil y tus publicaciones son **públicos**. No publiques datos personales ni imágenes de menores sin autorización de quien ejerza su tutela. Esta sección es una aclaración documental: no cambia las normas ni las sanciones.
 
 ## 9. Cambios
-Publicaremos las modificaciones con fecha y versión. v0.1 · `[Fecha al publicar]`.
+Publicaremos las modificaciones con fecha y versión. v0.2 · `[Fecha al publicar]`.

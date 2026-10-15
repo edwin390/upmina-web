@@ -1,4 +1,4 @@
-# Community-Regeln — ENTWURF v0.2 (unveröffentlicht · Arbeitsübersetzung · Prüfung ausstehend)
+# Community-Regeln — ENTWURF v0.3 (unveröffentlicht · Arbeitsübersetzung · Prüfung ausstehend)
 
 > Arbeitsübersetzung von `NORMAS-DE-COMMUNITY.borrador.md`. Diese Regeln beschreiben **nur** die Mechanismen, die UPMINA Web heute umsetzt. Was nicht existiert, ist als solches gekennzeichnet.
 
@@ -41,8 +41,8 @@ Ein Strike wird von einer Person aus dem Team vergeben, gebunden an eine Entsche
 ## 7. Wiederholte Verstöße
 Die Strike-Eskalation (Abschnitt 5) ist der einzige umgesetzte Mechanismus bei Wiederholung. `[AUSSTEHEND: entscheiden, ob bei schweren Verstößen Konten beendet werden]`
 
-## 8. Minderjährige
-Ein Konto erfordert mindestens 13 Jahre und, zwischen 13 und 17, die rechtlichen Bedingungen deines Landes (siehe Nutzungsbedingungen §3). Veröffentliche keine personenbezogenen Daten oder Bilder Minderjähriger ohne Zustimmung der Sorgeberechtigten.
+## 8. Minderjährige und Sichtbarkeit
+Ein Konto erfordert mindestens 13 Jahre und, zwischen 13 und 17, die rechtlichen Pflichten deines Landes (siehe Nutzungsbedingungen §3). Dein Profil und deine Beiträge sind **öffentlich**. Veröffentliche keine personenbezogenen Daten oder Bilder Minderjähriger ohne Zustimmung der Sorgeberechtigten. Dieser Abschnitt ist eine dokumentarische Klarstellung: Er ändert weder die Regeln noch die Sanktionen.
 
 ## 9. Änderungen
-Wir veröffentlichen Änderungen mit Datum und Version. v0.2 · `[Datum bei Veröffentlichung]`.
+Wir veröffentlichen Änderungen mit Datum und Version. v0.3 · `[Datum bei Veröffentlichung]`.

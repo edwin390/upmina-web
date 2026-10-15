@@ -1,5 +1,9 @@
 # Datos y decisiones que debe aportar el propietario
 
+> **Actualización Fase 4:** licencia del código resuelta (propietario), licencia de publicaciones y ley aplicable redactadas (pendientes de revisión profesional), redacción de strikes corregida.
+>
+> **Actualización Fase 2B:** ya decididos → contacto legal `upminaaweb@gmail.com` (#2, #4 propuesto); persona física en México (#5); edad mínima 13 (#13); código privado sin MIT (#23; `LICENSE` resuelto en la Fase 4); **sin plazos de conservación adoptados** (#6: los textos describen el estado real; por decisión del propietario no se implementarán purgas, reintentos automáticos de eliminación ni políticas de respaldos). Siguen pendientes: nombre/identidad legal (#1), domicilio o medio de notificaciones (#3), regiones y transferencias (#7), base jurídica (#8), jurisdicciones/autorización parental (#14), alcance de la licencia de contenido (#16), ley aplicable (#17), retención de logs/correo de proveedores, anonimización del contacto de apelaciones y destino de las copias manuales existentes.
+
 Clasificación: **OBLIGATORIO** (sin él el documento no puede publicarse), **RECOMENDABLE**, **OPCIONAL**. No se publica ni se inventa nada: cada punto sustituye un `[PENDIENTE]` de los borradores.
 
 ## A. Identidad y contacto
@@ -43,7 +47,7 @@ Clasificación: **OBLIGATORIO** (sin él el documento no puede publicarse), **RE
 ## E. Licencia
 | # | Decisión | Tipo |
 |---|---|---|
-| 23 | ¿El código se licencia? ¿Bajo qué licencia y a nombre de quién? El `LICENSE` actual tiene el marcador «[Tu Nombre]» sin completar | OBLIGATORIO decidir antes de afirmar una licencia |
+| 23 | ~~¿El código se licencia?~~ **Resuelto en Fase 4:** software propietario; `LICENSE` sustituido por aviso de derechos reservados. Pendiente: identidad legal del titular y revisión jurídica del efecto sobre licencias previas | RESUELTO / titular pendiente |
 | 24 | Titularidad del diseño, textos y marca del sitio | RECOMENDABLE |
 
 ## F. Revisión profesional

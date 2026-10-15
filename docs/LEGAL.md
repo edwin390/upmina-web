@@ -1,92 +1,25 @@
-# Aviso Legal y Consideraciones
+# Notas legales del proyecto (documento informativo interno)
 
----
+> **Estado:** documento informativo **interno** y de trabajo. **No es un documento legal aprobado ni publicado** y no sustituye a los textos de `docs/legal/` (Términos, Privacidad, Aviso legal, Normas de comunidad y reclamaciones de copyright), que siguen siendo **borradores pendientes de revisión jurídica**.
 
 ## Naturaleza del proyecto
+UPMINA Web es un proyecto **independiente creado por fans**. No está oficialmente afiliado, patrocinado ni respaldado por UPMINA ni por su equipo, ni por Twitch, YouTube, Instagram o TikTok. Lo opera una persona física establecida en México. Contacto para asuntos legales y de privacidad: `upminaaweb@gmail.com` (identidad legal y domicilio o medio de notificaciones: pendientes de revisión jurídica).
 
-**UPMINA Web** es un **proyecto no oficial creado por fans**, sin ánimo de lucro
-directo. No está afiliado, patrocinado, respaldado ni administrado por UPMINA
-(Mina Min) ni por su equipo de management.
+## Software propietario
+UPMINA Web es **software propietario**. Su repositorio y su código fuente son **privados** y **no se ofrece licencia MIT** ni de libre reutilización. No se concede permiso para copiar, modificar, distribuir, sublicenciar ni reutilizar el código sin autorización previa y por escrito del titular de los derechos, salvo lo que la ley aplicable permita. Ver `LICENSE`. Esto no afecta a las dependencias ni al contenido de terceros, que se rigen por sus propias licencias o derechos.
 
----
+## Contenido de terceros
+- Imágenes, videos, transmisiones, clips, nombre y marca de UPMINA, y el contenido de Twitch, YouTube, Instagram y TikTok pertenecen a sus titulares. El proyecto no reclama propiedad sobre ellos y los muestra con fines de difusión y referencia.
+- El sitio accede a las APIs de Twitch, YouTube, Instagram (Meta) y TikTok bajo sus respectivos términos: [Twitch](https://www.twitch.tv/p/legal/developer-agreement/), [YouTube](https://developers.google.com/youtube/terms/api-services-terms-of-service), [Meta](https://developers.facebook.com/terms/), [TikTok](https://developers.tiktok.com/doc/tiktok-api-terms-of-service/). El acceso a datos no públicos requiere autorización de la titular de las cuentas.
 
-## Propiedad intelectual
+## Contenido de usuarios
+Los usuarios conservan los derechos sobre sus publicaciones originales y conceden una licencia limitada, no exclusiva y gratuita para alojarlas, procesarlas técnicamente, mostrarlas y distribuirlas **dentro del servicio** y para la moderación (ver Términos, §6; borrador pendiente de revisión profesional). Esa licencia es distinta de la del código fuente. Las normas y el sistema de sanciones están descritos en las Normas de comunidad.
 
-Todo el contenido mostrado en esta web pertenece a sus respectivos titulares:
+## Derechos de autor
+Los titulares de derechos pueden presentar una **reclamación** en `/copyright`, procedimiento distinto de los reportes ordinarios de publicaciones. El flujo real (revisión por una persona, ocultación, aviso al autor con 24 horas de apelación, eliminación definitiva manual) está en `docs/legal/RECLAMACIONES-DE-DERECHOS-DE-AUTOR.borrador.md` y `docs/COPY-1-2B.md`. **No existe** una retirada universal en un plazo fijo.
 
-- **Imágenes, fotos y reels de Instagram**: © UPMINA
-- **Videos y miniaturas de YouTube**: © UPMINA
-- **Videos de TikTok**: © UPMINA
-- **Clips de Twitch**: © UPMINA y los autores de los clips
-- **Transmisiones en vivo**: © UPMINA y Twitch
-- **Nombre, logotipo y marca "UPMINA"**: propiedad de UPMINA
+## Limitación de responsabilidad
+Aplica lo dispuesto en los Términos (borrador), sin afectar derechos irrenunciables. El servicio se ofrece «tal cual» y los contenidos de terceros pueden cambiar o desaparecer.
 
-Este proyecto **no reclama propiedad alguna** sobre dicho contenido. Se muestra
-únicamente con fines de difusión, referencia y entretenimiento.
-
----
-
-## Uso de APIs
-
-El proyecto accede a las siguientes APIs bajo sus respectivos términos:
-
-- **Twitch API**: [Twitch Developer Agreement](https://www.twitch.tv/p/legal/developer-agreement/)
-- **YouTube Data API v3**: [YouTube API Services Terms of Service](https://developers.google.com/youtube/terms/api-services-terms-of-service)
-- **Instagram Graph API**: [Meta Platform Terms](https://developers.facebook.com/terms/)
-- **TikTok Display API**: [TikTok Developer Terms](https://developers.tiktok.com/doc/tiktok-api-terms-of-service/)
-
-El acceso a datos privados o no públicos requiere autorización explícita del
-titular de las cuentas (UPMINA).
-
----
-
-## Contenido generado por usuarios
-
-Los edits subidos por la comunidad son responsabilidad de sus autores. Al subir
-contenido, el usuario declara que:
-
-1. Es el autor original del edit.
-2. No infringe derechos de terceros.
-3. Acepta que el contenido puede ser retirado en cualquier momento.
-
-El proyecto se reserva el derecho de eliminar cualquier contenido que:
-
-- Infrinja derechos de autor.
-- Contenga material sexual explícito, violento o de odio.
-- Suplante la identidad de UPMINA o de terceros.
-- Incumpla las normas de la comunidad.
-
----
-
-## Retirada de contenido (DMCA / Takedown)
-
-Si eres titular de derechos y consideras que algún contenido de esta web
-infringe tus derechos, contacta a [er179822@gmail.com](mailto:er179822@gmail.com) con:
-
-- Identificación del contenido afectado.
-- Prueba de titularidad de los derechos.
-- Motivo de la reclamación.
-- Datos de contacto.
-
-El contenido será retirado en un plazo máximo de 72 horas.
-
----
-
-## Exención de responsabilidad
-
-Este proyecto se ofrece "tal cual", sin garantías de ningún tipo. El autor no
-se responsabiliza de:
-
-- Interrupciones del servicio.
-- Contenido de terceros enlazado.
-- Uso indebido por parte de los usuarios.
-
----
-
-## Licencia del código
-
-El **código fuente** de este proyecto se distribuye bajo licencia **MIT**.
-Consulta el archivo `LICENSE` para más detalles.
-
-La licencia MIT **no aplica** al contenido mostrado (imágenes, videos, marca),
-que sigue perteneciendo a sus titulares.
+## Documentos relacionados
+`docs/legal/README.md` (índice y estado), `docs/legal/CONSERVACION-Y-RESPALDOS.md`, `docs/legal/MENORES-EVALUACION.md`, `docs/legal/DATOS-PENDIENTES.md`, `docs/legal/REVISION-LICENCIA-Y-FOOTER.md`.

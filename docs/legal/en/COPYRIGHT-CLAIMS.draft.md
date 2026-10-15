@@ -1,4 +1,4 @@
-# Copyright Claims Procedure — DRAFT v0.1 (unpublished · working translation · pending legal review)
+# Copyright Claims Procedure — DRAFT v0.2 (unpublished · working translation · pending legal review)
 
 > Describes the flow the system implements today (COPY-1). It does not assert compliance with any specific legal regime (e.g. DMCA, EU Copyright Directive, Mexican Federal Copyright Law) and sets no deadlines the system does not have. `[PENDING]` = controller's decision.
 
@@ -25,6 +25,6 @@ Claimant and author data are used only to handle the claim and kept as restricte
 `[PENDING: warning and consequences for bad-faith claims, per advice]`.
 
 ## 6. Contact
-`[PENDING: email for copyright claims]`.
+**upminaaweb@gmail.com** (proposed as the legal contact; `[PENDING: confirm]`).
 
-v0.1 · `[PENDING: date]`
+v0.2 · `[PENDING: date]`

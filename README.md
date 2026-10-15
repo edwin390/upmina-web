@@ -183,7 +183,7 @@ patrocinado ni respaldado por UPMINA ni por su management. Consulta
 
 ## 📄 Licencia
 
-MIT License. Consulta `LICENSE`.
+Software propietario. Todos los derechos reservados; el código es privado. Consulta `LICENSE`.
 
 ---
 

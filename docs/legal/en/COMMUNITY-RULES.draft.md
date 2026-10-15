@@ -1,4 +1,4 @@
-# Community Rules — DRAFT v0.2 (unpublished · working translation · pending review)
+# Community Rules — DRAFT v0.3 (unpublished · working translation · pending review)
 
 > Working translation of `NORMAS-DE-COMMUNITY.borrador.md`. These rules describe **only** the mechanisms UPMINA Web implements today. Anything that does not exist is stated as such.
 
@@ -41,8 +41,8 @@ A strike is issued by a team member, tied to a "Proceeds" decision (or a final c
 ## 7. Repeat offences
 Strike escalation (section 5) is the only repeat-offence mechanism implemented. `[PENDING: decide whether accounts will be terminated for serious breaches]`
 
-## 8. Minors
-An account requires at least 13 years of age and, between 13 and 17, the legal conditions of your country (see Terms §3). Do not post personal data or images of minors without the authorisation of whoever has custody.
+## 8. Minors and visibility
+An account requires at least 13 years of age and, between 13 and 17, the legal obligations of your country (see Terms §3). Your profile and posts are **public**. Do not post personal data or images of minors without the authorisation of whoever has custody. This section is a documentary clarification: it changes neither the rules nor the sanctions.
 
 ## 9. Changes
-We will publish changes with a date and version. v0.2 · `[Date on publication]`.
+We will publish changes with a date and version. v0.3 · `[Date on publication]`.

@@ -1,4 +1,4 @@
-# Procedimiento de reclamaciones de derechos de autor — BORRADOR v0.1 (no publicado · pendiente de revisión jurídica)
+# Procedimiento de reclamaciones de derechos de autor — BORRADOR v0.2 (no publicado · pendiente de revisión jurídica)
 
 > Describe el flujo que el sistema implementa hoy (COPY-1, verificado en `docs/COPY-1-2B.md` y el código). No afirma cumplimiento de ningún régimen legal concreto (p. ej. DMCA, Directiva de derechos de autor de la UE, Ley Federal del Derecho de Autor) ni establece plazos que el sistema no tenga. `[PENDIENTE]` = decisión del responsable. Traducciones EN y DE en `docs/legal/en/` y `docs/legal/de/`.
 
@@ -25,6 +25,6 @@ Los datos del reclamante y del autor se usan solo para tramitar la reclamación 
 `[PENDIENTE: advertencia y consecuencias de reclamaciones de mala fe, según asesoría]`.
 
 ## 6. Contacto
-`[PENDIENTE: correo del responsable de reclamaciones]`.
+**upminaaweb@gmail.com** (propuesto como contacto legal; `[PENDIENTE: confirmar]`).
 
-v0.1 · `[PENDIENTE: fecha]`
+v0.2 · `[PENDIENTE: fecha]`

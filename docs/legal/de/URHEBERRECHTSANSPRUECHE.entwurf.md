@@ -1,4 +1,4 @@
-# Verfahren für Urheberrechtsansprüche — ENTWURF v0.1 (unveröffentlicht · Arbeitsübersetzung · rechtliche Prüfung ausstehend)
+# Verfahren für Urheberrechtsansprüche — ENTWURF v0.2 (unveröffentlicht · Arbeitsübersetzung · rechtliche Prüfung ausstehend)
 
 > Beschreibt den Ablauf, den das System heute umsetzt (COPY-1). Es wird nicht die Einhaltung einer bestimmten Rechtsordnung (z. B. DMCA, EU-Urheberrechtsrichtlinie, mexikanisches Bundesurheberrechtsgesetz) behauptet, und es werden keine Fristen festgelegt, die das System nicht hat. `[AUSSTEHEND]` = Entscheidung des Verantwortlichen.
 
@@ -25,6 +25,6 @@ Daten von Anspruchsteller und Autor werden nur zur Bearbeitung des Anspruchs ver
 `[AUSSTEHEND: Warnhinweis und Folgen bei bösgläubigen Ansprüchen, nach Beratung]`.
 
 ## 6. Kontakt
-`[AUSSTEHEND: E-Mail für Urheberrechtsansprüche]`.
+**upminaaweb@gmail.com** (als rechtlicher Kontakt vorgeschlagen; `[AUSSTEHEND: bestätigen]`).
 
-v0.1 · `[AUSSTEHEND: Datum]`
+v0.2 · `[AUSSTEHEND: Datum]`

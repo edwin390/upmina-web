@@ -18,3 +18,12 @@ Textos ES/EN/DE en `src/i18n/locales/*/common.json` (`footer`), mismo sistema i1
 
 ## Pendiente para activar
 Aprobar los documentos, publicar `/community-rules` y `/legal` con su contenido, activar `VITE_LEGAL_DOCS_ENABLED`, y actualizar `/terms` y `/privacy` (hoy en inglés, versión anterior).
+
+## Actualización Fase 2B — decisión del propietario
+El código **permanece privado**; **no se ofrece licencia MIT** ni de libre reutilización. Los documentos legales lo reflejan (Aviso legal §3) y no afirman ninguna licencia de uso libre. El archivo `LICENSE` (texto MIT con marcador sin completar) **no se modificó ni se eliminó** en esta fase: queda **pendiente su resolución formal** (decisión del titular; p. ej. sustituirlo por un aviso de «todos los derechos reservados» o retirarlo).
+
+## Actualización Fase 4 — resolución
+- **Decisión definitiva:** UPMINA Web es **software propietario y privado**; sin licencia MIT ni de libre reutilización. La licencia limitada que conceden los usuarios sobre sus publicaciones es otra cosa (Términos §6).
+- **`LICENSE`** sustituido por un aviso breve de derechos reservados, sin titular legal inventado y sin afectar a dependencias ni a contenido de terceros. Sustituir el archivo **no elimina retroactivamente** permisos que pudieran haberse concedido válidamente bajo la licencia anterior (cuestión para revisión jurídica). El repositorio es privado y no consta que se haya distribuido a terceros `[PENDIENTE: confirmar]`.
+- **`README.md`** (raíz): su sección «Licencia» decía MIT; corregida. **`docs/LEGAL.md`**: reescrito como documento informativo interno (sin MIT ni «retirada en 72 horas»), no aprobado ni publicado.
+- **Footer:** sin referencias a MIT ni enlaces legales incorrectos en la rama legal (no se modificó en esta fase). **El sitio publicado hoy (Production) conserva el footer antiguo** hasta que se publique la rama.
