@@ -9,6 +9,8 @@ const TEXT = {
 
 interface Props {
   children: ReactNode;
+  /** Sustituye al aviso a pantalla completa (p. ej. null para un bloque secundario como el pie legal). */
+  fallback?: ReactNode;
 }
 interface State {
   error: unknown;
@@ -30,6 +32,7 @@ export default class RouteErrorBoundary extends Component<Props, State> {
 
   render() {
     if (this.state.error === null) return this.props.children;
+    if (this.props.fallback !== undefined) return this.props.fallback;
     const lang = document.documentElement.lang.slice(0, 2);
     const t = TEXT[lang === "en" || lang === "de" ? lang : "es"];
     return (

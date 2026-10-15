@@ -1,4 +1,5 @@
 import { lazy, Suspense } from "react";
+import RouteErrorBoundary from "@/components/RouteErrorBoundary";
 
 const FooterLegal = lazy(() => import("./FooterLegal"));
 
@@ -40,9 +41,11 @@ export default function Footer() {
           ))}
         </div>
 
-        <Suspense fallback={<div className="min-h-24" aria-hidden="true" />}>
-          <FooterLegal />
-        </Suspense>
+        <RouteErrorBoundary fallback={null}>
+          <Suspense fallback={<div className="min-h-24" aria-hidden="true" />}>
+            <FooterLegal />
+          </Suspense>
+        </RouteErrorBoundary>
       </div>
     </footer>
   );

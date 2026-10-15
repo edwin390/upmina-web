@@ -4,6 +4,7 @@ import { BrowserRouter } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { HeroUIProvider } from "@heroui/react";
 import App from "./App";
+import RouteErrorBoundary from "./components/RouteErrorBoundary";
 import UpminaLocaleProvider from "./i18n/LocaleProvider";
 import ActionNotice from "./components/ActionNotice";
 import CommunityVisibilitySync from "./components/CommunityVisibilitySync";
@@ -33,12 +34,14 @@ createRoot(document.getElementById("root")!).render(
     <QueryClientProvider client={queryClient}>
       <CommunityVisibilitySync />
       <HeroUIProvider>
-        <UpminaLocaleProvider gate>
-          <BrowserRouter>
-            <App />
-            <ActionNotice />
-          </BrowserRouter>
-        </UpminaLocaleProvider>
+        <RouteErrorBoundary>
+          <UpminaLocaleProvider gate>
+            <BrowserRouter>
+              <App />
+              <ActionNotice />
+            </BrowserRouter>
+          </UpminaLocaleProvider>
+        </RouteErrorBoundary>
       </HeroUIProvider>
     </QueryClientProvider>
   </StrictMode>,
