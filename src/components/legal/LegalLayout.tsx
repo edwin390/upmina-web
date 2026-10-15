@@ -1,6 +1,6 @@
 import { useEffect, type ReactNode } from "react";
 
-export const CONTACT_EMAIL = "er179822@gmail.com";
+export const CONTACT_EMAIL = "upminaaweb@gmail.com";
 export const EFFECTIVE_DATE = "September 20, 2026";
 
 interface LegalLayoutProps {

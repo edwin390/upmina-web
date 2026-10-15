@@ -1,6 +1,5 @@
-// Aceptación legal en el registro. DESACTIVADA por defecto: sin VITE_SIGNUP_LEGAL_CONSENT=true el
-// formulario de /signup es el de siempre y no se envía nada. Los textos (docs/legal/*.borrador.md)
-// siguen pendientes de revisión jurídica; esta pieza NO los publica ni bloquea registros reales.
+// Aceptación legal y declaración de mayoría de edad en el registro. Se activa con VITE_SIGNUP_LEGAL_CONSENT=true
+// (sin ella el formulario es el de siempre y no se envía nada). Los textos están en src/content/legal/.
 //
 // Evidencia mínima: versión de cada documento aceptado, enviada como metadata de alta
 // (`options.data.legal_acceptance`) y copiada por el trigger `legal_record_signup_acceptance`
@@ -8,17 +7,24 @@
 // agente de usuario. Esa metadata la controla el cliente: sirve como declaración del reconocimiento y
 // NUNCA como autorización (ningún rol ni permiso se deriva de ella).
 
-export const LEGAL_DOCUMENTS = ["terms", "privacy", "community_rules"] as const;
+// «adult_declaration» NO es un documento: es la declaración de mayoría de edad (18+), registrada con la misma versión/fecha.
+export const LEGAL_DOCUMENTS = [
+  "adult_declaration",
+  "terms",
+  "privacy",
+  "community_rules",
+] as const;
 export type LegalDocument = (typeof LEGAL_DOCUMENTS)[number];
 
 /** Versión vigente de cada documento. Debe coincidir con `legal_document_versions` (is_current). */
 export const LEGAL_VERSIONS: Record<LegalDocument, string> = {
-  terms: "v0.1",
-  privacy: "v0.1",
-  community_rules: "v0.1",
+  adult_declaration: "v1.0",
+  terms: "v1.0",
+  privacy: "v1.0",
+  community_rules: "v1.0",
 };
 
-export const LEGAL_LINKS: Record<LegalDocument, string> = {
+export const LEGAL_LINKS: Record<Exclude<LegalDocument, "adult_declaration">, string> = {
   terms: "/terms",
   privacy: "/privacy",
   community_rules: "/community-rules",
@@ -32,6 +38,7 @@ export function isSignupLegalConsentEnabled(
 
 export type LegalChecks = Record<LegalDocument, boolean>;
 export const NO_CHECKS: LegalChecks = {
+  adult_declaration: false,
   terms: false,
   privacy: false,
   community_rules: false,

@@ -75,7 +75,12 @@ describe("registro con aceptación legal", () => {
     fireEvent.click(submit());
     await waitFor(() => expect(calls).toHaveLength(1));
     expect((calls[0] as { options: { data: unknown } }).options.data).toEqual({
-      legal_acceptance: { terms: "v0.1", privacy: "v0.1", community_rules: "v0.1" },
+      legal_acceptance: {
+        adult_declaration: "v1.0",
+        terms: "v1.0",
+        privacy: "v1.0",
+        community_rules: "v1.0",
+      },
     });
   });
 });

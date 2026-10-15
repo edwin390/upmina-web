@@ -15,7 +15,12 @@ const ROLLBACK = readFileSync(
   "supabase/rollbacks/20261118120000_legal_acceptances.rollback.sql",
   "utf8",
 );
-const ALL = { terms: "v0.1", privacy: "v0.1", community_rules: "v0.1" };
+const ALL = {
+  adult_declaration: "v1.0",
+  terms: "v1.0",
+  privacy: "v1.0",
+  community_rules: "v1.0",
+};
 let db: TestDatabase;
 let n = 0;
 const uid = () => `0f000000-0000-4000-8000-${String(++n).padStart(12, "0")}`;
@@ -39,20 +44,27 @@ afterAll(async () => {
 });
 
 describe("legal_acceptances", () => {
-  it("sin versiones aprobadas y sin enforcement: el alta pasa y no registra nada", async () => {
-    await signup({ legal_acceptance: ALL });
-    await signup({});
-    expect(await count()).toBe(0);
+  it("la migración siembra la v1.0 vigente de los 4 documentos y deja el bloqueo apagado", async () => {
+    const v = await db.query(
+      "select document, version from legal_document_versions where is_current order by document",
+    );
+    expect(v.rows.map((r) => `${r.document}:${r.version}`)).toEqual([
+      "adult_declaration:v1.0",
+      "community_rules:v1.0",
+      "privacy:v1.0",
+      "terms:v1.0",
+    ]);
+    expect(
+      (await db.query("select enforce_signup from legal_settings")).rows[0]
+        .enforce_signup,
+    ).toBe(false);
   });
 
-  it("con versiones aprobadas registra las tres, con fecha de servidor y sin IP", async () => {
-    for (const d of ["terms", "privacy", "community_rules"])
-      await db.query(
-        "insert into legal_document_versions(document,version,is_current,approved_at) values($1,'v0.1',true,now())",
-        [d],
-      );
+  it("sin bloqueo: un alta completa registra los 4 (fecha de servidor, sin IP); uno vacío pasa y no registra", async () => {
     await signup({ legal_acceptance: ALL });
-    expect(await count()).toBe(3);
+    expect(await count()).toBe(4);
+    await signup({});
+    expect(await count()).toBe(4);
     const cols = (
       await db.query(
         "select column_name from information_schema.columns where table_name='legal_acceptances'",
@@ -67,19 +79,21 @@ describe("legal_acceptances", () => {
     ]);
   });
 
-  it("sin enforcement, versiones inválidas o parciales no bloquean ni registran de más", async () => {
+  it("sin bloqueo, versiones inválidas o parciales no bloquean y solo registran las válidas", async () => {
     const before = await count();
-    await signup({ legal_acceptance: { terms: "v9.9", privacy: "v0.1" } });
+    await signup({ legal_acceptance: { terms: "v9.9", privacy: "v1.0" } });
     await signup({ legal_acceptance: "texto" });
     expect(await count()).toBe(before + 1);
   });
 
-  it("con enforcement rechaza altas sin las tres aceptaciones vigentes y acepta las completas", async () => {
+  it("con bloqueo: rechaza altas sin los 4 reconocimientos vigentes (incluida la mayoría de edad) y acepta las completas", async () => {
     await db.exec("update legal_settings set enforce_signup = true");
     await expect(signup({})).rejects.toThrow(/legal_acceptance_required/);
-    await expect(
-      signup({ legal_acceptance: { terms: "v0.1", privacy: "v0.1" } }),
-    ).rejects.toThrow(/legal_acceptance_required/);
+    const { adult_declaration: _a, ...sinEdad } = ALL;
+    void _a;
+    await expect(signup({ legal_acceptance: sinEdad })).rejects.toThrow(
+      /legal_acceptance_required/,
+    );
     await expect(
       signup({ legal_acceptance: { ...ALL, privacy: "v0.2" } }),
     ).rejects.toThrow(/legal_acceptance_required/);
@@ -93,10 +107,15 @@ describe("legal_acceptances", () => {
     );
     expect(Number(g.rows[0].c)).toBe(0);
     await db.exec(ROLLBACK);
-    const t = await db.query(
-      "select count(*)::int c from pg_tables where tablename like 'legal_%'",
-    );
-    expect(Number(t.rows[0].c)).toBe(0);
+    expect(
+      Number(
+        (
+          await db.query(
+            "select count(*)::int c from pg_tables where tablename like 'legal_%'",
+          )
+        ).rows[0].c,
+      ),
+    ).toBe(0);
     await signup({});
   });
 });

@@ -3,6 +3,14 @@ import { Link } from "react-router-dom";
 import { supabase } from "@/lib/supabase";
 import AdminAuthCard from "@/components/admin/AdminAuthCard";
 import AdminAuthField from "@/components/admin/AdminAuthField";
+import SignupLegalConsent from "@/components/auth/SignupLegalConsent";
+import {
+  NO_CHECKS,
+  allAccepted,
+  buildLegalAcceptance,
+  isSignupLegalConsentEnabled,
+  type LegalChecks,
+} from "@/lib/legal-consent";
 
 // /admin/signup (Bloque 3A). Crea una cuenta de Supabase Auth normal: SIEMPRE USER sin
 // privilegios. No se envía ningún metadata de rol en signUp(), no hay lista de emails
@@ -33,6 +41,9 @@ export default function AdminSignupPage() {
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSubmitted, setIsSubmitted] = useState(false);
+  // Misma declaración de mayoría de edad y aceptación legal que /signup (el servidor la exige para TODA alta).
+  const legalEnabled = isSignupLegalConsentEnabled();
+  const [legal, setLegal] = useState<LegalChecks>(NO_CHECKS);
 
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
@@ -47,6 +58,13 @@ export default function AdminSignupPage() {
       return;
     }
 
+    if (legalEnabled && !allAccepted(legal)) {
+      setError(
+        "Debes confirmar que eres mayor de 18 años y aceptar los documentos para crear tu cuenta.",
+      );
+      return;
+    }
+
     if (!supabase) {
       setError("El acceso admin no está configurado todavía.");
       return;
@@ -54,8 +72,14 @@ export default function AdminSignupPage() {
 
     setIsSubmitting(true);
     try {
-      // Deliberadamente sin `options.data`: ningún metadata de rol viaja en el signup.
-      const { error: signUpError } = await supabase.auth.signUp({ email, password });
+      // Sin metadata de rol en el signup; con el consentimiento activo viaja SOLO `legal_acceptance` (versiones).
+      const { error: signUpError } = await supabase.auth.signUp({
+        email,
+        password,
+        ...(legalEnabled
+          ? { options: { data: { legal_acceptance: buildLegalAcceptance(legal) } } }
+          : {}),
+      });
       if (signUpError) {
         setError(signupErrorMessage(signUpError));
         return;
@@ -132,6 +156,14 @@ export default function AdminSignupPage() {
           errorId={error ? "signup-error" : undefined}
         />
 
+        {legalEnabled ? (
+          <SignupLegalConsent
+            checks={legal}
+            onChange={setLegal}
+            disabled={isSubmitting}
+          />
+        ) : null}
+
         {error ? (
           <p id="signup-error" role="alert" className="text-sm text-accent-live">
             {error}
@@ -140,7 +172,7 @@ export default function AdminSignupPage() {
 
         <button
           type="submit"
-          disabled={isSubmitting}
+          disabled={isSubmitting || (legalEnabled && !allAccepted(legal))}
           className="mt-2 inline-flex min-h-11 items-center justify-center rounded-md border border-accent-primary/60 bg-accent-primary px-5 py-2.5 text-sm font-bold uppercase tracking-[0.18em] text-text-inverse shadow-glow-primary transition duration-200 ease-bounce hover:-translate-y-1 hover:bg-accent-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-secondary focus-visible:ring-offset-2 focus-visible:ring-offset-bg-surface disabled:pointer-events-none disabled:opacity-50"
         >
           {isSubmitting ? "Creando cuenta…" : "Crear cuenta"}

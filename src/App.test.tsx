@@ -16,9 +16,9 @@ describe("rutas legales", () => {
   });
 
   it.each([
-    ["/terms", "Terms of Service"],
+    ["/terms", "Terms and Conditions"],
     ["/privacy", "Privacy Policy"],
-  ])("%s muestra su página, la fecha y el contacto", (path, title) => {
+  ])("%s muestra su página (idioma del navegador) y el contacto", async (path, title) => {
     render(
       <QueryClientProvider client={testQueryClient}>
         <MemoryRouter initialEntries={[path]}>
@@ -27,12 +27,13 @@ describe("rutas legales", () => {
       </QueryClientProvider>,
     );
 
-    expect(screen.getByRole("heading", { level: 1, name: title })).toBeInTheDocument();
-    expect(screen.getByText("Effective date: September 20, 2026")).toBeInTheDocument();
-    const mail = screen.getAllByRole("link", { name: "er179822@gmail.com" });
+    expect(
+      await screen.findByRole("heading", { level: 1, name: title }),
+    ).toBeInTheDocument();
+    const mail = screen.getAllByRole("link", { name: "upminaaweb@gmail.com" });
     expect(mail.length).toBeGreaterThan(0);
     for (const link of mail) {
-      expect(link).toHaveAttribute("href", "mailto:er179822@gmail.com");
+      expect(link).toHaveAttribute("href", "mailto:upminaaweb@gmail.com");
     }
   });
 

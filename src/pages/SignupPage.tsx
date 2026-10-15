@@ -31,7 +31,8 @@ import {
 const MISMATCH_MESSAGE = "Las contraseñas no coinciden.";
 const MISSING_FIELDS_MESSAGE = "Completa todos los campos.";
 const WEAK_PASSWORD_MESSAGE = "La contraseña no cumple los requisitos de seguridad.";
-const LEGAL_REQUIRED_MESSAGE = "Debes aceptar los documentos para crear tu cuenta.";
+const LEGAL_REQUIRED_MESSAGE =
+  "Debes confirmar que eres mayor de 18 años y aceptar los documentos para crear tu cuenta.";
 const GENERIC_ERROR_MESSAGE = "No se pudo crear la cuenta. Inténtalo de nuevo.";
 
 function signupErrorMessage(error: unknown): string {

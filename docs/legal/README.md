@@ -45,3 +45,6 @@ Dependencias pendientes: (1) las versiones del cliente (`v0.1`) deben igualarse 
 - `LICENSE`: aviso de software propietario / derechos reservados (sin titular legal inventado). `README.md` raíz y `docs/LEGAL.md` alineados (sin MIT, sin «72 horas»).
 - Términos ES/EN/DE: licencia limitada de publicaciones (§6, pendiente de revisión profesional), código propietario (§7) y ley aplicable de México sin excluir derechos imperativos (§11, jurisdicción pendiente).
 - Strikes: redacción documental corregida (cuenta activa: historial para la escalada; tras eliminar: hasta 12 meses propuestos, sin purga automática implementada). Sin cambios en Community.
+
+## Publicación final (v1.0)
+Los textos publicados en `/terms`, `/privacy`, `/legal` y `/community-rules` están en `src/content/legal/{es,en,de}/` (fuente de verdad; estos borradores quedan como histórico). Registro: declaración de mayoría de edad (18+) + aceptación (migración `20261118120000`, aplicada en Production; `enforce_signup` se activa aparte).

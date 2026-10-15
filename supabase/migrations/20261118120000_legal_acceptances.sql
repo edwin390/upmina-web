@@ -1,5 +1,5 @@
--- Aceptación de documentos legales en el registro. SOLO LOCAL / NO APLICADA: los textos siguen pendientes de revisión
--- jurídica y esta migración no debe aplicarse a Production hasta que existan versiones aprobadas.
+-- Aceptación de documentos legales y declaración de mayoría de edad (18+) en el registro. Siembra la v1.0 vigente de los 4
+-- documentos; legal_settings.enforce_signup queda en false (se activa como paso operativo aparte).
 --
 -- Diseño:
 --   * legal_document_versions: versiones publicadas por la persona operadora (vacía = nada es exigible).
@@ -12,7 +12,7 @@
 --   * Usuarios existentes: no se tocan ni se bloquean. Una futura versión nueva requerirá un aviso/aceptación posterior a
 --     iniciar sesión (no implementado aquí) sin impedir acceso a datos ni ejercicio de derechos.
 create table public.legal_document_versions (
-  document   text not null check (document in ('terms', 'privacy', 'community_rules')),
+  document   text not null check (document in ('adult_declaration', 'terms', 'privacy', 'community_rules')),
   version    text not null check (version ~ '^v[0-9]+(\.[0-9]+)*$'),
   is_current boolean not null default false,
   approved_at timestamptz,
@@ -55,7 +55,7 @@ declare
                        then new.raw_user_meta_data -> 'legal_acceptance' else '{}'::jsonb end;
   v_doc text; v_ok integer := 0;
 begin
-  foreach v_doc in array array['terms', 'privacy', 'community_rules'] loop
+  foreach v_doc in array array['adult_declaration', 'terms', 'privacy', 'community_rules'] loop
     if exists (select 1 from public.legal_document_versions d
                 where d.document = v_doc and d.is_current and d.approved_at is not null
                   and d.version = v_meta ->> v_doc) then
@@ -64,7 +64,7 @@ begin
       v_ok := v_ok + 1;
     end if;
   end loop;
-  if v_ok < 3 and (select enforce_signup from public.legal_settings) then
+  if v_ok < 4 and (select enforce_signup from public.legal_settings) then
     raise exception 'legal_acceptance_required' using errcode = 'P0001';
   end if;
   return new;
@@ -76,3 +76,9 @@ revoke all on function public.legal_record_signup_acceptance() from public, anon
 create trigger legal_record_signup_acceptance
   after insert on auth.users
   for each row execute function public.legal_record_signup_acceptance();
+
+insert into public.legal_document_versions (document, version, is_current, approved_at) values
+  ('adult_declaration', 'v1.0', true, now()),
+  ('terms', 'v1.0', true, now()),
+  ('privacy', 'v1.0', true, now()),
+  ('community_rules', 'v1.0', true, now());
