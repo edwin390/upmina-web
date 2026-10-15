@@ -128,6 +128,7 @@ beforeEach(async () => {
   vi.resetAllMocks();
   db = await createAtomicTestDatabase();
   vi.stubEnv("VITE_SUPABASE_URL", "https://fixture.test");
+  vi.stubEnv("VITE_SUPABASE_ANON_KEY", "fixture");
   vi.stubEnv("SUPABASE_SERVICE_ROLE_KEY", "fixture");
   fake.rpc.mockImplementation(async (name: string, args: Record<string, unknown>) => {
     expect(name).toBe("community_post_save_atomic");
