@@ -1,4 +1,6 @@
-import { Link } from "react-router-dom";
+import { lazy, Suspense } from "react";
+
+const FooterLegal = lazy(() => import("./FooterLegal"));
 
 const SOCIAL_LINKS = [
   { href: "https://twitch.tv/upminaa", label: "Twitch" },
@@ -34,41 +36,9 @@ export default function Footer() {
           ))}
         </div>
 
-        <nav aria-label="Legal" className="-my-2 flex gap-x-5 text-text-muted">
-          <Link
-            to="/terms"
-            className="py-2 transition-colors duration-200 ease-smooth hover:text-accent-secondary"
-          >
-            Terms
-          </Link>
-          <Link
-            to="/privacy"
-            className="py-2 transition-colors duration-200 ease-smooth hover:text-accent-secondary"
-          >
-            Privacy
-          </Link>
-          <Link
-            to="/copyright"
-            className="py-2 transition-colors duration-200 ease-smooth hover:text-accent-secondary"
-          >
-            Copyright
-          </Link>
-        </nav>
-
-        <p className="max-w-2xl text-text-muted">
-          UPMINA Web es un proyecto no oficial creado por fans. No está afiliado,
-          patrocinado ni respaldado por UPMINA ni por su management. Consulta el{" "}
-          <a href="/docs/LEGAL.md" className="underline hover:text-accent-primary">
-            aviso legal
-          </a>
-          .
-        </p>
-
-        <p className="text-text-muted">
-          &copy; {new Date().getFullYear()} UPMINA Web · Hecho con{" "}
-          <span className="text-accent-primary">♥</span> por fans · Distribuido bajo
-          licencia MIT.
-        </p>
+        <Suspense fallback={<div className="min-h-24" aria-hidden="true" />}>
+          <FooterLegal />
+        </Suspense>
       </div>
     </footer>
   );

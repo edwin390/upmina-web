@@ -5,5 +5,17 @@
     "previous": "Foto anterior",
     "next": "Foto siguiente",
     "counter": "{current} de {total}"
+  },
+  "footer": {
+    "legalNav": "Legal",
+    "terms": "Términos",
+    "privacy": "Privacidad",
+    "communityRules": "Reglas de comunidad",
+    "copyrightClaims": "Reclamar derechos de autor",
+    "copyrightHint": "Solo para titulares de derechos. Para reportar una publicación, usa el menú de la propia publicación.",
+    "legalNotice": "Aviso legal",
+    "independence": "UPMINA Web es un proyecto independiente creado por fans. No está oficialmente afiliado, patrocinado ni respaldado por UPMINA ni por su equipo.",
+    "independenceWithNotice": "UPMINA Web es un proyecto independiente creado por fans. No está oficialmente afiliado, patrocinado ni respaldado por UPMINA ni por su equipo. Consulta el <notice>aviso legal</notice>.",
+    "madeWith": "© {year} UPMINA Web · Hecho con <heart>♥</heart> por fans"
   }
 }

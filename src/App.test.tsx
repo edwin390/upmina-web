@@ -36,7 +36,7 @@ describe("rutas legales", () => {
     }
   });
 
-  it("el footer enlaza a Terms y Privacy, que no están en el menú principal", () => {
+  it("el footer enlaza a Terms y Privacy, que no están en el menú principal", async () => {
     render(
       <QueryClientProvider client={testQueryClient}>
         <MemoryRouter initialEntries={["/terms"]}>
@@ -45,7 +45,8 @@ describe("rutas legales", () => {
       </QueryClientProvider>,
     );
 
-    const legalNav = screen.getByRole("navigation", { name: "Legal" });
+    // El footer legal es perezoso (i18n ES/EN/DE): se espera a que cargue.
+    const legalNav = await screen.findByRole("navigation", { name: "Legal" });
     expect(legalNav.querySelector('a[href="/terms"]')).not.toBeNull();
     expect(legalNav.querySelector('a[href="/privacy"]')).not.toBeNull();
     const headerNav = document.querySelector("header nav");
