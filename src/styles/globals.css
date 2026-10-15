@@ -25,7 +25,9 @@
   --amb-2: #0c1a2e;
   --amb-3: #0d1024;
   --amb-grid: 116 184 244;
-  --hearts-img: url("/images/hearts-dark.svg");
+  --hearts-a: url("/images/hearts-dark-a.svg");
+  --hearts-b: url("/images/hearts-dark-b.svg");
+  --hearts-c: url("/images/hearts-dark-c.svg");
 }
 
 :root[data-theme="light"] {
@@ -50,13 +52,39 @@
   --amb-2: #dce9f8;
   --amb-3: #f1f6fd;
   --amb-grid: 120 159 203;
-  --hearts-img: url("/images/hearts-light.svg");
+  --hearts-a: url("/images/hearts-light-a.svg");
+  --hearts-b: url("/images/hearts-light-b.svg");
+  --hearts-c: url("/images/hearts-light-c.svg");
 }
 
 /* Corazones decorativos: capa estática (SVG en un fondo repetido), detrás de todo el contenido. */
-.hearts-pattern {
-  background-image: var(--hearts-img);
+/* Tres capas independientes (mismos corazones repartidos 1/3 cada una) que flotan con trayectorias cerradas distintas.
+   Sólo transform; las capas sobresalen 40px por cada lado para no dejar bordes al moverse (el contenedor recorta). */
+:root { --amp: 1; }
+@media (max-width: 640px) { :root { --amp: 0.6; } }
+.hearts-layer {
+  position: absolute;
+  inset: -40px;
   background-size: min(1000px, 150vw) auto;
+  pointer-events: none;
+}
+.hearts-layer-a { background-image: var(--hearts-a); animation: hearts-float-a 14s ease-in-out infinite; }
+.hearts-layer-b { background-image: var(--hearts-b); background-position: 340px 210px; animation: hearts-float-b 11s ease-in-out infinite; }
+.hearts-layer-c { background-image: var(--hearts-c); background-position: 120px 460px; animation: hearts-float-c 16s ease-in-out infinite; }
+@keyframes hearts-float-a {
+  0%, 100% { transform: translate3d(0, 0, 0); }
+  33% { transform: translate3d(calc(14px * var(--amp)), calc(-18px * var(--amp)), 0); }
+  66% { transform: translate3d(calc(-10px * var(--amp)), calc(-24px * var(--amp)), 0); }
+}
+@keyframes hearts-float-b {
+  0%, 100% { transform: translate3d(0, 0, 0); }
+  40% { transform: translate3d(calc(-18px * var(--amp)), calc(12px * var(--amp)), 0); }
+  75% { transform: translate3d(calc(12px * var(--amp)), calc(20px * var(--amp)), 0); }
+}
+@keyframes hearts-float-c {
+  0%, 100% { transform: translate3d(0, 0, 0); }
+  30% { transform: translate3d(calc(20px * var(--amp)), calc(8px * var(--amp)), 0); }
+  70% { transform: translate3d(calc(-14px * var(--amp)), calc(-14px * var(--amp)), 0); }
 }
 
 :root {
@@ -89,8 +117,15 @@
 }
 
 @keyframes ambient-halo-float {
-  0%, 100% { transform: translate3d(0, 0, 0); opacity: 0.06; }
-  50% { transform: translate3d(12px, -24px, 0); opacity: 0.26; }
+  0%, 100% { transform: translate3d(0, 0, 0); opacity: 0.1; }
+  35% { transform: translate3d(calc(70px * var(--amp)), calc(50px * var(--amp)), 0); opacity: 0.3; }
+  70% { transform: translate3d(calc(30px * var(--amp)), calc(-40px * var(--amp)), 0); opacity: 0.18; }
+}
+
+@keyframes ambient-halo-float-2 {
+  0%, 100% { transform: translate3d(0, 0, 0); opacity: 0.08; }
+  40% { transform: translate3d(calc(-80px * var(--amp)), calc(-40px * var(--amp)), 0); opacity: 0.24; }
+  75% { transform: translate3d(calc(-30px * var(--amp)), calc(50px * var(--amp)), 0); opacity: 0.14; }
 }
 
 @keyframes ambient-float {
@@ -178,11 +213,11 @@
   border-radius: 9999px;
   filter: blur(120px);
   opacity: 0.08;
-  animation: ambient-halo-float 14s var(--ease-soft) infinite;
+  animation: ambient-halo-float 22s ease-in-out infinite;
 }
 
 .ambient-halo-pink { background: rgb(var(--c-accent-primary)); }
-.ambient-halo-cyan { background: rgb(var(--c-accent-pink)); animation-delay: -7s; }
+.ambient-halo-cyan { background: rgb(var(--c-accent-pink)); animation: ambient-halo-float-2 27s ease-in-out -9s infinite; }
 .ambient-particle { animation: ambient-float var(--particle-duration, 10s) var(--ease-soft) var(--particle-delay, 0s) infinite; }
 
 .hero-letter { position: relative; isolation: isolate; display: inline-block; animation: hero-rise 600ms var(--ease-bounce) both; }
@@ -335,7 +370,7 @@
     transition-duration: 0.01ms !important;
     scroll-behavior: auto !important;
   }
-  .ambient-gradient, .ambient-gradient::before, .ambient-grid::before, .ambient-halo, .ambient-particle, .ambient-star, .hero-letter, .hero-logo, .hero-kicker, .hero-subtitle, .hero-scroll-hint, .live-ping::before, .live-ping::after, .sukuna-slashes span {
+  .ambient-gradient, .ambient-gradient::before, .ambient-grid::before, .ambient-halo, .hearts-layer, .ambient-particle, .ambient-star, .hero-letter, .hero-logo, .hero-kicker, .hero-subtitle, .hero-scroll-hint, .live-ping::before, .live-ping::after, .sukuna-slashes span {
     animation: none !important;
   }
   /* Sin animación el título no tenía text-shadow: se ocultan las capas de glow. */
