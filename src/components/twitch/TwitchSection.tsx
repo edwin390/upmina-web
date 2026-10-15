@@ -114,7 +114,7 @@ export default function TwitchSection() {
       className="relative mx-auto max-w-6xl overflow-hidden px-4 py-16"
     >
       <div
-        className="pointer-events-none absolute inset-x-0 top-0 -z-0 h-40 bg-[radial-gradient(ellipse_at_top,rgba(255,45,149,0.14),transparent_70%)]"
+        className="pointer-events-none absolute inset-x-0 top-0 -z-0 h-40 bg-[radial-gradient(ellipse_at_top,rgb(var(--c-accent-primary)/0.14),transparent_70%)]"
         aria-hidden="true"
       />
       <div className="mb-6 flex items-center justify-between">

@@ -14,11 +14,11 @@ export default function Footer() {
   return (
     <footer className="relative overflow-hidden border-t border-accent-primary/20 bg-bg-surface/90 py-14">
       <div
-        className="absolute inset-x-0 bottom-0 h-48 bg-[radial-gradient(ellipse_at_bottom,rgba(255,45,149,0.2),transparent_70%)]"
+        className="absolute inset-x-0 bottom-0 h-48 bg-[radial-gradient(ellipse_at_bottom,rgb(var(--c-accent-primary)/0.2),transparent_70%)]"
         aria-hidden="true"
       />
       <div className="relative mx-auto flex max-w-6xl flex-col gap-6 px-4 text-sm text-text-secondary">
-        <p className="font-display text-6xl leading-none tracking-wide text-transparent [text-shadow:0_0_28px_rgba(255,45,149,0.25)] [-webkit-text-stroke:1px_rgba(255,45,149,0.55)] transition-colors duration-350 ease-smooth hover:text-accent-primary">
+        <p className="font-display text-6xl leading-none tracking-wide text-transparent [text-shadow:0_0_28px_rgb(var(--c-accent-primary)/0.25)] [-webkit-text-stroke:1px_rgb(var(--c-accent-primary)/0.55)] transition-colors duration-350 ease-smooth hover:text-accent-primary">
           UPMINAA
         </p>
 

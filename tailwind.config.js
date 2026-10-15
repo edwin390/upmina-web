@@ -4,28 +4,30 @@ export default {
   darkMode: "class",
   theme: {
     extend: {
+      // Colores como variables CSS (globals.css): Blue Neon (oscuro) y Mina Blue (claro) comparten estos nombres.
       colors: {
         bg: {
-          base: "#0a0a0a",
-          surface: "#141414",
-          elevated: "#1e1e1e",
+          base: "rgb(var(--c-bg-base) / <alpha-value>)",
+          surface: "rgb(var(--c-bg-surface) / <alpha-value>)",
+          elevated: "rgb(var(--c-bg-elevated) / <alpha-value>)",
         },
         border: {
-          subtle: "#2a2a2a",
-          strong: "#3a3a3a",
+          subtle: "rgb(var(--c-border-subtle) / <alpha-value>)",
+          strong: "rgb(var(--c-border-strong) / <alpha-value>)",
         },
         accent: {
-          primary: "#ff2d95",
-          secondary: "#00f0ff",
-          live: "#ff0033",
-          success: "#00ff88",
-          warning: "#ffb800",
+          primary: "rgb(var(--c-accent-primary) / <alpha-value>)",
+          secondary: "rgb(var(--c-accent-secondary) / <alpha-value>)",
+          pink: "rgb(var(--c-accent-pink) / <alpha-value>)",
+          live: "rgb(var(--c-accent-live) / <alpha-value>)",
+          success: "rgb(var(--c-accent-success) / <alpha-value>)",
+          warning: "rgb(var(--c-accent-warning) / <alpha-value>)",
         },
         text: {
-          primary: "#f5f5f5",
-          secondary: "#a0a0a0",
-          muted: "#666666",
-          inverse: "#0a0a0a",
+          primary: "rgb(var(--c-text-primary) / <alpha-value>)",
+          secondary: "rgb(var(--c-text-secondary) / <alpha-value>)",
+          muted: "rgb(var(--c-text-muted) / <alpha-value>)",
+          inverse: "rgb(var(--c-text-inverse) / <alpha-value>)",
         },
       },
       fontFamily: {
@@ -34,11 +36,11 @@ export default {
         mono: ["'JetBrains Mono'", "monospace"],
       },
       boxShadow: {
-        "glow-primary": "0 0 20px rgba(255, 45, 149, 0.5)",
-        "glow-secondary": "0 0 20px rgba(0, 240, 255, 0.5)",
+        "glow-primary": "0 0 20px rgb(var(--c-accent-primary) / var(--glow-alpha))",
+        "glow-secondary": "0 0 20px rgb(var(--c-accent-pink) / var(--glow-alpha))",
       },
       backgroundImage: {
-        "gradient-accent": "linear-gradient(90deg, #ff2d95 0%, #00f0ff 100%)",
+        "gradient-accent": "linear-gradient(90deg, rgb(var(--c-accent-primary)) 0%, rgb(var(--c-accent-pink)) 100%)",
       },
       // Pantallas de poco alto (móvil apaisado): el visor de TikTok pone el texto al lado.
       screens: {

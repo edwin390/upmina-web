@@ -19,7 +19,13 @@
       "en": "English",
       "de": "Deutsch"
     },
-    "surprise": "Discover a surprise"
+    "surprise": "Discover a surprise",
+    "theme": {
+      "label": "Appearance",
+      "light": "Light",
+      "dark": "Dark",
+      "system": "System"
+    }
   },
   "twitch": {
     "clipsConfigError": "Couldn't set up the connection with Twitch.",

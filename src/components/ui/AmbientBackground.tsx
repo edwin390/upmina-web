@@ -49,6 +49,7 @@ export default function AmbientBackground({ onStarClick }: AmbientBackgroundProp
           aria-hidden="true"
         />
         <div className="ambient-grid absolute inset-0 opacity-30" aria-hidden="true" />
+        <div className="hearts-pattern absolute inset-0" aria-hidden="true" />
         <div
           className="ambient-halo ambient-halo-pink absolute -left-40 -top-40"
           aria-hidden="true"

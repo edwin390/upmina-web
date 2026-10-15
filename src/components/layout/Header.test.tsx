@@ -114,15 +114,15 @@ describe("Header — estado de sesión (Bloque 6B)", () => {
     await act(async () => {});
     fireEvent.click(screen.getByRole("button", { name: "Abrir menú" }));
 
-    expect(screen.queryByText(LOGIN)).toBeNull();
-    expect(screen.queryByText(PERFIL)).toBeNull();
+    expect(screen.queryByRole("link", { name: LOGIN })).toBeNull();
+    expect(screen.queryByRole("link", { name: PERFIL })).toBeNull();
 
     await act(async () => {
       release();
     });
 
     expect(screen.getAllByText(PERFIL).length).toBeGreaterThan(0);
-    expect(screen.queryByText(LOGIN)).toBeNull();
+    expect(screen.queryByRole("link", { name: LOGIN })).toBeNull();
   });
 
   it("visitante: 'Iniciar sesión' es un enlace SPA a /login y no aparece 'Perfil'", async () => {
@@ -130,7 +130,7 @@ describe("Header — estado de sesión (Bloque 6B)", () => {
     await act(async () => {});
 
     expect(screen.getByRole("link", { name: LOGIN })).toHaveAttribute("href", "/login");
-    expect(screen.queryByText(PERFIL)).toBeNull();
+    expect(screen.queryByRole("link", { name: PERFIL })).toBeNull();
   });
 
   it("visitante: hacer click en 'Iniciar sesión' navega a /login sin recargar", async () => {
@@ -152,7 +152,7 @@ describe("Header — estado de sesión (Bloque 6B)", () => {
       "href",
       "/account",
     );
-    expect(screen.queryByText(LOGIN)).toBeNull();
+    expect(screen.queryByRole("link", { name: LOGIN })).toBeNull();
   });
 
   it("sesión autenticada CON username configurado: 'Perfil' apunta a /@username", async () => {
@@ -180,13 +180,13 @@ describe("Header — estado de sesión (Bloque 6B)", () => {
   it("cambio de sesión: responde al contexto global con un único listener", async () => {
     renderHeader();
     await act(async () => {});
-    expect(screen.getByText(LOGIN)).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: LOGIN })).toBeInTheDocument();
 
     act(() => authFakes.emit?.(fakeSession()));
-    expect(screen.getByText(PERFIL)).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: PERFIL })).toBeInTheDocument();
 
     act(() => authFakes.emit?.(null));
-    expect(screen.getByText(LOGIN)).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: LOGIN })).toBeInTheDocument();
 
     expect(authFakes.onAuthStateChangeCalls).toBe(1);
   });
@@ -207,7 +207,7 @@ describe("Header — estado de sesión (Bloque 6B)", () => {
       "href",
       "/account",
     );
-    expect(within(mobileNav).queryByText(LOGIN)).toBeNull();
+    expect(within(mobileNav).queryByRole("link", { name: LOGIN })).toBeNull();
   });
 
   it("menú móvil autenticado: pulsar 'Perfil' navega y cierra el menú", async () => {

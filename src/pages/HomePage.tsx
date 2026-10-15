@@ -16,15 +16,17 @@ export default function HomePage() {
           <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-accent-primary" />
           {t("badge")}
         </div>
-        <h1
-          aria-label="UPMINAA"
-          className="hero-title font-display text-6xl tracking-wide text-text-primary md:text-8xl"
-        >
-          {Array.from("UPMINAA").map((letter, index) => (
-            <span key={index} className="hero-letter" data-letter={letter}>
-              {letter}
-            </span>
-          ))}
+        <h1 className="hero-title hero-logo w-[min(86vw,30rem)] md:w-[min(60vw,38rem)]">
+          <img
+            src="/images/upminaa-logo-1280.webp"
+            srcSet="/images/upminaa-logo-640.webp 640w, /images/upminaa-logo-1280.webp 1280w"
+            sizes="(min-width: 768px) 608px, 86vw"
+            width={1280}
+            height={489}
+            alt="UPMINAA"
+            fetchPriority="high"
+            decoding="async"
+          />
         </h1>
         <p className="hero-subtitle mx-auto mt-5 max-w-xl text-lg text-text-secondary">
           {t("subtitle")}

@@ -11,7 +11,7 @@ export default function CommunityCta() {
     >
       <div className="relative overflow-hidden rounded-xl border border-accent-primary/40 bg-bg-surface px-6 py-12 text-center sm:py-16">
         <div
-          className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_top,rgba(255,45,149,0.18),transparent_65%),radial-gradient(ellipse_at_bottom_right,rgba(0,240,255,0.12),transparent_60%)]"
+          className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_top,rgb(var(--c-accent-primary)/0.18),transparent_65%),radial-gradient(ellipse_at_bottom_right,rgb(var(--c-accent-pink)/0.12),transparent_60%)]"
           aria-hidden="true"
         />
         <div className="relative">

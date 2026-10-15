@@ -5,6 +5,7 @@ import { useAuth } from "@/lib/auth-context";
 import { useOwnProfile } from "@/hooks/useOwnProfile";
 import { useTranslations } from "use-intl";
 import LanguageSwitcher from "./LanguageSwitcher";
+import ThemeSwitcher from "./ThemeSwitcher";
 
 // Orden de la navegación: Inicio, Twitch, YouTube, Instagram, TikTok, Cosplays, Comunidad (Comunidad al final).
 const NAV_LINKS = [
@@ -55,17 +56,34 @@ function SessionAction({
       ? `/@${profile.username}`
       : "/account";
 
+  const label = session ? t("profile") : t("login");
   return (
     <Link
       to={destination}
       onClick={onNavigate}
+      aria-label={label}
+      title={label}
       className={
         variant === "desktop"
-          ? "hidden min-h-9 items-center rounded-md border border-border-subtle px-4 py-2 text-sm font-semibold text-text-secondary transition-colors duration-200 ease-smooth hover:border-accent-primary/60 hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-secondary md:inline-flex"
-          : "block rounded-md px-3 py-2 text-sm text-text-secondary transition-colors duration-200 ease-smooth hover:bg-bg-elevated hover:text-accent-primary"
+          ? "hidden min-h-9 min-w-9 items-center justify-center rounded-md border border-border-subtle px-2 py-2 text-text-secondary transition-colors duration-200 ease-smooth hover:border-accent-primary/60 hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary md:inline-flex"
+          : "flex items-center gap-2 rounded-md px-3 py-2 text-sm text-text-secondary transition-colors duration-200 ease-smooth hover:bg-bg-elevated hover:text-accent-primary"
       }
     >
-      {session ? t("profile") : t("login")}
+      <svg
+        aria-hidden="true"
+        width="18"
+        height="18"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        <circle cx="12" cy="8" r="5" />
+        <path d="M20 21a8 8 0 0 0-16 0" />
+      </svg>
+      {variant === "mobile" ? label : null}
     </Link>
   );
 }
@@ -109,15 +127,18 @@ export default function Header({ onLogoDoubleClick }: HeaderProps) {
           : "border-border-subtle/60 bg-bg-base/55 backdrop-blur-md"
       }`}
     >
-      <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-3">
-        <Link
-          to="/"
-          onDoubleClick={onLogoDoubleClick}
-          title={t("logoTitle")}
-          className="font-display text-2xl tracking-wide text-text-primary transition-transform duration-200 ease-bounce hover:scale-105 hover:text-accent-primary"
-        >
-          UPMINAA
-        </Link>
+      <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-3 md:grid md:grid-cols-[1fr_auto_1fr]">
+        <div className="flex items-center gap-3">
+          <Link
+            to="/"
+            onDoubleClick={onLogoDoubleClick}
+            title={t("logoTitle")}
+            className="font-display text-2xl tracking-wide text-text-primary transition-transform duration-200 ease-bounce hover:scale-105 hover:text-accent-primary"
+          >
+            UPMINAA
+          </Link>
+          <LanguageSwitcher className="hidden md:block" />
+        </div>
 
         <nav className="hidden gap-6 md:flex">
           {NAV_LINKS.map((link) => (
@@ -147,8 +168,8 @@ export default function Header({ onLogoDoubleClick }: HeaderProps) {
           ))}
         </nav>
 
-        <div className="flex items-center gap-2">
-          <LanguageSwitcher className="hidden md:inline-flex" />
+        <div className="flex items-center justify-end gap-2">
+          <ThemeSwitcher className="hidden md:block" />
           <SessionAction variant="desktop" />
           <a
             href="https://twitch.tv/upminaa"
@@ -213,7 +234,10 @@ export default function Header({ onLogoDoubleClick }: HeaderProps) {
             </NavLink>
           ))}
           <SessionAction variant="mobile" onNavigate={closeMenu} />
-          <LanguageSwitcher className="mt-1 self-start" />
+          <div className="mt-1 flex flex-wrap gap-2">
+            <LanguageSwitcher />
+            <ThemeSwitcher />
+          </div>
         </nav>
       )}
     </header>

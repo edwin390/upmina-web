@@ -19,7 +19,13 @@
       "en": "English",
       "de": "Deutsch"
     },
-    "surprise": "Descubrir una sorpresa"
+    "surprise": "Descubrir una sorpresa",
+    "theme": {
+      "label": "Apariencia",
+      "light": "Claro",
+      "dark": "Oscuro",
+      "system": "Sistema"
+    }
   },
   "twitch": {
     "clipsConfigError": "No se pudo configurar la conexión con Twitch.",
