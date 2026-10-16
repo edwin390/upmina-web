@@ -124,6 +124,7 @@ export type CommunityMediaAccess =
  *  SIEMPRE server-side, con el estado y el reloj del servidor:
  *    published                         → público (sin capability)
  *    hidden_pending_review             → privado
+ *    held_for_review                   → privado (retenida a la espera de revisión; nunca pública)
  *    removed_pending_purge, no vencido → privado, con tope en purge_after
  *    removed vencido / hidden / otro   → ninguno */
 export function decideCommunityMediaAccess(input: {
@@ -132,7 +133,7 @@ export function decideCommunityMediaAccess(input: {
   nowMs: number;
 }): CommunityMediaAccess {
   if (input.status === "published") return { kind: "public" };
-  if (input.status === "hidden_pending_review")
+  if (input.status === "hidden_pending_review" || input.status === "held_for_review")
     return { kind: "private", purgeAfterMs: null };
   if (
     input.status === "removed_pending_purge" &&

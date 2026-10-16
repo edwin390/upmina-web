@@ -120,6 +120,8 @@ describe("access policy by post state", () => {
       kind: "private",
       purgeAfterMs: null,
     }));
+  it("held_for_review → private, never public", () =>
+    expect(at("held_for_review", null)).toEqual({ kind: "private", purgeAfterMs: null }));
   it("removed before expiry → private with the deadline", () =>
     expect(at("removed_pending_purge", NOW + 1)).toEqual({
       kind: "private",
