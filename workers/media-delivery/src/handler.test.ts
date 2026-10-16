@@ -3,6 +3,7 @@ import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   ACCESS_SIGNATURE_HEADER,
   ACCESS_TIMESTAMP_HEADER,
+  fromBase64Url,
   importCapabilityPrivateKey,
   signCapability,
   toBase64Url,
@@ -362,9 +363,15 @@ describe("private capabilities", () => {
       ),
     );
     expect((await h.request(`${PATH}?cap=${v}.${forged}.${s}`)).status).toBe(404);
-    expect((await h.request(`${PATH}?cap=${v}.${p}.${s.slice(0, -2)}AA`)).status).toBe(
-      404,
-    );
+    const originalSignature = fromBase64Url(s)!;
+    expect(originalSignature).toHaveLength(64);
+    const changedSignature = originalSignature.slice();
+    changedSignature[0] ^= 1;
+    expect(changedSignature).not.toEqual(originalSignature);
+    const changed = toBase64Url(changedSignature);
+    expect(changed).not.toBe(s);
+    expect((await h.request(`${PATH}?cap=${v}.${p}.${changed}`)).status).toBe(404);
+    expect(h.bucketCalls).toEqual([]);
   });
   it("an invalid capability on a PUBLIC asset still gets the public response (never revealing why)", async () => {
     const res = await h.request(`${PATH}?cap=${await cap({ a: OTHER })}`);

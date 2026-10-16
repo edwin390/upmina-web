@@ -90,6 +90,103 @@ async function pendingEdit(text: string, ids: string[]) {
 }
 const audit = async () => (await db.query("select actor_kind, actor_user_id, target_type, target_id, action, metadata from moderation_audit_log order by created_at, id")).rows as any[];
 
+// Snapshot of every state the decision RPC may mutate, including attachment cleanup and audit.
+const decisionState = () => val(`select jsonb_build_object(
+  'posts', (select jsonb_agg(to_jsonb(p) order by id) from community_posts p),
+  'media', (select jsonb_agg(to_jsonb(m) order by id) from community_post_media m),
+  'assets', (select jsonb_agg(to_jsonb(a) order by id) from media_assets a),
+  'edits', (select jsonb_agg(to_jsonb(e) order by id) from community_post_pending_edits e),
+  'editMedia', (select jsonb_agg(to_jsonb(m) order by id) from community_post_pending_edit_media m),
+  'audit', (select jsonb_agg(to_jsonb(a) order by id) from moderation_audit_log a))`);
+
+describe("transiciones entre dos moderadores (secuenciales, NO concurrencia)", () => {
+  beforeEach(async () => {
+    await db.query("insert into admin_roles(user_id, role) values ($1, 'moderator')", [OTHER]);
+  });
+
+  it.each([
+    ["approve", "reject", "post_not_held", "content_hold_released"],
+    ["reject", "approve", "post_not_found", "content_hold_rejected"],
+  ])("retenida: %s y después %s conserva solo la primera decisión", async (first, second, error, action) => {
+    await held(1, "2026-10-01T10:00:00Z");
+    expect((await decide(MOD, "held_post", postId(1), 1, first)).ok).toBe(true);
+    const beforeSecond = await decisionState();
+    expect(await decide(OTHER, "held_post", postId(1), first === "approve" ? 2 : 1, second))
+      .toMatchObject({ ok: false, error });
+    expect(await decisionState()).toEqual(beforeSecond);
+    expect(await audit()).toEqual([expect.objectContaining({ actor_user_id: MOD, target_id: postId(1), action })]);
+    expect((await db.query("select status, version from community_posts where id=$1", [postId(1)])).rows)
+      .toEqual(first === "approve" ? [{ status: "published", version: 2 }] : []);
+    expect(await val("select status from media_assets where id=$1", [fresh(1)]))
+      .toBe(first === "approve" ? "ready" : "deleting");
+    expect((await db.query("select text, version from community_posts where id=$1", [POST])).rows[0])
+      .toEqual({ text: "Original", version: 2 });
+  });
+
+  it.each([
+    ["approve", "reject", "approved", "content_edit_approved"],
+    ["reject", "approve", "rejected", "content_edit_rejected"],
+  ])("edición: %s y después %s no pisa la versión pública ni duplica auditoría", async (first, second, status, action) => {
+    await asset(fresh(60));
+    const edit = await pendingEdit("propuesta", [...ASSETS.slice(0, 3), fresh(60)]);
+    expect((await decide(MOD, "pending_edit", edit, first === "approve" ? 2 : null, first)).ok).toBe(true);
+    const beforeSecond = await decisionState();
+    expect(await decide(OTHER, "pending_edit", edit, second === "approve" ? 2 : null, second))
+      .toMatchObject({ ok: false, error: "edit_not_pending" });
+    expect(await decisionState()).toEqual(beforeSecond);
+    expect(await audit()).toEqual([expect.objectContaining({ actor_user_id: MOD, target_id: POST, action })]);
+    expect(await val("select status from community_post_pending_edits where id=$1", [edit])).toBe(status);
+    expect(await val("select count(*)::int from community_post_pending_edit_media where edit_id=$1", [edit])).toBe(0);
+    expect((await db.query("select text, version from community_posts where id=$1", [POST])).rows[0])
+      .toEqual(first === "approve" ? { text: "propuesta", version: 3 } : { text: "Original", version: 2 });
+    expect(await val("select count(*)::int from community_post_media where post_id=$1", [POST]))
+      .toBe(first === "approve" ? 4 : 3);
+    expect(await val("select status from media_assets where id=$1", [fresh(60)]))
+      .toBe(first === "approve" ? "ready" : "deleting");
+  });
+
+  it.each(["approve", "reject"])("una versión obsoleta no consume la retenida; otro moderador puede %s con la vigente", async (decision) => {
+    await held(1, "2026-10-01T10:00:00Z");
+    await db.query("update community_posts set version=2 where id=$1", [postId(1)]);
+    const beforeConflict = await decisionState();
+    expect(await decide(MOD, "held_post", postId(1), 1, decision))
+      .toMatchObject({ ok: false, error: "version_conflict" });
+    expect(await decisionState()).toEqual(beforeConflict);
+    expect(await audit()).toHaveLength(0);
+    expect((await decide(OTHER, "held_post", postId(1), 2, decision)).ok).toBe(true);
+    expect(await audit()).toEqual([expect.objectContaining({ actor_user_id: OTHER,
+      action: decision === "approve" ? "content_hold_released" : "content_hold_rejected" })]);
+    expect((await db.query("select status, version from community_posts where id=$1", [postId(1)])).rows)
+      .toEqual(decision === "approve" ? [{ status: "published", version: 3 }] : []);
+  });
+
+  it("dos aprobaciones con versiones distintas rechazan una edición obsoleta; solo su rechazo es válido", async () => {
+    await asset(fresh(60));
+    const edit = await pendingEdit("propuesta obsoleta", [...ASSETS.slice(0, 3), fresh(60)]);
+    await db.query("select public.community_post_save_atomic($1,$2,2,'versión pública vigente',$3::jsonb,'{}'::uuid[])",
+      [ACTOR, POST, mediaJson(ASSETS.slice(0, 3))]);
+    const beforeConflicts = await decisionState();
+    for (const [moderator, version] of [[MOD, 2], [OTHER, 3]] as const) {
+      expect(await decide(moderator, "pending_edit", edit, version, "approve"))
+        .toMatchObject({ ok: false, error: "version_conflict" });
+      expect(await decisionState()).toEqual(beforeConflicts);
+    }
+    expect(await audit()).toHaveLength(0);
+    expect((await decide(OTHER, "pending_edit", edit, null, "reject")).ok).toBe(true);
+    expect((await db.query("select text, version from community_posts where id=$1", [POST])).rows[0])
+      .toEqual({ text: "versión pública vigente", version: 3 });
+    expect(await val("select count(*)::int from community_post_media where post_id=$1", [POST])).toBe(3);
+    expect(await val("select status from media_assets where id=$1", [fresh(60)])).toBe("deleting");
+    expect(await audit()).toEqual([expect.objectContaining({ actor_user_id: OTHER, action: "content_edit_rejected" })]);
+  });
+});
+
+// PGlite has one exclusive connection and serializes transactions. Promise.all would not
+// reproduce two independent PostgreSQL backends waiting on the same row lock. Separate
+// PGlite instances have separate databases, not independent sessions over the same data.
+// https://pglite.dev/docs/ (single exclusive connection); no DEV fallback is permitted.
+it.skip("NO COMPROBADO: dos moderadores con transacciones PostgreSQL independientes y barrera controlada", () => {});
+
 describe("lectura de la cola", () => {
   it("solo un moderador puede leer; usuarios normales y argumentos inválidos se rechazan", async () => {
     expect(await read(ACTOR, "held")).toMatchObject({ ok: false, error: "actor_not_moderator" });
