@@ -236,7 +236,8 @@
       "sections": {
         "label": "Secciones de moderación",
         "reports": "Reportes de Community",
-        "copyright": "Copyright"
+        "copyright": "Copyright",
+        "content": "Revisión de contenido"
       },
       "title": "Reclamaciones de copyright",
       "safeNote": "Revisar una reclamación solo cambia su estado. La publicación únicamente se oculta con la acción explícita «Retirar la publicación», que exige una segunda confirmación.",
@@ -810,6 +811,87 @@
     "done": {
       "notValid": "El caso se cerró como No procede.",
       "valid": "Se retiró la publicación y se cerró el caso."
+    }
+  },
+  "contentReview": {
+    "title": "Revisión de contenido",
+    "safeNote": "Aquí se revisan las publicaciones retenidas antes de publicarse y las ediciones pendientes de publicaciones ya publicadas. Rechazar no genera strikes ni sanciones. La versión pública no cambia hasta que se aprueba una edición.",
+    "tabs": {
+      "label": "Tipos de revisión",
+      "held": "Publicaciones retenidas",
+      "edits": "Ediciones pendientes"
+    },
+    "pendingCount": "{count} pendientes",
+    "loading": "Cargando…",
+    "retry": "Reintentar",
+    "loadMore": "Cargar más",
+    "empty": {
+      "held": "No hay publicaciones retenidas pendientes de revisión.",
+      "edits": "No hay ediciones pendientes de revisión."
+    },
+    "by": "Autor: {author}",
+    "unknownAuthor": "Autor desconocido",
+    "createdAt": "Creada el {date}",
+    "requestedAt": "Solicitada el {date}",
+    "status": {
+      "held": "Retenida · sin publicar",
+      "pending": "Edición pendiente"
+    },
+    "reasonUnavailable": "Motivo de retención: no registrado.",
+    "noText": "Sin texto",
+    "noMedia": "Sin archivos",
+    "media": {
+      "unavailable": "Vista previa no disponible. Puedes decidir igualmente.",
+      "new": "Nuevo",
+      "removed": "Se retira"
+    },
+    "edit": {
+      "published": "Publicado actualmente",
+      "proposed": "Versión propuesta (pendiente)",
+      "stale": "Obsoleta: la publicación cambió",
+      "staleApproveBlocked": "La publicación cambió después de esta edición: solo se puede rechazar.",
+      "versions": "Versión pública {published} · la propuesta parte de la versión {base}",
+      "textChanged": "Texto modificado",
+      "textUnchanged": "Texto sin cambios",
+      "mediaSummary": "{added, plural, =0 {sin archivos nuevos} one {# archivo nuevo} other {# archivos nuevos}}, {removed, plural, =0 {ninguno retirado} one {# retirado} other {# retirados}}"
+    },
+    "actions": {
+      "group": "Confirmar decisión",
+      "approve": "Aprobar",
+      "reject": "Rechazar",
+      "confirm": "Confirmar",
+      "cancel": "Cancelar",
+      "working": "Procesando…"
+    },
+    "confirm": {
+      "held_post": {
+        "approve": "¿Aprobar y publicar esta publicación?",
+        "reject": "¿Rechazar y eliminar esta publicación retenida?"
+      },
+      "pending_edit": {
+        "approve": "¿Aprobar esta edición y sustituir la versión pública?",
+        "reject": "¿Rechazar esta edición? La versión pública no cambia."
+      }
+    },
+    "feedback": {
+      "held_post": {
+        "approve": "Publicación aprobada y publicada.",
+        "reject": "Publicación rechazada y eliminada."
+      },
+      "pending_edit": {
+        "approve": "Edición aprobada: la versión pública se ha actualizado.",
+        "reject": "Edición rechazada: la versión pública no ha cambiado."
+      }
+    },
+    "errors": {
+      "load": "No se pudo cargar la cola de revisión.",
+      "generic": "No se pudo completar la acción. Inténtalo de nuevo.",
+      "version_conflict": "El contenido cambió mientras lo revisabas. La cola se ha actualizado.",
+      "edit_not_pending": "Esta edición ya se había decidido.",
+      "post_not_held": "Esta publicación ya no está retenida.",
+      "asset_not_ready": "Algún archivo de la edición ya no está disponible. Solo se puede rechazar.",
+      "post_copyright_protected": "La publicación tiene una retirada o apelación de copyright activa.",
+      "post_not_editable": "La publicación no está publicada ahora, así que no se puede aplicar la edición."
     }
   }
 }

@@ -236,7 +236,8 @@
       "sections": {
         "label": "Moderation sections",
         "reports": "Community reports",
-        "copyright": "Copyright"
+        "copyright": "Copyright",
+        "content": "Content Review"
       },
       "title": "Copyright claims",
       "safeNote": "Reviewing a claim only changes its status. A post is hidden only through the explicit “Remove the post” action, which requires a second confirmation.",
@@ -810,6 +811,87 @@
     "done": {
       "notValid": "The case was closed as Not upheld.",
       "valid": "The post was removed and the case was closed."
+    }
+  },
+  "contentReview": {
+    "title": "Content Review",
+    "safeNote": "Held posts are reviewed here before publication, along with pending edits to posts that are already live. Rejecting never creates strikes or penalties. The public version does not change until an edit is approved.",
+    "tabs": {
+      "label": "Review types",
+      "held": "Held posts",
+      "edits": "Pending edits"
+    },
+    "pendingCount": "{count} pending",
+    "loading": "Loading…",
+    "retry": "Retry",
+    "loadMore": "Load more",
+    "empty": {
+      "held": "There are no held posts waiting for review.",
+      "edits": "There are no pending edits waiting for review."
+    },
+    "by": "Author: {author}",
+    "unknownAuthor": "Unknown author",
+    "createdAt": "Created {date}",
+    "requestedAt": "Requested {date}",
+    "status": {
+      "held": "Held · not published",
+      "pending": "Pending edit"
+    },
+    "reasonUnavailable": "Reason for hold: not recorded.",
+    "noText": "No text",
+    "noMedia": "No files",
+    "media": {
+      "unavailable": "Preview unavailable. You can still decide.",
+      "new": "New",
+      "removed": "Will be removed"
+    },
+    "edit": {
+      "published": "Currently published",
+      "proposed": "Proposed version (pending)",
+      "stale": "Outdated: the post changed",
+      "staleApproveBlocked": "The post changed after this edit was submitted: it can only be rejected.",
+      "versions": "Public version {published} · the proposal is based on version {base}",
+      "textChanged": "Text changed",
+      "textUnchanged": "Text unchanged",
+      "mediaSummary": "{added, plural, =0 {no new files} one {# new file} other {# new files}}, {removed, plural, =0 {none removed} one {# removed} other {# removed}}"
+    },
+    "actions": {
+      "group": "Confirm decision",
+      "approve": "Approve",
+      "reject": "Reject",
+      "confirm": "Confirm",
+      "cancel": "Cancel",
+      "working": "Working…"
+    },
+    "confirm": {
+      "held_post": {
+        "approve": "Approve and publish this post?",
+        "reject": "Reject and delete this held post?"
+      },
+      "pending_edit": {
+        "approve": "Approve this edit and replace the public version?",
+        "reject": "Reject this edit? The public version will not change."
+      }
+    },
+    "feedback": {
+      "held_post": {
+        "approve": "Post approved and published.",
+        "reject": "Post rejected and deleted."
+      },
+      "pending_edit": {
+        "approve": "Edit approved: the public version has been updated.",
+        "reject": "Edit rejected: the public version is unchanged."
+      }
+    },
+    "errors": {
+      "load": "The review queue could not be loaded.",
+      "generic": "The action could not be completed. Please try again.",
+      "version_conflict": "The content changed while you were reviewing it. The queue has been refreshed.",
+      "edit_not_pending": "This edit had already been decided.",
+      "post_not_held": "This post is no longer held.",
+      "asset_not_ready": "A file in this edit is no longer available. It can only be rejected.",
+      "post_copyright_protected": "The post has an active copyright removal or appeal.",
+      "post_not_editable": "The post is not currently published, so the edit cannot be applied."
     }
   }
 }

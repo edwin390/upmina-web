@@ -11,6 +11,7 @@ import ModerationDecisionActions, {
 import CosplayLocaleProvider from "@/i18n/LocaleProvider";
 import ModerationAuditList from "./ModerationAuditList";
 import CopyrightClaimsPanel from "./CopyrightClaimsPanel";
+import ContentReviewPanel from "./ContentReviewPanel";
 import ModerationStrikePanel, { type StrikeDraft } from "./ModerationStrikePanel";
 import ModerationStrikeUnavailable from "./ModerationStrikeUnavailable";
 import { groupedDecisionInputFromCase } from "@/lib/moderation-decision-contract";
@@ -199,7 +200,7 @@ function AdminModeration() {
   );
   const [cursor, setCursor] = useState<string | null>(resume.current?.cursor ?? null);
   // COPY-1 fase 2A: pestaña de copyright, separada de los reportes ordinarios (su propia cola, detalle y acciones).
-  const [section, setSection] = useState<"reports" | "copyright">("reports");
+  const [section, setSection] = useState<"reports" | "copyright" | "content">("reports");
   const tc = useTranslations("moderation.copyright.panel");
   const t = useTranslations("moderation.page");
   const locale = useLocaleCode();
@@ -732,7 +733,7 @@ function AdminModeration() {
   ) : null;
   const sectionNav = (
     <nav aria-label={tc("sections.label")} className="mt-4 flex flex-wrap gap-3">
-      {(["reports", "copyright"] as const).map((s) => (
+      {(["reports", "copyright", "content"] as const).map((s) => (
         <button
           key={s}
           type="button"
@@ -745,6 +746,19 @@ function AdminModeration() {
       ))}
     </nav>
   );
+  if (section === "content")
+    return (
+      <div className="mx-auto min-w-0 max-w-4xl px-4 py-16">
+        <div className="min-w-0 rounded-xl border border-accent-primary/40 bg-bg-surface p-4 sm:p-8">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <h1 className="font-display text-3xl">{t("title")}</h1>
+            <span className="text-xs uppercase">{role?.toUpperCase()}</span>
+          </div>
+          {sectionNav}
+          <ContentReviewPanel onAccessError={handleAccessError} />
+        </div>
+      </div>
+    );
   if (section === "copyright")
     return (
       <div className="mx-auto min-w-0 max-w-4xl px-4 py-16">

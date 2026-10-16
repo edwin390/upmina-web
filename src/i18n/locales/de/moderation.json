@@ -236,7 +236,8 @@
       "sections": {
         "label": "Moderationsbereiche",
         "reports": "Community-Meldungen",
-        "copyright": "Urheberrecht"
+        "copyright": "Urheberrecht",
+        "content": "Inhaltsprüfung"
       },
       "title": "Urheberrechtsbeschwerden",
       "safeNote": "Das Prüfen einer Beschwerde ändert nur deren Status. Ein Beitrag wird ausschließlich über die ausdrückliche Aktion „Beitrag entfernen“ ausgeblendet, die eine zweite Bestätigung verlangt.",
@@ -810,6 +811,87 @@
     "done": {
       "notValid": "Der Fall wurde als „Nicht begründet“ geschlossen.",
       "valid": "Der Beitrag wurde entfernt und der Fall geschlossen."
+    }
+  },
+  "contentReview": {
+    "title": "Inhaltsprüfung",
+    "safeNote": "Hier werden zurückgehaltene Beiträge vor der Veröffentlichung geprüft, ebenso ausstehende Änderungen an bereits veröffentlichten Beiträgen. Ablehnen führt nie zu Strikes oder Sanktionen. Die öffentliche Version ändert sich erst, wenn eine Änderung genehmigt wird.",
+    "tabs": {
+      "label": "Prüfarten",
+      "held": "Zurückgehaltene Beiträge",
+      "edits": "Ausstehende Änderungen"
+    },
+    "pendingCount": "{count} ausstehend",
+    "loading": "Wird geladen…",
+    "retry": "Erneut versuchen",
+    "loadMore": "Mehr laden",
+    "empty": {
+      "held": "Es gibt keine zurückgehaltenen Beiträge zur Prüfung.",
+      "edits": "Es gibt keine ausstehenden Änderungen zur Prüfung."
+    },
+    "by": "Autor: {author}",
+    "unknownAuthor": "Unbekannter Autor",
+    "createdAt": "Erstellt am {date}",
+    "requestedAt": "Angefragt am {date}",
+    "status": {
+      "held": "Zurückgehalten · unveröffentlicht",
+      "pending": "Ausstehende Änderung"
+    },
+    "reasonUnavailable": "Grund der Zurückhaltung: nicht erfasst.",
+    "noText": "Kein Text",
+    "noMedia": "Keine Dateien",
+    "media": {
+      "unavailable": "Vorschau nicht verfügbar. Du kannst trotzdem entscheiden.",
+      "new": "Neu",
+      "removed": "Wird entfernt"
+    },
+    "edit": {
+      "published": "Aktuell veröffentlicht",
+      "proposed": "Vorgeschlagene Version (ausstehend)",
+      "stale": "Veraltet: Der Beitrag hat sich geändert",
+      "staleApproveBlocked": "Der Beitrag wurde nach dieser Änderung verändert: Sie kann nur abgelehnt werden.",
+      "versions": "Öffentliche Version {published} · der Vorschlag basiert auf Version {base}",
+      "textChanged": "Text geändert",
+      "textUnchanged": "Text unverändert",
+      "mediaSummary": "{added, plural, =0 {keine neuen Dateien} one {# neue Datei} other {# neue Dateien}}, {removed, plural, =0 {keine entfernt} one {# entfernt} other {# entfernt}}"
+    },
+    "actions": {
+      "group": "Entscheidung bestätigen",
+      "approve": "Genehmigen",
+      "reject": "Ablehnen",
+      "confirm": "Bestätigen",
+      "cancel": "Abbrechen",
+      "working": "Wird verarbeitet…"
+    },
+    "confirm": {
+      "held_post": {
+        "approve": "Diesen Beitrag genehmigen und veröffentlichen?",
+        "reject": "Diesen zurückgehaltenen Beitrag ablehnen und löschen?"
+      },
+      "pending_edit": {
+        "approve": "Diese Änderung genehmigen und die öffentliche Version ersetzen?",
+        "reject": "Diese Änderung ablehnen? Die öffentliche Version bleibt unverändert."
+      }
+    },
+    "feedback": {
+      "held_post": {
+        "approve": "Beitrag genehmigt und veröffentlicht.",
+        "reject": "Beitrag abgelehnt und gelöscht."
+      },
+      "pending_edit": {
+        "approve": "Änderung genehmigt: Die öffentliche Version wurde aktualisiert.",
+        "reject": "Änderung abgelehnt: Die öffentliche Version ist unverändert."
+      }
+    },
+    "errors": {
+      "load": "Die Prüfwarteschlange konnte nicht geladen werden.",
+      "generic": "Die Aktion konnte nicht abgeschlossen werden. Bitte versuche es erneut.",
+      "version_conflict": "Der Inhalt hat sich während der Prüfung geändert. Die Warteschlange wurde aktualisiert.",
+      "edit_not_pending": "Diese Änderung wurde bereits entschieden.",
+      "post_not_held": "Dieser Beitrag wird nicht mehr zurückgehalten.",
+      "asset_not_ready": "Eine Datei dieser Änderung ist nicht mehr verfügbar. Sie kann nur abgelehnt werden.",
+      "post_copyright_protected": "Für den Beitrag besteht eine aktive Urheberrechts-Entfernung oder -Beschwerde.",
+      "post_not_editable": "Der Beitrag ist derzeit nicht veröffentlicht, die Änderung kann daher nicht angewendet werden."
     }
   }
 }

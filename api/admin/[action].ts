@@ -35,6 +35,10 @@ import {
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { handleModerationCases } from "../../src/lib/moderation-case-handlers.js";
 import {
+  handleContentReviewDecision,
+  handleContentReviewList,
+} from "../../src/lib/content-review-handlers.js";
+import {
   handleAdminAccess,
   handleAdminActivate,
   handleAdminMe,
@@ -189,6 +193,11 @@ export default function handler(req: VercelRequest, res: VercelResponse) {
       return handleModerationStrikeRevoke(req, res);
     case "moderation-cases":
       return handleModerationCases(req, res);
+    // PHASE-3: cola de revisión de contenido (retenidas y ediciones pendientes). `moderation` + MFA reciente; misma función serverless.
+    case "content-review":
+      return handleContentReviewList(req, res);
+    case "content-review-decision":
+      return handleContentReviewDecision(req, res);
     case "activate":
       return handleAdminActivate(req, res);
     case "me":
