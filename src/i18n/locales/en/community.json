@@ -100,6 +100,7 @@
     "pickerMax": "Up to {max} photos or videos per post.",
     "pickerMaxVideos": "At most {videos, plural, one {# video} other {# videos}} per post.",
     "pickerSize": "Videos can't exceed 100 MB.",
+    "mediaRequired": "New posts need at least one image or video.",
     "created": "Post created successfully",
     "updated": "Post updated successfully",
     "createFailed": "Couldn't create the post",
@@ -107,6 +108,7 @@
     "errors": {
       "session": "Your session is no longer valid. Sign out and sign in again.",
       "empty": "A post needs text or at least one image.",
+      "mediaRequired": "A new post needs at least one image or video.",
       "conflict": "This post changed while you were editing. Please try again.",
       "tooManyMedia": "Up to {max} photos or videos.",
       "tooManyVideos": "At most {videos, plural, one {# video} other {# videos}} per post.",

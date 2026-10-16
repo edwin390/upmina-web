@@ -110,14 +110,22 @@ describe("Community ownership tras persistencia", () => {
   });
   it("failed removal save retains attachment-ID intent for retry and never reports false success", async () => {
     mocks.save.mockRejectedValueOnce(new Error("failed"));
+    // MEDIA-1: no se puede retirar el último archivo; se parte de dos y se retira el primero.
+    const twoImages: CommunityOwnPost = {
+      ...existing,
+      media: [
+        existing.media[0],
+        { ...existing.media[0], id: "image-keep", assetId: "keep", position: 1 },
+      ],
+    };
     render(
       <CommunityPostEditorForm
-        initialPost={existing}
+        initialPost={twoImages}
         onSaved={vi.fn()}
         onCancel={vi.fn()}
       />,
     );
-    fireEvent.click(screen.getByRole("button", { name: "Quitar imagen" }));
+    fireEvent.click(screen.getAllByRole("button", { name: "Quitar imagen" })[0]);
     fireEvent.click(screen.getByRole("button", { name: "Publicar" }));
     await screen.findByRole("alert");
     expect(mocks.success).not.toHaveBeenCalled();
@@ -125,7 +133,7 @@ describe("Community ownership tras persistencia", () => {
       postId: existing.id,
       expectedVersion: 2,
       removedMediaIds: ["image-existing"],
-      media: [],
+      media: [{ assetId: "keep", position: 0 }],
     });
     fireEvent.click(screen.getByRole("button", { name: "Publicar" }));
     await waitFor(() => expect(mocks.success).toHaveBeenCalledOnce());
@@ -155,7 +163,7 @@ describe("Community ownership tras persistencia", () => {
           resolveSave = resolve;
         }),
     );
-    render(
+    const { container } = render(
       <CommunityPostEditorForm
         initialPost={edit ? existing : null}
         onSaved={vi.fn()}
@@ -165,6 +173,15 @@ describe("Community ownership tras persistencia", () => {
     fireEvent.change(screen.getByPlaceholderText("¿Qué quieres compartir?"), {
       target: { value: "Contenido" },
     });
+    if (!edit) {
+      // MEDIA-1: un alta exige un archivo listo.
+      fireEvent.change(container.querySelector('input[type="file"]')!, {
+        target: { files: [new File(["bytes"], "a.jpg", { type: "image/jpeg" })] },
+      });
+      await waitFor(() =>
+        expect(screen.getByRole("button", { name: "Publicar" })).toBeEnabled(),
+      );
+    }
     fireEvent.click(screen.getByRole("button", { name: "Publicar" }));
     expect(screen.getByRole("button", { name: "Publicando…" })).toBeDisabled();
     expect(mocks.save).toHaveBeenCalledTimes(1);

@@ -66,6 +66,13 @@ const existing: CommunityOwnPost = {
 
 beforeEach(() => {
   vi.resetAllMocks();
+  let assetSeq = 0;
+  mocks.reserve.mockImplementation(async () => ({
+    assetId: `asset-${++assetSeq}`,
+    mode: "single",
+    uploadUrl: "https://r2.test/put",
+    expiresInSeconds: 900,
+  }));
   mocks.put.mockResolvedValue({ etag: '"e"' });
   mocks.abort.mockResolvedValue({ status: "deleted" });
   mocks.complete.mockImplementation(async ({ assetId }) => ({
@@ -79,6 +86,15 @@ const type = (value: string) =>
   fireEvent.change(screen.getByLabelText("Texto de la publicación"), {
     target: { value },
   });
+// MEDIA-1: una publicación nueva exige un archivo; las pruebas que ejercen el guardado de un alta adjuntan uno listo.
+async function attach() {
+  fireEvent.change(document.querySelector('input[type="file"]')!, {
+    target: { files: [new File(["bytes"], "a.jpg", { type: "image/jpeg" })] },
+  });
+  await waitFor(() => expect(mocks.complete).toHaveBeenCalled());
+  await waitFor(() => expect(screen.getByRole("button", { name: "Publicar" })).toBeEnabled());
+}
+
 const publish = () => fireEvent.click(screen.getByRole("button", { name: "Publicar" }));
 
 describe("authoritative save rejection (create and edit)", () => {
@@ -89,6 +105,7 @@ describe("authoritative save rejection (create and edit)", () => {
       <CommunityPostEditorForm initialPost={null} onSaved={onSaved} onCancel={vi.fn()} />,
     );
     type("Mi borrador");
+    await attach();
     publish();
     const notice = await screen.findByTestId("restriction-notice");
     expect(notice).toHaveTextContent("Has recibido tu segundo strike.");
@@ -138,6 +155,7 @@ describe("authoritative save rejection (create and edit)", () => {
       <CommunityPostEditorForm initialPost={null} onSaved={vi.fn()} onCancel={vi.fn()} />,
     );
     type("x");
+    await attach();
     publish();
     expect(await screen.findByTestId("restriction-notice")).toHaveTextContent(
       "restricción activa",
@@ -151,6 +169,7 @@ describe("authoritative save rejection (create and edit)", () => {
       <CommunityPostEditorForm initialPost={null} onSaved={vi.fn()} onCancel={vi.fn()} />,
     );
     type("borrador");
+    await attach();
     publish();
     expect(await screen.findByTestId("restriction-changed")).toHaveTextContent(
       "El estado de tu restricción cambió. Vuelve a intentarlo.",
@@ -168,6 +187,7 @@ describe("authoritative save rejection (create and edit)", () => {
       <CommunityPostEditorForm initialPost={null} onSaved={onSaved} onCancel={vi.fn()} />,
     );
     type("x");
+    await attach();
     publish();
     await screen.findByTestId("restriction-notice");
     publish();
@@ -195,6 +215,7 @@ describe("authoritative save rejection (create and edit)", () => {
       <CommunityPostEditorForm initialPost={null} onSaved={vi.fn()} onCancel={vi.fn()} />,
     );
     type("x");
+    await attach();
     publish();
     const notice = await screen.findByTestId("restriction-notice");
     expect(notice.textContent).not.toMatch(/moderador|reporte|caso|decisión|decision/i);

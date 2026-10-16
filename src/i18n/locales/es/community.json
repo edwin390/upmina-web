@@ -100,6 +100,7 @@
     "pickerMax": "Máximo {max} fotos o videos por publicación.",
     "pickerMaxVideos": "Máximo {videos, plural, one {# video} other {# videos}} por publicación.",
     "pickerSize": "Los videos no pueden superar 100 MB.",
+    "mediaRequired": "Las publicaciones nuevas necesitan al menos una imagen o un video.",
     "created": "Publicación creada correctamente",
     "updated": "Publicación actualizada correctamente",
     "createFailed": "No se pudo crear la publicación",
@@ -107,6 +108,7 @@
     "errors": {
       "session": "Tu sesión ya no es válida. Cierra sesión e inicia de nuevo.",
       "empty": "Una publicación necesita texto o al menos una imagen.",
+      "mediaRequired": "Una publicación nueva necesita al menos una imagen o un video.",
       "conflict": "Esta publicación cambió mientras editabas. Vuelve a intentarlo.",
       "tooManyMedia": "Máximo {max} fotos o videos.",
       "tooManyVideos": "Máximo {videos, plural, one {# video} other {# videos}} por publicación.",

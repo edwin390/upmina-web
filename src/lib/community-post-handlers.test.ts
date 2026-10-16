@@ -547,6 +547,7 @@ describe("handleCommunityPostSave", () => {
     ["asset_not_ready", 400, "asset_not_ready"],
     ["asset_already_attached", 409, "asset_already_attached"],
     ["empty_post", 422, "empty_post"],
+    ["media_required", 422, "media_required"],
   ])(
     "RPC lanza %s → %i con code %s (nunca el mensaje crudo de Postgres)",
     async (rpcMsg, status, code) => {

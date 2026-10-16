@@ -95,6 +95,7 @@ function errorMessage(err: unknown, t: FormT): string {
   if (err instanceof CommunityClientError) {
     if (err.status === 401) return t("errors.session");
     if (err.code === "empty_post") return t("errors.empty");
+    if (err.code === "media_required") return t("errors.mediaRequired");
     if (err.code === "community_version_conflict") return t("errors.conflict");
     if (err.code === "too_many_media")
       return t("errors.tooManyMedia", { max: COMMUNITY_POST_MAX_MEDIA });
@@ -279,11 +280,17 @@ export default function CommunityPostEditorForm({
     (i) => i.status === "failed" && i.errorCode === "author_restricted",
   );
   const textCount = codePoints(form.text);
+  // MEDIA-1: una publicación NUEVA exige al menos un archivo listo; una existente con archivos no puede quedarse sin
+  // ninguno. Solo una publicación histórica de solo texto (sin archivos desde el principio) se edita solo con texto.
+  const hasMedia = form.existingMedia.length > 0 || readyNewMedia.length > 0;
+  const isLegacyTextOnly =
+    form.postId !== null && form.existingMedia.length === 0 && form.removedMediaIds.length === 0;
   const canSave =
     !isSaving &&
     textCount <= COMMUNITY_POST_TEXT_MAX &&
-    (textCount > 0 || form.existingMedia.length > 0 || readyNewMedia.length > 0) &&
+    (hasMedia || (isLegacyTextOnly && textCount > 0)) &&
     !upload.items.some((i) => i.status !== "ready" && i.status !== "failed");
+  const showMediaRequiredHint = !hasMedia && !isLegacyTextOnly && !isSaving;
 
   return (
     <form onSubmit={(e) => void handleSave(e)} noValidate className="mt-4">
@@ -448,8 +455,17 @@ export default function CommunityPostEditorForm({
         <CommunityRestrictionNotice restriction={restrictedUpload.restriction ?? null} />
       ) : null}
 
+      {showMediaRequiredHint && (
+        <p id="community-media-required" className="mt-3 text-sm text-text-muted">
+          {t("mediaRequired")}
+        </p>
+      )}
+
       <div className="mt-4 flex flex-wrap gap-3">
-        <button type="submit" disabled={!canSave} className={PRIMARY_BUTTON_CLASS}>
+        <button
+          type="submit"
+          disabled={!canSave}
+          aria-describedby={showMediaRequiredHint ? "community-media-required" : undefined} className={PRIMARY_BUTTON_CLASS}>
           {isSaving ? t("publishing") : t("publish")}
         </button>
         <button

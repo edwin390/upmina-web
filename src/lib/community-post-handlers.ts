@@ -56,6 +56,8 @@ const RPC_ERROR_MAP: Readonly<Record<string, { status: number; code: string }>> 
   asset_not_ready: { status: 400, code: "asset_not_ready" },
   asset_already_attached: { status: 409, code: "asset_already_attached" },
   empty_post: { status: 422, code: "empty_post" },
+  // MEDIA-1: una publicación nueva exige al menos una imagen o un vídeo; una existente no puede quedarse sin ninguno.
+  media_required: { status: 422, code: "media_required" },
   // COPY-1 2B: retirada o apelación de copyright activa; la publicación y sus archivos no se pueden borrar todavía.
   post_copyright_protected: { status: 409, code: "community_post_copyright_protected" },
 };

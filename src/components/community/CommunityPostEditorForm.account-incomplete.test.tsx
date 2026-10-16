@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import CommunityPostEditorForm from "./CommunityPostEditorForm";
 import { CommunityClientError } from "@/lib/community-client";
@@ -8,8 +8,32 @@ import { CommunityClientError } from "@/lib/community-client";
 // editor muestra su propio aviso, conserva el borrador, no simula éxito, no reintenta y no usa el
 // modelo de strikes.
 
-const mocks = vi.hoisted(() => ({ save: vi.fn(), success: vi.fn() }));
+const mocks = vi.hoisted(() => ({
+  save: vi.fn(),
+  success: vi.fn(),
+  reserve: vi.fn(),
+  complete: vi.fn(),
+  abort: vi.fn(),
+  put: vi.fn(),
+}));
 vi.mock("@/lib/action-notice", () => ({ showActionSuccess: mocks.success }));
+vi.mock("@/lib/media-client", async () => ({
+  ...(await vi.importActual("@/lib/media-client")),
+  reserveMediaUpload: mocks.reserve,
+  completeMediaUpload: mocks.complete,
+  abortMediaUpload: mocks.abort,
+  uploadWithProgress: mocks.put,
+}));
+vi.mock("@/lib/media-transport", () => ({
+  prepareUploadBlob: async (file: File) => ({
+    blob: file,
+    mime: file.type,
+    bytes: file.size,
+    strategy: "original",
+    width: null,
+    height: null,
+  }),
+}));
 vi.mock("@/lib/community-client", async () => ({
   ...(await vi.importActual("@/lib/community-client")),
   saveCommunityPost: mocks.save,
@@ -28,6 +52,20 @@ const incomplete = (reason: "email_unverified" | "username_missing") =>
 beforeEach(() => {
   vi.resetAllMocks();
   localStorage.setItem("upmina:locale", "en");
+  let assetSeq = 0;
+  mocks.reserve.mockImplementation(async () => ({
+    assetId: `asset-${++assetSeq}`,
+    mode: "single",
+    uploadUrl: "https://r2.test/put",
+    expiresInSeconds: 900,
+  }));
+  mocks.put.mockResolvedValue({ etag: '"e"' });
+  mocks.abort.mockResolvedValue({ status: "deleted" });
+  mocks.complete.mockImplementation(async ({ assetId }) => ({
+    assetId,
+    status: "ready",
+    variants: [],
+  }));
 });
 
 function renderEditor(onSaved = vi.fn()) {
@@ -42,6 +80,15 @@ const type = (value: string) =>
   fireEvent.change(screen.getByLabelText("Texto de la publicación"), {
     target: { value },
   });
+// MEDIA-1: una publicación nueva exige un archivo; las pruebas que ejercen el guardado de un alta adjuntan uno listo.
+async function attach() {
+  fireEvent.change(document.querySelector('input[type="file"]')!, {
+    target: { files: [new File(["bytes"], "a.jpg", { type: "image/jpeg" })] },
+  });
+  await waitFor(() => expect(mocks.complete).toHaveBeenCalled());
+  await waitFor(() => expect(screen.getByRole("button", { name: "Publicar" })).toBeEnabled());
+}
+
 const publish = () => fireEvent.click(screen.getByRole("button", { name: "Publicar" }));
 
 describe("editor: rechazo por cuenta incompleta", () => {
@@ -49,6 +96,7 @@ describe("editor: rechazo por cuenta incompleta", () => {
     mocks.save.mockRejectedValue(incomplete("username_missing"));
     const onSaved = renderEditor();
     type("Mi borrador");
+    await attach();
     publish();
 
     expect(await screen.findByText("Choose your username first")).toBeInTheDocument();
@@ -69,6 +117,7 @@ describe("editor: rechazo por cuenta incompleta", () => {
     mocks.save.mockRejectedValue(incomplete("email_unverified"));
     renderEditor();
     type("Otro borrador");
+    await attach();
     publish();
 
     expect(await screen.findByText("Confirm your email first")).toBeInTheDocument();
@@ -83,6 +132,7 @@ describe("editor: rechazo por cuenta incompleta", () => {
     mocks.save.mockResolvedValueOnce({ post: { id: "p" }, media: [] });
     const onSaved = renderEditor();
     type("Texto");
+    await attach();
     publish();
     await screen.findByText("Choose your username first");
     expect(mocks.save).toHaveBeenCalledTimes(1);

@@ -100,6 +100,7 @@
     "pickerMax": "Höchstens {max} Fotos oder Videos pro Beitrag.",
     "pickerMaxVideos": "Höchstens {videos, plural, one {# Video} other {# Videos}} pro Beitrag.",
     "pickerSize": "Videos dürfen 100 MB nicht überschreiten.",
+    "mediaRequired": "Neue Beiträge benötigen mindestens ein Bild oder Video.",
     "created": "Beitrag erfolgreich erstellt",
     "updated": "Beitrag erfolgreich aktualisiert",
     "createFailed": "Der Beitrag konnte nicht erstellt werden",
@@ -107,6 +108,7 @@
     "errors": {
       "session": "Deine Sitzung ist nicht mehr gültig. Melde dich ab und erneut an.",
       "empty": "Ein Beitrag braucht Text oder mindestens ein Bild.",
+      "mediaRequired": "Ein neuer Beitrag benötigt mindestens ein Bild oder Video.",
       "conflict": "Dieser Beitrag hat sich geändert, während du ihn bearbeitet hast. Bitte versuche es erneut.",
       "tooManyMedia": "Höchstens {max} Fotos oder Videos.",
       "tooManyVideos": "Höchstens {videos, plural, one {# Video} other {# Videos}} pro Beitrag.",
