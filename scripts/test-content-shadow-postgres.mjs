@@ -154,7 +154,9 @@ async function fixture(observer) {
 }
 
 import { cases, helpers } from './test-content-shadow-cases.mjs';
-const auditFilter = new RegExp(process.env.UPMINA_SHADOW_EXECUTOR_TESTS === '1' ? '^executor:'
+const auditFilter = new RegExp(process.env.UPMINA_SHADOW_BUDGET_TESTS === '1' ? '^budget:'
+  : process.env.UPMINA_SHADOW_DEFER_TESTS === '1' ? '^defer:'
+  : process.env.UPMINA_SHADOW_EXECUTOR_TESTS === '1' ? '^executor:'
   : process.env.UPMINA_SHADOW_RETRY_TESTS === '1' ? '^retry:' : process.env.UPMINA_SHADOW_TEST_FILTER ?? '.*');
 
 async function concurrentClaims(observer, single) {
@@ -438,7 +440,21 @@ try {
   assert.deepEqual(await definitions(),before);
   report.results.push({ name:'existing content, human decision and deletion functions unchanged',status:'PASS' });
   await observer.query(helpers);
-  if (process.env.UPMINA_SHADOW_EXECUTOR_TESTS === '1') {
+  if (process.env.UPMINA_SHADOW_BUDGET_TESTS === '1') {
+    const { runBudgetContract } = await import('./test-content-shadow-budget-postgres.mjs');
+    await runBudgetContract({ observer, Session, migration, report });
+    const { runExecutorIntegration } = await import('./test-content-shadow-executor-postgres.mjs');
+    await runExecutorIntegration({ observer, Session, migration, report, root, migrationsReady: true, withBudget: true });
+    assert.deepEqual(await definitions(), before, 'budget must not alter Community functions');
+  }
+  else if (process.env.UPMINA_SHADOW_DEFER_TESTS === '1') {
+    const { runAdministrativeProtocol } = await import('./test-content-shadow-defer.mjs');
+    await runAdministrativeProtocol({ observer, Session, migration, report });
+    const { runExecutorIntegration } = await import('./test-content-shadow-executor-postgres.mjs');
+    await runExecutorIntegration({ observer, Session, migration, report, root, migrationsReady: true });
+    assert.deepEqual(await definitions(), before, 'queue extension must not alter Community functions');
+  }
+  else if (process.env.UPMINA_SHADOW_EXECUTOR_TESTS === '1') {
     const { runExecutorIntegration } = await import('./test-content-shadow-executor-postgres.mjs');
     await runExecutorIntegration({ observer, Session, migration, report, root });
     assert.deepEqual(await definitions(), before, 'executor must not alter Community functions');
@@ -448,7 +464,7 @@ try {
     await runRetryContract({ observer, Session, migration, report });
     assert.deepEqual(await definitions(), before, 'retry extension must not alter Community functions');
   }
-  for (const [name, sql] of process.env.UPMINA_SHADOW_RETRY_TESTS === '1' || process.env.UPMINA_SHADOW_EXECUTOR_TESTS === '1' ? [] : cases) {
+  for (const [name, sql] of process.env.UPMINA_SHADOW_BUDGET_TESTS === '1' || process.env.UPMINA_SHADOW_DEFER_TESTS === '1' || process.env.UPMINA_SHADOW_RETRY_TESTS === '1' || process.env.UPMINA_SHADOW_EXECUTOR_TESTS === '1' ? [] : cases) {
     if (!auditFilter.test(name)) continue;
     try {
       await observer.query(`begin; ${sql} rollback;`);

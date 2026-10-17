@@ -1,5 +1,7 @@
 // Compile-only negative tests. Not imported by the app or executed against any provider.
 import type {
+  ShadowAdministrativeReason,
+  ShadowAdministrativeClaim,
   ShadowAppliedInputTypes,
   ShadowCoverage,
   ShadowFinishOutcome,
@@ -32,3 +34,8 @@ const retryableContention: ShadowFinishOutcome = "busy";
 // @ts-expect-error Queue outcomes never authorize Community publication.
 const notAModerationDecision: ShadowFinishOutcome = "publish";
 void [retryableContention, notAModerationDecision];
+// @ts-expect-error Administrative deferral is not a provider-failure policy.
+const wrongDeferral: ShadowAdministrativeReason = "provider_timeout";
+// @ts-expect-error A fresh non-consuming acquisition cannot authorize a fourth attempt.
+const exhaustedAcquisition: Pick<ShadowAdministrativeClaim, "attempts"> = { attempts: 3 };
+void [wrongDeferral, exhaustedAcquisition];

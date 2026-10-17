@@ -21,8 +21,11 @@ interface ObjectBody {
 }
 export type ShadowObjectRead = (key: string, signal: AbortSignal) => Promise<ObjectBody>;
 
-export function shadowRepository(client: SupabaseClient): ShadowRepository {
-  return {
+export function shadowRepository(
+  client: SupabaseClient,
+  administrative = false,
+): ShadowRepository {
+  const repository: ShadowRepository = {
     async claim(signal) {
       const { data, error } = await client
         .rpc("community_shadow_claim", { p_limit: 1, p_lease_seconds: 120 })
@@ -38,6 +41,57 @@ export function shadowRepository(client: SupabaseClient): ShadowRepository {
       return data;
     },
   };
+  if (administrative) {
+    repository.acquire = async (signal) => {
+      const { data, error } = await client
+        .rpc("community_shadow_acquire", { p_limit: 1, p_lease_seconds: 120 })
+        .abortSignal(signal);
+      if (error) throw new ShadowFault("internal_failure");
+      return data;
+    };
+    repository.start = async (job, signal) => {
+      const { data, error } = await client
+        .rpc("community_shadow_attempt_start", {
+          p_job_id: job.id,
+          p_claim_token: job.claim_token,
+        })
+        .abortSignal(signal);
+      if (
+        error ||
+        ![
+          "started",
+          "already_started",
+          "attempts_exhausted",
+          "not_found",
+          "stale_claim",
+          "obsolete",
+          "busy",
+        ].includes(data)
+      )
+        throw new ShadowFault("internal_failure");
+      return data;
+    };
+    repository.defer = async (input, signal) => {
+      const { data, error } = await client
+        .rpc("community_shadow_defer", { ...input })
+        .abortSignal(signal);
+      if (
+        error ||
+        ![
+          "deferred",
+          "expired",
+          "attempts_exhausted",
+          "not_found",
+          "stale_claim",
+          "obsolete",
+          "busy",
+        ].includes(data)
+      )
+        throw new ShadowFault("internal_failure");
+      return data;
+    };
+  }
+  return repository;
 }
 const normalized = (t: string | null): string | null =>
   t === null ? null : t.replace(/^ +| +$/g, "").normalize("NFC") || null;

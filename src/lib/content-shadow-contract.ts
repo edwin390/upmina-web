@@ -125,4 +125,40 @@ export interface ShadowFinishInput {
 }
 /** busy is non-terminal: the caller may retry within the same lease; it is not a moderation decision. */
 export type ShadowFinishOutcome =
-  "finished" | "not_found" | "stale_claim" | "obsolete" | "busy";
+  "finished" | "not_found" | "stale_claim" | "obsolete" | "busy" | "attempt_not_started";
+
+/** New acquire protocol only; legacy claim atomically acquires AND starts for F4-B. */
+export type ShadowAdministrativeClaim = ShadowJob & {
+  attempts: 0 | 1 | 2;
+  state: "processing";
+  claim_token: string;
+  lease_until: string;
+  attempt_claim_token: null;
+  administrative_defer_reason: null;
+};
+export type ShadowAdministrativeReason = "quota_exhausted" | "cooldown_active";
+export interface ShadowAttemptStartInput {
+  p_job_id: string;
+  p_claim_token: string;
+}
+export interface ShadowDeferInput extends ShadowAttemptStartInput {
+  /** Finite future UTC instant, at most 25h ahead. Cannot extend snapshot lifetime. */
+  p_resume_at: string;
+  p_reason: ShadowAdministrativeReason;
+}
+export type ShadowAttemptStartOutcome =
+  | "started"
+  | "already_started"
+  | "attempts_exhausted"
+  | "not_found"
+  | "stale_claim"
+  | "obsolete"
+  | "busy";
+export type ShadowDeferOutcome =
+  | "deferred"
+  | "expired"
+  | "attempts_exhausted"
+  | "not_found"
+  | "stale_claim"
+  | "obsolete"
+  | "busy";

@@ -5,7 +5,12 @@ import type {
   ShadowFinishOutcome,
   ShadowResultInput,
   ShadowCoverage,
+  ShadowDeferInput,
+  ShadowDeferOutcome,
+  ShadowAttemptStartOutcome,
+  ShadowAdministrativeClaim,
 } from "./content-shadow-contract.js";
+import type { PersistentShadowBudget } from "./content-shadow-budget.js";
 import {
   SHADOW_CONFIG_REVISION,
   SHADOW_PREPROCESSING_VERSION,
@@ -16,11 +21,15 @@ import {
   ShadowFault,
   SHADOW_MODEL,
   retryDelay,
+  retryAfterSeconds,
   validateModerationResponse,
 } from "./content-shadow-provider.js";
 
 export interface ShadowRepository {
   claim(signal: AbortSignal): Promise<ShadowJob[]>;
+  acquire?(signal: AbortSignal): Promise<ShadowJob[]>;
+  start?(job: ShadowJob, signal: AbortSignal): Promise<ShadowAttemptStartOutcome>;
+  defer?(input: ShadowDeferInput, signal: AbortSignal): Promise<ShadowDeferOutcome>;
   finish(input: ShadowFinishInput, signal: AbortSignal): Promise<ShadowFinishOutcome>;
 }
 export interface ShadowMediaReader {
@@ -43,6 +52,7 @@ export interface ShadowSummary {
   retryWait: number;
   rejected: number;
   persistenceErrors: number;
+  deferred?: number;
 }
 export const simulatedBudget: ShadowBudget = {
   mode: "simulated",
@@ -51,7 +61,7 @@ export const simulatedBudget: ShadowBudget = {
 const uuid = (s: unknown): s is string =>
   typeof s === "string" &&
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s);
-export function validateClaim(job: ShadowJob): void {
+export function validateClaim(job: ShadowJob, acquisition = false): void {
   if (
     !job ||
     !uuid(job.id) ||
@@ -65,8 +75,11 @@ export function validateClaim(job: ShadowJob): void {
     !Number.isInteger(job.version) ||
     job.version < 1 ||
     !Number.isInteger(job.attempts) ||
-    job.attempts < 1 ||
-    job.attempts > 3 ||
+    job.attempts < (acquisition ? 0 : 1) ||
+    job.attempts > (acquisition ? 2 : 3) ||
+    (acquisition &&
+      ((job as ShadowAdministrativeClaim).attempt_claim_token !== null ||
+        (job as ShadowAdministrativeClaim).administrative_defer_reason !== null)) ||
     !/^[0-9a-f]{64}$/.test(job.snapshot_hash) ||
     job.obsolete_at !== null ||
     !(
@@ -135,7 +148,7 @@ export async function runShadowBatch(
     repository: ShadowRepository;
     media: ShadowMediaReader;
     transport: FakeModerationTransport;
-    budget?: ShadowBudget;
+    budget?: ShadowBudget | PersistentShadowBudget;
     now?: () => number;
     random?: () => number;
     componentTimeoutMs?: number;
@@ -150,7 +163,13 @@ export async function runShadowBatch(
   )
     throw new ShadowFault("invalid_input");
   const budget = deps.budget ?? simulatedBudget;
-  if (budget.mode !== "simulated") throw new ShadowFault("invalid_input");
+  const persistent = budget.mode === "persistent_dev" ? budget : undefined;
+  if (budget.mode !== "simulated" && !persistent) throw new ShadowFault("invalid_input");
+  if (
+    persistent &&
+    (!deps.repository.acquire || !deps.repository.start || !deps.repository.defer)
+  )
+    throw new ShadowFault("invalid_input");
   const now = deps.now ?? Date.now,
     random = deps.random ?? Math.random;
   const end = now() + 45000,
@@ -172,7 +191,9 @@ export async function runShadowBatch(
   for (let n = 0; n < limit && now() < end; n++) {
     let jobs: ShadowJob[];
     try {
-      jobs = await repositoryCall((s) => deps.repository.claim(s));
+      jobs = await repositoryCall((s) =>
+        persistent ? deps.repository.acquire!(s) : deps.repository.claim(s),
+      );
     } catch {
       summary.persistenceErrors++;
       break;
@@ -182,10 +203,10 @@ export async function runShadowBatch(
       break;
     }
     if (!jobs.length) break;
-    const job = jobs[0];
+    const job = { ...jobs[0] };
     summary.claimed++;
     try {
-      validateClaim(job);
+      validateClaim(job, !!persistent);
     } catch {
       summary.rejected++;
       continue;
@@ -202,6 +223,9 @@ export async function runShadowBatch(
     const results: ShadowResultInput[] = [],
       faults: ShadowFault[] = [];
     let stopped = false;
+    let reservationId: string | undefined;
+    let administrativeStop = false;
+    let started = !persistent;
     try {
       alive();
       await bounded(
@@ -217,6 +241,58 @@ export async function runShadowBatch(
           .filter((a) => a.kind === "image")
           .map((a) => ({ component_kind: "image" as const, asset_id: a.asset_id })),
       ];
+      if (persistent) {
+        if (components.length) {
+          const reservation = await repositoryCall((s) =>
+            persistent.reserve(job, components.length, s),
+          );
+          if (
+            reservation.status === "quota_exhausted" ||
+            reservation.status === "cooldown_active"
+          ) {
+            alive();
+            // Deadline comes from SQL; TTL uses the existing safe expiry transition.
+            const resume = Math.min(
+              Date.parse(reservation.retry_at),
+              Date.parse(job.snapshot_expires_at),
+              Date.parse(job.retain_until),
+            );
+            if (!Number.isFinite(resume) || resume <= now())
+              throw new ShadowFault("internal_failure");
+            const outcome = await repositoryCall((s) =>
+              deps.repository.defer!(
+                {
+                  p_job_id: job.id,
+                  p_claim_token: job.claim_token!,
+                  p_resume_at: new Date(resume).toISOString(),
+                  p_reason: reservation.status,
+                },
+                s,
+              ),
+            );
+            if (outcome === "deferred" || outcome === "expired")
+              summary.deferred = (summary.deferred ?? 0) + 1;
+            else summary.rejected++;
+            break;
+          }
+          if (
+            reservation.status !== "reserved" ||
+            reservation.units !== components.length
+          ) {
+            summary.rejected++;
+            break;
+          }
+          reservationId = reservation.reservation_id;
+        }
+        alive();
+        const outcome = await repositoryCall((s) => deps.repository.start!(job, s));
+        if (outcome !== "started") {
+          summary.rejected++;
+          break;
+        }
+        started = true;
+        job.attempts++;
+      }
       for (const component of components) {
         let bytes: Buffer | undefined;
         try {
@@ -227,9 +303,21 @@ export async function runShadowBatch(
               Math.min(componentMs, expires - now() - 100),
               new ShadowFault("asset_unavailable", true),
             );
-          if (
+          if (persistent) {
+            const gate = await repositoryCall((s) =>
+              persistent.check(job, reservationId!, s),
+            );
+            if (gate.status !== "allowed") {
+              administrativeStop = true;
+              throw new ShadowFault(
+                gate.status === "cooldown_active"
+                  ? "provider_rate_limit"
+                  : "internal_failure",
+              );
+            }
+          } else if (
             !(await bounded(
-              () => budget.reserve(),
+              () => (budget as ShadowBudget).reserve(),
               Math.min(componentMs, expires - now() - 100),
               new ShadowFault("internal_failure"),
             ))
@@ -275,13 +363,32 @@ export async function runShadowBatch(
             model_requested: SHADOW_MODEL,
             error_code: fault.code,
           } as ShadowResultInput);
-          if (fault.retryable) break; // Respect provider backoff before attempting any other component.
+          if (persistent && fault.code === "provider_rate_limit" && !administrativeStop) {
+            administrativeStop = true;
+            try {
+              const delay = retryAfterSeconds(fault.retryAfter, now());
+              await repositoryCall((s) =>
+                persistent.cooldown(
+                  Math.min(Number.MAX_SAFE_INTEGER, Math.max(60, delay)),
+                  s,
+                ),
+              );
+            } catch {
+              summary.persistenceErrors++;
+            }
+          }
+          if (persistent && fault.code === "internal_failure") administrativeStop = true;
+          if (fault.retryable || administrativeStop) break;
         } finally {
           bytes?.fill(0);
           bytes = undefined;
         }
       }
     } catch (e) {
+      if (persistent && !started) {
+        summary.persistenceErrors++;
+        break; // Unknown commit outcome: no transport or refund; lease expires naturally.
+      }
       faults.push(e instanceof ShadowFault ? e : new ShadowFault("internal_failure"));
       stopped = true;
     }
@@ -299,7 +406,7 @@ export async function runShadowBatch(
           : "failed";
     let delay: number | undefined;
     const transient = faults.filter((f) => f.retryable);
-    if (transient.length && job.attempts < 3) {
+    if (!administrativeStop && transient.length && job.attempts < 3) {
       delay = Math.max(
         ...transient.map((f) => retryDelay(job.attempts, f.retryAfter, now(), random())),
       );
@@ -337,7 +444,7 @@ export async function runShadowBatch(
     } catch {
       summary.persistenceErrors++;
     } // Unknown commit outcome is never reported as success.
-    if (summary.persistenceErrors || transient.length) break; // No further work during a known backoff/outage.
+    if (summary.persistenceErrors || transient.length || administrativeStop) break;
   }
   return summary;
 }

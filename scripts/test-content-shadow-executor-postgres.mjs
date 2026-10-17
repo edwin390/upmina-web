@@ -20,6 +20,8 @@ export async function runExecutorIntegration({
   migration,
   report,
   root,
+  migrationsReady = false,
+  withBudget = false,
 }) {
   const dir = join(root, "executor-modules");
   assert.equal(resolve(dir), join(resolve(root), "executor-modules"));
@@ -28,6 +30,7 @@ export async function runExecutorIntegration({
     "content-shadow-contract",
     "content-shadow-provider",
     "content-shadow-executor",
+    "content-shadow-budget",
   ];
   const sessions = [];
   try {
@@ -49,9 +52,13 @@ export async function runExecutorIntegration({
     const { FakeModerationTransport, ShadowFault } = await import(
       pathToFileURL(join(dir, "content-shadow-provider.mjs")).href
     );
-    await observer.query(
-      `begin; ${migration("20261123120000_community_shadow_retry_delay.sql")} commit;`,
+    const { shadowSqlBudget } = await import(
+      pathToFileURL(join(dir, "content-shadow-budget.mjs")).href
     );
+    if (!migrationsReady)
+      await observer.query(
+        `begin; ${migration("20261123120000_community_shadow_retry_delay.sql")} commit;`,
+      );
     const a = await new Session("executor_a").setup(),
       b = await new Session("executor_b").setup();
     sessions.push(a, b);
@@ -250,6 +257,182 @@ export async function runExecutorIntegration({
       release?.();
       await pending;
       await clear();
+    }
+    if (withBudget) {
+      const reset = async () => {
+        await clear();
+        await observer.query(
+          "delete from community_shadow_budget_days; update community_shadow_budget_control set cooldown_until=null,halted=false;",
+        );
+      };
+      const advanced = (session) => ({
+        ...repository(session),
+        acquire: () =>
+          session.json(
+            "select coalesce(json_agg(j),'[]') from community_shadow_acquire(1,120) j;",
+          ),
+        start: (j) =>
+          session.query(
+            `select community_shadow_attempt_start(${quote(j.id)},${quote(j.claim_token)});`,
+          ),
+        defer: (p) =>
+          session.query(
+            `select community_shadow_defer(${quote(p.p_job_id)},${quote(p.p_claim_token)},${quote(p.p_resume_at)},${quote(p.p_reason)});`,
+          ),
+      });
+      const sqlBudget = (session) =>
+        shadowSqlBudget({
+          rpc(name, p) {
+            const args =
+              name === "community_shadow_budget_reserve"
+                ? [quote(p.p_job_id), quote(p.p_claim_token), p.p_units]
+                : name === "community_shadow_budget_check"
+                  ? [quote(p.p_job_id), quote(p.p_claim_token), quote(p.p_reservation_id)]
+                  : name === "community_shadow_budget_cooldown"
+                    ? [p.p_retry_after_seconds]
+                    : null;
+            assert(args, "unexpected budget RPC");
+            return {
+              abortSignal: async () => ({
+                data: await session.json(`select ${name}(${args.join(",")});`),
+                error: null,
+              }),
+            };
+          },
+        });
+      const run = (repo = advanced(a), transport = new FakeModerationTransport()) =>
+        runShadowBatch({ repository: repo, media, transport, budget: sqlBudget(a) });
+      try {
+        await observer.query(
+          "select pg_temp.make_post('Synthetic persistent executor');",
+        );
+        const before = await content();
+        const summary = await run();
+        assert.equal(summary.completed, 1);
+        assert.equal(summary.attemptedEvaluations, 2);
+        assert.equal(
+          await observer.query("select reserved from community_shadow_budget_days;"),
+          "2",
+        );
+        assert.equal(
+          await observer.query("select attempts from community_shadow_jobs;"),
+          "1",
+        );
+        assert.deepEqual(await content(), before);
+        record(
+          "persistent budget executor reserves exact text/image batch and preserves Community",
+          { summary },
+        );
+      } finally {
+        await reset();
+      }
+      try {
+        await observer.query(
+          "select pg_temp.make_post('Synthetic quota denial'); insert into community_shadow_budget_days values((clock_timestamp() at time zone 'UTC')::date,100);",
+        );
+        const summary = await run();
+        assert.equal(summary.deferred, 1);
+        assert.equal(summary.attemptedEvaluations, 0);
+        assert.equal(
+          await observer.query("select attempts from community_shadow_jobs;"),
+          "0",
+        );
+        assert.equal(
+          await observer.query("select reserved from community_shadow_budget_days;"),
+          "100",
+        );
+        assert.equal(
+          await b.query("select count(*) from community_shadow_acquire(1,120);"),
+          "0",
+        );
+        record("persistent quota denial defers without attempts or early reclamation", {
+          summary,
+        });
+      } finally {
+        await reset();
+      }
+      try {
+        await observer.query(
+          "select pg_temp.make_post('Synthetic lease loss after reservation');",
+        );
+        const repo = advanced(a),
+          original = repo.start;
+        repo.start = async (j) => {
+          await observer.query(
+            `update community_shadow_jobs set lease_until=clock_timestamp()-interval '1 second' where id=${quote(j.id)};`,
+          );
+          return original(j);
+        };
+        const summary = await run(repo);
+        assert.equal(summary.rejected, 1);
+        assert.equal(summary.attemptedEvaluations, 0);
+        assert.equal(
+          await observer.query("select reserved from community_shadow_budget_days;"),
+          "2",
+        );
+        assert.equal(
+          await observer.query("select attempts from community_shadow_jobs;"),
+          "0",
+        );
+        record("lease lost after committed reservation is rejected without refund", {
+          summary,
+        });
+      } finally {
+        await reset();
+      }
+      try {
+        await observer.query(
+          "select pg_temp.make_post('Synthetic timeout reservation');",
+        );
+        const transport = new FakeModerationTransport(async () => {
+          throw new ShadowFault("provider_timeout", true);
+        });
+        const summary = await run(advanced(a), transport);
+        assert.equal(summary.retryWait, 1);
+        assert.equal(summary.completed, 0);
+        assert.equal(
+          await observer.query("select reserved from community_shadow_budget_days;"),
+          "2",
+        );
+        record("transport timeout never refunds committed component reservation", {
+          summary,
+        });
+      } finally {
+        await reset();
+      }
+      try {
+        await observer.query(
+          "select pg_temp.make_post('Synthetic mid-job global cooldown');",
+        );
+        let sent = 0;
+        const transport = new FakeModerationTransport(async (request) => {
+          sent++;
+          await observeIdle();
+          await b.query("select community_shadow_budget_cooldown(120);");
+          return new FakeModerationTransport().evaluate(
+            request,
+            new AbortController().signal,
+          );
+        });
+        const summary = await run(advanced(a), transport);
+        assert.equal(sent, 1);
+        assert.equal(summary.partial, 1);
+        assert.equal(summary.completed, 0);
+        assert.equal(
+          await observer.query("select reserved from community_shadow_budget_days;"),
+          "2",
+        );
+        assert.equal(
+          await observer.query("select coverage->>'overall' from community_shadow_jobs;"),
+          "partial",
+        );
+        record(
+          "another instance cooldown stops remaining sends with persisted partial coverage",
+          { summary },
+        );
+      } finally {
+        await reset();
+      }
     }
   } catch (error) {
     report.results.push({

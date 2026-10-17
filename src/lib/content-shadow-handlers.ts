@@ -4,6 +4,7 @@ import { AdminAuthError, authErrorBody, requireCapability } from "./admin-auth.j
 import { runShadowBatch, type ShadowSummary } from "./content-shadow-executor.js";
 import { FakeModerationTransport } from "./content-shadow-provider.js";
 import { shadowMediaReader, shadowRepository } from "./content-shadow-storage.js";
+import { shadowSqlBudget } from "./content-shadow-budget.js";
 
 // One in-flight HTTP batch per module instance. This is NOT a distributed/global lock.
 let shadowRunActive = false;
@@ -25,11 +26,13 @@ async function runDefault(limit: number): Promise<ShadowSummary> {
   const client = createClient(url, key, {
     auth: { persistSession: false, autoRefreshToken: false },
   });
+  const persistent = process.env.CONTENT_SHADOW_BUDGET_MODE === "persistent_dev";
   return runShadowBatch(
     {
-      repository: shadowRepository(client),
+      repository: shadowRepository(client, persistent),
       media: shadowMediaReader(client),
       transport: new FakeModerationTransport(),
+      budget: persistent ? shadowSqlBudget(client) : undefined,
     },
     limit,
   );
@@ -90,6 +93,7 @@ export function createShadowRunHandler(run = runDefault) {
         retryWait: summary.retryWait,
         rejected: summary.rejected,
         persistenceErrors: summary.persistenceErrors,
+        deferred: summary.deferred ?? 0,
       });
     } catch {
       return res.status(503).json({ error: "Servicio no disponible" });
