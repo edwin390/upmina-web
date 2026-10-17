@@ -7,6 +7,7 @@ import {
   handleAccountDeletionRun,
 } from "../../src/lib/account-deletion-handlers.js";
 import { handleModerationCaseDecision } from "../../src/lib/moderation-decision-handlers.js";
+import { handleContentShadowRun } from "../../src/lib/content-shadow-handlers.js";
 import {
   handleCopyrightClaim,
   handleCopyrightClaimCreate,
@@ -198,6 +199,8 @@ export default function handler(req: VercelRequest, res: VercelResponse) {
       return handleContentReviewList(req, res);
     case "content-review-decision":
       return handleContentReviewDecision(req, res);
+    case "content-shadow-run":
+      return handleContentShadowRun(req, res);
     case "activate":
       return handleAdminActivate(req, res);
     case "me":

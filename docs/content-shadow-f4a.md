@@ -134,3 +134,59 @@ save; and an MVCC freshness check racing a committed public-version change durin
 A still-pending proposal with a changed base version is now labelled version_changed, not edit_closed.
 There is still no scheduler or automatic provider evaluation. Physical deadlines require a future
 authorized maintenance caller, and the irreversible account-deletion workflow is not run end to end.
+
+## Local retry contract extension (before F4-B)
+
+`20261123120000_community_shadow_retry_delay.sql` supersedes only the finish RPC. It must be
+applied transactionally after F4-A. The original migration is unchanged. The sole installed signature is:
+
+```sql
+community_shadow_finish(
+  p_job_id uuid, p_claim_token uuid, p_state text,
+  p_results jsonb default '[]', p_error_code text default null,
+  p_retry_delay_seconds integer default null
+) returns text
+```
+
+Adding an input argument creates a different PostgreSQL function identity, even with CREATE OR REPLACE.
+The extension uses DROP FUNCTION RESTRICT for the old five-argument signature, then CREATE, explicit
+owner postgres, SECURITY DEFINER, search_path pg_catalog/public, REVOKE PUBLIC/anon/authenticated/service_role
+and GRANT EXECUTE only to service_role. Unexpected catalog dependencies abort the migration; no CASCADE
+is used. There are no table grants, overloads or alternate unvalidated scheduling entry points.
+Existing positional three/four/five-argument and named calls resolve using defaults. Inspected callers
+are the local F4-A test scripts; tests that assert the old regprocedure identity apply to F4-A alone.
+The retry-specific harness checks the new identity after applying both migrations.
+
+For retry_wait, attempts 1 and 2 have minimum delays of 10 and 20 seconds (the existing exponential
+floor). An omitted/null delay preserves that floor. An explicit integer delay may increase it up to
+3600 seconds, accommodating bounded jitter and Retry-After. The future executor must convert either
+Retry-After header form into ceiling-rounded seconds, then request at least the maximum of that value
+and its exponential-backoff-plus-jitter value. SQL receives only a bounded delay, not a timestamp or
+raw header; it cannot independently verify the provider header. A 120-second delay persists at least
+120 seconds from the finish call and blocks other instances from claiming early.
+
+Zero/negative/below-floor/over-3600 delays raise invalid_retry_delay; a delay supplied for a terminal
+state also raises invalid_retry_delay. A scheduled retry reaching snapshot expiry or retain_until
+raises retry_after_expiry. Neither deadline is extended. Retry-After above 3600 or beyond remaining
+snapshot lifetime cannot be silently clamped down: the future executor must decline that retry and
+record an appropriate terminal technical failure instead. The third attempt still converts retry_wait
+to failed, clears text/token/lease, and does not schedule another attempt; a structurally valid delay
+is ignored in this exhausted case. Non-retry outcomes preserve next_attempt_at without using it.
+
+The existing token, lease, target/version/hash and NOWAIT guards remain unchanged. Delay validation
+occurs before component inserts, and failed calls have no partial writes. No Community or human-audit
+operation is added. The daily persistent request budget remains a separate, unimplemented design task.
+
+Run only the retry checks with PowerShell:
+
+```powershell
+$env:UPMINA_SHADOW_RETRY_TESTS='1'
+node scripts/test-content-shadow-postgres.mjs
+Remove-Item Env:UPMINA_SHADOW_RETRY_TESTS
+```
+
+This reuses the isolated loopback PostgreSQL fixture, includes migration rollback and RESTRICT tests,
+and uses independent psql connections with overlapping transactions to test scheduling visibility.
+After proving the 120-second deadline and early-claim rejection, the due-time compatibility test moves
+only a synthetic job's next_attempt_at using the local fixture owner, avoiding a two-minute sleep.
+No privileged scheduling bypass is exposed to API roles. The temporary database/cluster is removed.

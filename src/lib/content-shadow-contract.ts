@@ -120,6 +120,8 @@ export interface ShadowFinishInput {
   p_state: "completed" | "partial" | "failed" | "retry_wait";
   p_results?: ShadowResultInput[];
   p_error_code?: ShadowErrorCode | null;
+  /** retry_wait only: exponential minimum through 3600s, strictly before snapshot expiry. */
+  p_retry_delay_seconds?: number | null;
 }
 /** busy is non-terminal: the caller may retry within the same lease; it is not a moderation decision. */
 export type ShadowFinishOutcome =
