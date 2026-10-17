@@ -11,6 +11,8 @@ import type {
   ShadowAdministrativeClaim,
 } from "./content-shadow-contract.js";
 import type { PersistentShadowBudget } from "./content-shadow-budget.js";
+import { isSqlShadowBudget } from "./content-shadow-budget.js";
+import { OpenAIModerationTransport } from "./content-shadow-openai.js";
 import {
   SHADOW_CONFIG_REVISION,
   SHADOW_PREPROCESSING_VERSION,
@@ -36,13 +38,13 @@ export interface ShadowMediaReader {
   verify(job: ShadowJob, signal: AbortSignal): Promise<void>;
   read(job: ShadowJob, assetId: string, signal: AbortSignal): Promise<Buffer>;
 }
-/** Replace with a durable cross-instance reservation before ANY real provider is introduced. */
+/** Legacy simulated budget; the real transport requires the SQL authority below. */
 export interface ShadowBudget {
   readonly mode: "simulated";
   reserve(): Promise<boolean>;
 }
 export interface ShadowSummary {
-  mode: "simulated";
+  mode: "simulated" | "openai";
   claimed: number;
   attemptedEvaluations: number;
   finished: number;
@@ -147,7 +149,7 @@ export async function runShadowBatch(
   deps: {
     repository: ShadowRepository;
     media: ShadowMediaReader;
-    transport: FakeModerationTransport;
+    transport: FakeModerationTransport | OpenAIModerationTransport;
     budget?: ShadowBudget | PersistentShadowBudget;
     now?: () => number;
     random?: () => number;
@@ -159,11 +161,17 @@ export async function runShadowBatch(
     !Number.isInteger(limit) ||
     limit < 1 ||
     limit > 2 ||
-    !(deps.transport instanceof FakeModerationTransport)
+    !(
+      deps.transport instanceof FakeModerationTransport ||
+      deps.transport instanceof OpenAIModerationTransport
+    )
   )
     throw new ShadowFault("invalid_input");
   const budget = deps.budget ?? simulatedBudget;
   const persistent = budget.mode === "persistent_dev" ? budget : undefined;
+  const real = deps.transport instanceof OpenAIModerationTransport;
+  if (real && !isSqlShadowBudget(persistent)) throw new ShadowFault("invalid_input");
+  if (deps.transport instanceof OpenAIModerationTransport) deps.transport.assertReady();
   if (budget.mode !== "simulated" && !persistent) throw new ShadowFault("invalid_input");
   if (
     persistent &&
@@ -175,7 +183,7 @@ export async function runShadowBatch(
   const end = now() + 45000,
     componentMs = Math.min(2000, Math.max(1, deps.componentTimeoutMs ?? 2000));
   const summary: ShadowSummary = {
-    mode: "simulated",
+    mode: real ? "openai" : "simulated",
     claimed: 0,
     attemptedEvaluations: 0,
     finished: 0,
@@ -225,6 +233,7 @@ export async function runShadowBatch(
     let stopped = false;
     let reservationId: string | undefined;
     let administrativeStop = false;
+    let rateLimitRetry = false;
     let started = !persistent;
     try {
       alive();
@@ -373,6 +382,16 @@ export async function runShadowBatch(
                   s,
                 ),
               );
+              // Retry only if there is no successful prefix to lose. Partial recovery is not durable.
+              rateLimitRetry = real && !results.some((r) => r.state === "succeeded");
+            } catch {
+              summary.persistenceErrors++;
+            }
+          }
+          if (real && persistent && fault.code === "auth_unavailable") {
+            administrativeStop = true;
+            try {
+              await repositoryCall((s) => persistent.cooldown(3600, s));
             } catch {
               summary.persistenceErrors++;
             }
@@ -406,7 +425,7 @@ export async function runShadowBatch(
           : "failed";
     let delay: number | undefined;
     const transient = faults.filter((f) => f.retryable);
-    if (!administrativeStop && transient.length && job.attempts < 3) {
+    if ((!administrativeStop || rateLimitRetry) && transient.length && job.attempts < 3) {
       delay = Math.max(
         ...transient.map((f) => retryDelay(job.attempts, f.retryAfter, now(), random())),
       );

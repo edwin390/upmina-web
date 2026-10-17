@@ -2,7 +2,10 @@ import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { createClient } from "@supabase/supabase-js";
 import { AdminAuthError, authErrorBody, requireCapability } from "./admin-auth.js";
 import { runShadowBatch, type ShadowSummary } from "./content-shadow-executor.js";
-import { FakeModerationTransport } from "./content-shadow-provider.js";
+import {
+  assertOpenAIEnvironment,
+  selectShadowTransport,
+} from "./content-shadow-openai.js";
 import { shadowMediaReader, shadowRepository } from "./content-shadow-storage.js";
 import { shadowSqlBudget } from "./content-shadow-budget.js";
 
@@ -27,11 +30,12 @@ async function runDefault(limit: number): Promise<ShadowSummary> {
     auth: { persistSession: false, autoRefreshToken: false },
   });
   const persistent = process.env.CONTENT_SHADOW_BUDGET_MODE === "persistent_dev";
+  const transport = selectShadowTransport();
   return runShadowBatch(
     {
       repository: shadowRepository(client, persistent),
       media: shadowMediaReader(client),
-      transport: new FakeModerationTransport(),
+      transport,
       budget: persistent ? shadowSqlBudget(client) : undefined,
     },
     limit,
@@ -47,6 +51,13 @@ export function createShadowRunHandler(run = runDefault) {
     // Check public environment identity BEFORE the shared JWT guard could contact Auth.
     if (run === runDefault && !isDevRuntime())
       return res.status(503).json({ error: "Servicio no disponible" });
+    if (run === runDefault && process.env.CONTENT_SHADOW_PROVIDER === "openai") {
+      try {
+        assertOpenAIEnvironment(process.env);
+      } catch {
+        return res.status(503).json({ error: "Servicio no disponible" });
+      }
+    }
     try {
       await requireCapability(req, "developer_panel");
     } catch (e) {
@@ -83,7 +94,7 @@ export function createShadowRunHandler(run = runDefault) {
       const summary = await run((body as { limit?: number }).limit ?? 1);
       // Closed projection: no job IDs, tokens, scores, assets or provider payloads.
       return res.status(summary.persistenceErrors ? 503 : 200).json({
-        mode: "simulated",
+        mode: summary.mode,
         claimed: summary.claimed,
         attemptedEvaluations: summary.attemptedEvaluations,
         finished: summary.finished,

@@ -24,6 +24,10 @@ export interface PersistentShadowBudget {
   ): Promise<{ status: "allowed" } | BudgetDenied | BudgetRejected>;
   cooldown(seconds: number, signal: AbortSignal): Promise<void>;
 }
+// Identity guard only, never a quota counter: a real transport cannot use the simulated budget.
+const sqlBudgets = new WeakSet<object>();
+export const isSqlShadowBudget = (budget: unknown): budget is PersistentShadowBudget =>
+  !!budget && typeof budget === "object" && sqlBudgets.has(budget);
 const uuid = (x: unknown): x is string =>
   typeof x === "string" &&
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(x);
@@ -72,7 +76,7 @@ export function shadowSqlBudget(client: SupabaseClient): PersistentShadowBudget 
       throw new ShadowFault("internal_failure");
     }
   }
-  return {
+  const budget: PersistentShadowBudget = {
     mode: "persistent_dev",
     async reserve(job, units, signal) {
       const result = decision(
@@ -127,4 +131,6 @@ export function shadowSqlBudget(client: SupabaseClient): PersistentShadowBudget 
         throw new ShadowFault("internal_failure");
     },
   };
+  sqlBudgets.add(budget);
+  return budget;
 }

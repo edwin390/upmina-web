@@ -1,4 +1,4 @@
-// Server-side only. F4-B has no HTTP/OpenAI client and no API-key configuration.
+// Shared server-side contract. Native provider HTTP is isolated in content-shadow-openai.ts.
 import type { ShadowErrorCode, ShadowResultInput } from "./content-shadow-contract.js";
 
 export const SHADOW_MODEL = "omni-moderation-latest";
@@ -18,7 +18,7 @@ export interface ModerationRequest {
   input: [ModerationInput];
 }
 export interface ModerationTransport {
-  readonly mode: "simulated";
+  readonly mode: "simulated" | "openai";
   evaluate(request: ModerationRequest, signal: AbortSignal): Promise<unknown>;
 }
 const categories = [

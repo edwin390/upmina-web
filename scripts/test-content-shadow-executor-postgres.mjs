@@ -31,6 +31,7 @@ export async function runExecutorIntegration({
     "content-shadow-provider",
     "content-shadow-executor",
     "content-shadow-budget",
+    "content-shadow-openai",
   ];
   const sessions = [];
   try {
