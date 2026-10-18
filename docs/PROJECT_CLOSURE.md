@@ -42,3 +42,9 @@ sistema de invitación ADMIN, `SUPABASE_SERVICE_ROLE_KEY`, la activación de IA/
 ## Limitaciones del respaldo
 
 Git no incluye archivos ignorados, secretos, datos de Supabase ni objetos de R2. Ver la lista en `DEPLOYMENT_AND_RECOVERY.md` §1.
+
+## Hashes archivados
+
+- `legal/phase1` y `archive/upmina-web-2026-10-18`: commit previo de documentación `711404b` (código `7f31941`).
+- `archive/main-worktree-wip-2026-10-18`: `e03eb75547e308661ebd43189255e5ce8a8aa0ed`.
+- `main`: `dbb06aa1ae1e380f19fd4114fa60e76c6fb98a36`.
