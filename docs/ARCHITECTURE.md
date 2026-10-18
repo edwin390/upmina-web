@@ -269,3 +269,17 @@ create policy "solo moderadores actualizan status"
 **Decisión:** separarlos en `/youtube-latest` y `/youtube-videos`.
 **Consecuencias:** más flexibilidad (el hero puede refrescarse solo) y
 mejor caché diferencial, a costa de un pequeño overhead.
+
+## Actualización de cierre (2026-10-18)
+
+- Funciones serverless (límite Hobby 12): `api/admin/[action].ts`, `api/content/[resource].ts`, `api/instagram/[resource].ts`,
+  `api/tiktok/[resource].ts`, `api/media/[resource].ts`, `api/instagram-callback.ts`, `api/profile.ts`, `api/twitch-*.ts`,
+  `api/youtube-*.ts`. Lógica compartida en `src/lib/`.
+- Autenticación: Supabase Auth → Bearer JWT verificado en servidor → rol en `admin_roles` → AAL2 para ADMIN/MODERATOR.
+- Medios: Cloudflare R2 (bucket público por entorno) + Worker `workers/media-delivery` (capabilities Ed25519 para Community; Cosplay
+  solo con `COSPLAY_PUBLIC=true`). Fuente común para DEV (`wrangler.jsonc`) y Production (`wrangler.prod.jsonc`).
+- Moderación humana (reportes, strikes, copyright) en Supabase con RPC `SECURITY DEFINER`. Moderación shadow: jobs capturados por
+  triggers (interruptor `community_shadow_capture_control`), ejecutor en `POST /api/admin/content-shadow-run`, proveedor fake u
+  OpenAI protegido; documentada en `content-shadow-*.md` y `OPENAI_SHADOW_REACTIVATION.md`.
+- Modo restringido: `src/lib/mina-features.ts`, `mina-feature-guard.ts`; ver `MINA_RESTRICTED_MODE.md`.
+- Variables de entorno por nombre: ver `DEPLOYMENT_AND_RECOVERY.md` §1.
