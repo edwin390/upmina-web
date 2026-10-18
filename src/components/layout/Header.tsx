@@ -99,11 +99,7 @@ function SessionAction({
   );
 }
 
-interface HeaderProps {
-  onLogoDoubleClick: () => void;
-}
-
-export default function Header({ onLogoDoubleClick }: HeaderProps) {
+export default function Header() {
   const [isScrolled, setIsScrolled] = useState(false);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const t = useTranslations("site.header");
@@ -142,8 +138,6 @@ export default function Header({ onLogoDoubleClick }: HeaderProps) {
         <div className="flex items-center gap-3">
           <Link
             to="/"
-            onDoubleClick={onLogoDoubleClick}
-            title={t("logoTitle")}
             className="font-display text-2xl tracking-wide text-text-primary transition-transform duration-200 ease-bounce hover:scale-105 hover:text-accent-primary"
           >
             UPMINAA

@@ -10,7 +10,6 @@
     "profile": "Profile",
     "login": "Sign in",
     "watchOnTwitch": "Watch on Twitch",
-    "logoTitle": "Double-click for a surprise",
     "openMenu": "Open menu",
     "closeMenu": "Close menu",
     "language": {
@@ -19,7 +18,6 @@
       "en": "English",
       "de": "Deutsch"
     },
-    "surprise": "Discover a surprise",
     "theme": {
       "label": "Appearance",
       "light": "Light",

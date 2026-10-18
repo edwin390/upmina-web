@@ -10,7 +10,6 @@
     "profile": "Profil",
     "login": "Anmelden",
     "watchOnTwitch": "Auf Twitch ansehen",
-    "logoTitle": "Doppelklick für eine Überraschung",
     "openMenu": "Menü öffnen",
     "closeMenu": "Menü schließen",
     "language": {
@@ -19,7 +18,6 @@
       "en": "English",
       "de": "Deutsch"
     },
-    "surprise": "Eine Überraschung entdecken",
     "theme": {
       "label": "Darstellung",
       "light": "Hell",

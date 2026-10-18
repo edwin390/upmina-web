@@ -77,7 +77,7 @@ function renderHeader() {
     <QueryClientProvider client={client}>
       <MemoryRouter>
         <AuthProvider>
-          <Header onLogoDoubleClick={() => {}} />
+          <Header />
           <LocationProbe />
         </AuthProvider>
       </MemoryRouter>
