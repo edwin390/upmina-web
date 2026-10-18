@@ -43,8 +43,13 @@ sistema de invitación ADMIN, `SUPABASE_SERVICE_ROLE_KEY`, la activación de IA/
 
 Git no incluye archivos ignorados, secretos, datos de Supabase ni objetos de R2. Ver la lista en `DEPLOYMENT_AND_RECOVERY.md` §1.
 
-## Hashes archivados
+## Referencias archivadas
 
-- `legal/phase1` y `archive/upmina-web-2026-10-18`: commit previo de documentación `711404b` (código `7f31941`).
-- `archive/main-worktree-wip-2026-10-18`: `e03eb75547e308661ebd43189255e5ce8a8aa0ed`.
+El commit definitivo del cierre se identifica con la etiqueta anotada `archive-2026-10-18` (evita un hash autorreferencial):
+`git rev-parse archive-2026-10-18^{commit}`. La rama `archive/upmina-web-2026-10-18` apunta al mismo commit. Referencias fijas:
+
+- Código previo al cierre documental: `7f31941`.
+- `archive/main-worktree-wip-2026-10-18`: `e03eb75547e308661ebd43189255e5ce8a8aa0ed` (cambios sin commit de `C:/Dev/upmina-web`).
 - `main`: `dbb06aa1ae1e380f19fd4114fa60e76c6fb98a36`.
+- Respaldo remoto previsto: repositorio privado `upmina-web-archive` (remoto `archive-backup`), sin integración con Vercel. Estado:
+  pendiente de crear por el propietario.
