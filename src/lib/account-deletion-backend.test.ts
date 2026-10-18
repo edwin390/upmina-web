@@ -569,7 +569,9 @@ describe("ejecutor: contrato frente a las RPC de DEL-1 (dobles)", () => {
       .map((l) => l.fn)
       .filter(
         (f) =>
-          f !== "account_deletion_step_start" && f !== "account_deletion_step_finish",
+          f !== "account_deletion_step_start" &&
+          f !== "account_deletion_step_finish" &&
+          f !== "account_deletion_notice_capture",
       );
     expect(order).toEqual([
       "account_deletion_revoke_sessions",
@@ -668,7 +670,10 @@ describe("ejecutor: contrato frente a las RPC de DEL-1 (dobles)", () => {
       stagesDone: 0,
       completed: false,
     });
-    expect(a.log.map((l) => l.fn)).toEqual(["account_deletion_step_start"]);
+    expect(a.log.map((l) => l.fn)).toEqual([
+      "account_deletion_notice_capture", // DEL-4: captura idempotente previa; no altera la limpieza
+      "account_deletion_step_start",
+    ]);
     const b = workerFake({
       stage: (fn) =>
         fn === "account_deletion_stage_copyright"

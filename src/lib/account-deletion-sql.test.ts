@@ -2046,6 +2046,474 @@ describe("DEL-1 · eliminación irreversible de cuentas", () => {
         { user_id: PENDING_USER },
       ]);
     });
+
+    describe("DEL-4 · aviso final (SQL real)", () => {
+      const NOTICES = migration("20261127120000_account_deletion_completion_notices.sql");
+      const NOTICES_ROLLBACK = read(
+        "supabase/rollbacks/20261127120000_account_deletion_completion_notices.rollback.sql",
+      );
+      beforeEach(async () => {
+        // Supabase tiene esta columna; el arnés no. Se aplica dentro de la transacción del test (se deshace sola).
+        await db.exec("alter table auth.users add column raw_user_meta_data jsonb;");
+        await db.exec(NOTICES);
+      });
+      const notice = async (id: string) =>
+        (
+          await db.query<Obj>(
+            "select * from account_deletion_completion_notices where request_id=$1",
+            [id],
+          )
+        ).rows[0];
+      const claimNotice = (w = "n1", limit = 3) =>
+        one<Obj[]>("select account_deletion_notice_claim($1,$2) r", [w, limit]);
+      const finishNotice = (
+        id: string,
+        w: string,
+        ok: boolean,
+        code: string | null = null,
+      ) =>
+        one<string>("select account_deletion_notice_finish($1,$2,$3,$4) r", [
+          id,
+          w,
+          ok,
+          code,
+        ]);
+      const captureNotice = (id: string, w: string) =>
+        one<boolean>("select account_deletion_notice_capture($1,$2) r", [id, w]);
+      const backlog = () => one<number>("select account_deletion_backlog() r");
+      /** Solicitud confirmada, reclamada por w1 (capturada) y completada con las seis etapas. */
+      async function completedWithNotice() {
+        await clean();
+        const { requestId } = await confirmed();
+        const claimed = await claimWork("w1");
+        expect(claimed.map((c) => c.requestId)).toContain(requestId);
+        expect(await captureNotice(requestId, "w1")).toBe(true);
+        for (const stage of STAGES) {
+          if (stage === "media_gc")
+            await db.exec("delete from media_assets where status = 'deleting'");
+          await runStage(requestId, "w1", stage);
+          if (stage === "auth_delete")
+            await db.query("delete from auth.users where id=$1", [ACTOR]);
+          await finishStage(requestId, "w1", stage, true);
+        }
+        expect((await reqRow(requestId)).status).toBe("completed");
+        return requestId;
+      }
+      const lateLease = (id: string) =>
+        db.query(
+          "update account_deletion_completion_notices set lease_until = now() - interval '1 second' where request_id=$1",
+          [id],
+        );
+
+      it("sintaxis, RLS forzada, sin privilegios de tabla y funciones SECURITY DEFINER con search_path fijo solo para service_role", async () => {
+        const t = await db.query<Obj>(
+          "select relrowsecurity rls, relforcerowsecurity force_rls from pg_class where oid = 'public.account_deletion_completion_notices'::regclass",
+        );
+        expect(t.rows[0]).toEqual({ rls: true, force_rls: true });
+        for (const role of ["anon", "authenticated", "service_role"])
+          for (const priv of ["select", "insert", "update", "delete"])
+            expect(
+              (
+                await db.query<{ ok: boolean }>(
+                  "select has_table_privilege($1,'public.account_deletion_completion_notices',$2) ok",
+                  [role, priv],
+                )
+              ).rows[0]!.ok,
+            ).toBe(false);
+        expect(
+          (
+            await db.query(
+              "select 1 from pg_policies where tablename = 'account_deletion_completion_notices'",
+            )
+          ).rows,
+        ).toEqual([]);
+        const fns = await db.query<Obj>(
+          `select p.proname, p.prosecdef, p.proconfig::text cfg,
+                  has_function_privilege('anon', p.oid, 'execute') a,
+                  has_function_privilege('authenticated', p.oid, 'execute') u,
+                  has_function_privilege('service_role', p.oid, 'execute') s
+             from pg_proc p where p.pronamespace = 'public'::regnamespace
+              and p.proname in ('account_deletion_notice_capture','account_deletion_notice_claim','account_deletion_notice_finish','account_deletion_notice_purge','account_deletion_backlog')`,
+        );
+        expect(fns.rows).toHaveLength(5);
+        for (const f of fns.rows) {
+          expect(f.prosecdef).toBe(true);
+          expect(String(f.cfg)).toContain("search_path=pg_catalog, public");
+          expect(f.a).toBe(false);
+          expect(f.u).toBe(false);
+        }
+        for (const f of fns.rows.filter((r) => r.proname !== "account_deletion_backlog"))
+          expect(f.s).toBe(true);
+        expect(fns.rows.find((r) => r.proname === "account_deletion_backlog")!.s).toBe(
+          false,
+        );
+      });
+
+      it("restricciones: el correo solo existe en pending/sending; sent exige sent_at; sending exige lease; intentos y locale acotados", async () => {
+        const requestId = await completedWithNotice();
+        const upd = (set: string) => () =>
+          db.exec(
+            `update account_deletion_completion_notices set ${set} where request_id='${requestId}'`,
+          );
+        await fails(upd("recipient = null"), /check/); // pending sin correo
+        await fails(upd("status = 'sent', sent_at = now()"), /check/); // sent con correo
+        await fails(upd("status = 'sending'"), /check/); // sending sin lease
+        await fails(upd("status = 'abandoned'"), /check/); // abandoned con correo
+        await fails(upd("attempts = 6"), /check/);
+        await fails(upd("locale = 'fr'"), /check/);
+        await fails(upd("last_error_code = 'otro'"), /check/);
+        await fails(
+          () =>
+            db.query(
+              "insert into account_deletion_completion_notices(request_id, recipient) values ($1, 'a@b.invalid')",
+              [uid(424242)],
+            ),
+          /foreign key|violates/,
+        );
+      });
+
+      it("captura: solo la solicitud reclamada por ese worker y sin completar; copia correo e idioma; idempotente; sin correo no hay aviso", async () => {
+        await clean();
+        const { requestId } = await confirmed();
+        expect(await captureNotice(requestId, "w1")).toBe(false); // aún sin reclamar
+        await claimWork("w1");
+        expect(await captureNotice(requestId, "otro")).toBe(false); // lease de otro worker
+        await db.query(
+          'update auth.users set raw_user_meta_data = \'{"locale":"de"}\' where id=$1',
+          [ACTOR],
+        );
+        expect(await captureNotice(requestId, "w1")).toBe(true);
+        expect(await notice(requestId)).toMatchObject({
+          recipient: AUTHOR_EMAIL,
+          locale: "de",
+          status: "pending",
+          attempts: 0,
+        });
+        expect(await captureNotice(requestId, "w1")).toBe(false); // idempotente
+        expect(await countOf("account_deletion_completion_notices")).toBe(1);
+      });
+
+      it("captura sin correo o con idioma desconocido", async () => {
+        await clean();
+        const { requestId } = await confirmed();
+        await claimWork("w1");
+        await db.query(
+          'update auth.users set email = null, raw_user_meta_data = \'{"locale":"fr"}\' where id=$1',
+          [ACTOR],
+        );
+        expect(await captureNotice(requestId, "w1")).toBe(false);
+        expect(await notice(requestId)).toBeUndefined();
+        await db.query("update auth.users set email = $1 where id=$2", [
+          AUTHOR_EMAIL,
+          ACTOR,
+        ]);
+        expect(await captureNotice(requestId, "w1")).toBe(true);
+        expect((await notice(requestId))!.locale).toBe("en"); // 'fr' no es un idioma soportado
+      });
+
+      it("NO se envía nada hasta que la solicitud esté completed con completed_at, aunque el aviso esté vencido", async () => {
+        await clean();
+        const { requestId } = await confirmed();
+        await claimWork("w1");
+        expect(await captureNotice(requestId, "w1")).toBe(true);
+        expect(await claimNotice()).toEqual([]); // access_blocked / en curso
+        expect(await claimNotice()).toEqual([]);
+      });
+
+      it("tras completar: el correo sale por la reclamación atómica; un segundo worker no lo ve; lease, reintento y finish con lease perdido", async () => {
+        const requestId = await completedWithNotice();
+        const first = await claimNotice("n1");
+        expect(first).toHaveLength(1);
+        expect(first[0]).toMatchObject({
+          requestId,
+          recipient: AUTHOR_EMAIL,
+          attempt: 1,
+        });
+        expect(await claimNotice("n2")).toEqual([]); // lease vigente
+        expect(await finishNotice(requestId, "n2", true)).toBe("lease_lost");
+        expect((await notice(requestId))!.status).toBe("sending");
+        await lateLease(requestId); // n1 "murió": el lease caduca
+        const second = await claimNotice("n2");
+        expect(second[0]).toMatchObject({ requestId, attempt: 2 });
+        expect(await finishNotice(requestId, "n1", true)).toBe("lease_lost"); // el primero ya no es dueño
+        expect(await finishNotice(requestId, "n2", true)).toBe("sent");
+        const row = (await notice(requestId))!;
+        expect(row).toMatchObject({ status: "sent", recipient: null, lease_owner: null });
+        expect(row.sent_at).not.toBeNull();
+        expect(await claimNotice("n3")).toEqual([]); // nunca un tercer envío
+        expect(await finishNotice(requestId, "n2", true)).toBe("lease_lost"); // ni un segundo registro de éxito
+      });
+
+      it("fallo de correo: reintento con backoff, la solicitud sigue completed, y 5 intentos agotan el aviso borrando la dirección", async () => {
+        const requestId = await completedWithNotice();
+        const delays: number[] = [];
+        for (let attempt = 1; attempt <= 5; attempt += 1) {
+          const got = await claimNotice("n1");
+          expect(got[0]).toMatchObject({ attempt });
+          const out = await finishNotice(requestId, "n1", false, "provider_unavailable");
+          if (attempt < 5) {
+            expect(out).toBe("retry_scheduled");
+            const row = (await notice(requestId))!;
+            expect(row).toMatchObject({ status: "pending", recipient: AUTHOR_EMAIL });
+            delays.push(
+              Math.round(
+                (new Date(String(row.next_attempt_at)).getTime() - Date.now()) / 60000,
+              ),
+            );
+            expect(await claimNotice("n1")).toEqual([]); // aún no vence
+            await db.exec(
+              `update account_deletion_completion_notices set next_attempt_at = now() where request_id='${requestId}'`,
+            );
+          } else expect(out).toBe("abandoned");
+        }
+        expect(delays).toEqual([5, 15, 60, 240]);
+        expect(await notice(requestId)).toMatchObject({
+          status: "abandoned",
+          recipient: null,
+          attempts: 5,
+          last_error_code: "provider_unavailable",
+        });
+        expect((await reqRow(requestId)).status).toBe("completed"); // nada restaurado ni revertido
+        expect((await gate()).blocked).toBe(true);
+        expect(await claimNotice("n1")).toEqual([]);
+      });
+
+      it("rechazo definitivo y falta de credenciales abandonan de inmediato; códigos y argumentos inválidos se rechazan", async () => {
+        const requestId = await completedWithNotice();
+        await claimNotice("n1");
+        expect(await finishNotice(requestId, "n1", false, "rejected")).toBe("abandoned");
+        expect(await notice(requestId)).toMatchObject({
+          status: "abandoned",
+          recipient: null,
+        });
+        await fails(
+          () => finishNotice(requestId, "n1", false, "boom"),
+          /invalid_argument/,
+        );
+        await fails(
+          () => finishNotice(requestId, "n1", true, "rejected"),
+          /invalid_argument/,
+        );
+        await fails(() => finishNotice(requestId, "n1", false, null), /invalid_argument/);
+        await fails(() => claimNotice("n1", 0), /invalid_argument/);
+        await fails(() => claimNotice("n1", 21), /invalid_argument/);
+      });
+
+      it("ventana de idempotencia (23 h) y retención máxima (14 días): la purga borra la dirección y no se reintenta fuera de la ventana", async () => {
+        const requestId = await completedWithNotice();
+        await claimNotice("n1");
+        await finishNotice(requestId, "n1", false, "timeout");
+        await db.exec(
+          `update account_deletion_completion_notices set next_attempt_at = now(), first_attempt_at = now() - interval '24 hours' where request_id='${requestId}'`,
+        );
+        expect(await claimNotice("n1")).toEqual([]); // fuera de la ventana: no se arriesga un duplicado
+        expect(await one<number>("select account_deletion_notice_purge() r")).toBe(1);
+        expect(await notice(requestId)).toMatchObject({
+          status: "abandoned",
+          recipient: null,
+        });
+        expect(await one<number>("select account_deletion_notice_purge() r")).toBe(0);
+        // Retención: un aviso que nunca llega a enviarse caduca a los 14 días aunque la solicitud no haya terminado.
+        await clean();
+        const stuck = (await confirmed(PENDING_USER)).requestId;
+        await claimWork("w9");
+        await db.query(
+          "update auth.users set email = 'otra@example.invalid' where id=$1",
+          [PENDING_USER],
+        );
+        expect(await captureNotice(stuck, "w9")).toBe(true);
+        expect((await notice(stuck))!.purge_by).not.toBeNull();
+        const days = await one<number>(
+          "select extract(day from purge_by - created_at)::int r from account_deletion_completion_notices where request_id=$1",
+          [stuck],
+        );
+        expect(days).toBe(14);
+        await db.query(
+          "update account_deletion_completion_notices set purge_by = now() - interval '1 second' where request_id=$1",
+          [stuck],
+        );
+        expect(await one<number>("select account_deletion_notice_purge() r")).toBe(1);
+        expect(await notice(stuck)).toMatchObject({
+          status: "abandoned",
+          recipient: null,
+        });
+      });
+
+      it("account_deletion_backlog(): conserva la lógica de limpieza y suma solo avisos vencidos", async () => {
+        const OLD = `select count(*)::integer r from public.account_deletion_requests r
+           where r.status = 'access_blocked'
+              or (r.status = 'cleanup_retry_pending' and r.next_retry_at <= pg_catalog.clock_timestamp())
+              or (r.status = 'cleanup_in_progress' and r.lease_until <= pg_catalog.clock_timestamp())`;
+        expect(await backlog()).toBe(0);
+        await clean();
+        const { requestId } = await confirmed();
+        expect(await backlog()).toBe(1); // access_blocked
+        expect(await backlog()).toBe(await one<number>(OLD));
+        await claimWork("w1");
+        expect(await backlog()).toBe(0); // en curso con lease vigente
+        expect(await backlog()).toBe(await one<number>(OLD));
+        await captureNotice(requestId, "w1");
+        expect(await backlog()).toBe(0); // un aviso pendiente de una solicitud NO completada no despierta nada
+        for (const stage of STAGES) {
+          if (stage === "media_gc")
+            await db.exec("delete from media_assets where status = 'deleting'");
+          await runStage(requestId, "w1", stage);
+          if (stage === "auth_delete")
+            await db.query("delete from auth.users where id=$1", [ACTOR]);
+          await finishStage(requestId, "w1", stage, true);
+        }
+        expect(await one<number>(OLD)).toBe(0);
+        expect(await backlog()).toBe(1); // completed + aviso vencido
+        await claimNotice("n1");
+        expect(await backlog()).toBe(0); // enviándose con lease vigente
+        await lateLease(requestId);
+        expect(await backlog()).toBe(1); // lease caducado: hay que reclamarlo otra vez
+        await claimNotice("n1");
+        await finishNotice(requestId, "n1", true);
+        expect(await backlog()).toBe(0);
+        // Tick de DEL-2: sigue sin ejecutar nada cuando no hay trabajo (sin vault configurado devuelve idle).
+        expect(await one<Obj>("select account_deletion_tick() r")).toMatchObject({
+          status: "idle",
+        });
+      });
+
+      it("solicitudes históricas: una completada sin fila de aviso y una en curso sin correo no bloquean ni fallan", async () => {
+        await clean();
+        const { requestId } = await confirmed();
+        await runAll(requestId, "w1"); // completa SIN captura (como las anteriores a la migración)
+        expect((await reqRow(requestId)).status).toBe("completed");
+        expect(await notice(requestId)).toBeUndefined();
+        expect(await claimNotice()).toEqual([]);
+        expect(await backlog()).toBe(0);
+        expect(await one<number>("select account_deletion_notice_purge() r")).toBe(0);
+      });
+
+      it("ejecutor real extremo a extremo: captura antes de borrar la identidad, no envía hasta completar, envía una sola vez y borra la dirección", async () => {
+        await clean();
+        const { requestId } = await confirmed();
+        const sent: Array<{ to: string; idempotencyKey: string; subject: string }> = [];
+        const sender = {
+          send: async (m: { to: string; idempotencyKey: string; subject: string }) => {
+            sent.push(m);
+            return { ok: true };
+          },
+        };
+        const failing = authFake({ ban: [{ outcome: "error" }] });
+        const { authAdmin } = authFake();
+        const deps = (id: string): WorkerDeps => ({
+          ...worker(id === "w1" ? failing.authAdmin : authAdmin, id),
+          notices: { sender },
+        });
+        // Lote 1: el bloqueo de Auth falla ⇒ NO completada ⇒ aviso capturado pero sin enviar.
+        expect(await runAccountDeletionBatch(deps("w1"))).toMatchObject({ failed: 1 });
+        expect(await notice(requestId)).toMatchObject({
+          status: "pending",
+          recipient: AUTHOR_EMAIL,
+        });
+        expect(sent).toEqual([]);
+        // Lote 2: se completa, se borra la identidad y, al final del MISMO lote, sale el aviso.
+        await due(requestId);
+        expect(await runAccountDeletionBatch(deps("w2"))).toMatchObject({ completed: 1 });
+        expect(sent).toHaveLength(1);
+        expect(sent[0]).toMatchObject({
+          to: AUTHOR_EMAIL,
+          idempotencyKey: `account-deletion-completed-${requestId}`,
+        });
+        expect(await countOf("auth.users where id = '" + ACTOR + "'")).toBe(0);
+        expect(await notice(requestId)).toMatchObject({
+          status: "sent",
+          recipient: null,
+        });
+        // Lote 3: nada que reenviar.
+        await runAccountDeletionBatch(deps("w3"));
+        expect(sent).toHaveLength(1);
+      });
+
+      it("ejecutor real: el correo falla, la solicitud sigue completed y el reintento posterior lo envía una vez", async () => {
+        await clean();
+        const { requestId } = await confirmed();
+        await gc();
+        let fail = true;
+        const sent: string[] = [];
+        const sender = {
+          send: async (m: { idempotencyKey: string }) => {
+            sent.push(m.idempotencyKey);
+            return fail
+              ? { ok: false, errorClass: "provider_unavailable" as const }
+              : { ok: true };
+          },
+        };
+        const { authAdmin } = authFake();
+        const deps = (id: string): WorkerDeps => ({
+          ...worker(authAdmin, id),
+          notices: { sender },
+        });
+        expect(await runAccountDeletionBatch(deps("w1"))).toMatchObject({ completed: 1 });
+        expect(sent).toHaveLength(1);
+        expect(await notice(requestId)).toMatchObject({
+          status: "pending",
+          attempts: 1,
+          last_error_code: "provider_unavailable",
+        });
+        expect((await reqRow(requestId)).status).toBe("completed");
+        expect(await backlog()).toBe(0); // todavía no vence
+        await db.exec(
+          `update account_deletion_completion_notices set next_attempt_at = now() where request_id='${requestId}'`,
+        );
+        expect(await backlog()).toBe(1); // el despertador lo ve
+        fail = false;
+        await runAccountDeletionBatch(deps("w2"));
+        expect(sent).toHaveLength(2);
+        expect(new Set(sent).size).toBe(1); // MISMA clave de idempotencia en el reintento
+        expect(await notice(requestId)).toMatchObject({
+          status: "sent",
+          recipient: null,
+        });
+      });
+
+      it("sin credenciales de correo: el aviso se abandona como not_configured, la dirección se borra y la eliminación termina igual", async () => {
+        await clean();
+        const { requestId } = await confirmed();
+        await gc();
+        const { authAdmin } = authFake();
+        expect(await runAccountDeletionBatch(worker(authAdmin, "w1"))).toMatchObject({
+          completed: 1,
+        });
+        expect(await notice(requestId)).toMatchObject({
+          status: "abandoned",
+          recipient: null,
+          last_error_code: "not_configured",
+        });
+      });
+
+      it("rollback: elimina tabla y funciones de avisos y restaura account_deletion_backlog() original", async () => {
+        await db.exec(NOTICES_ROLLBACK);
+        expect(
+          (
+            await db.query(
+              "select to_regclass('public.account_deletion_completion_notices') t",
+            )
+          ).rows[0],
+        ).toEqual({ t: null });
+        expect(
+          (
+            await db.query(
+              "select proname from pg_proc where proname like 'account_deletion_notice_%'",
+            )
+          ).rows,
+        ).toEqual([]);
+        const src = (
+          await db.query<{ s: string }>(
+            "select prosrc s from pg_proc where proname = 'account_deletion_backlog'",
+          )
+        ).rows[0]!.s;
+        expect(src).not.toContain("completion_notices");
+        await clean();
+        await confirmed();
+        expect(await backlog()).toBe(1);
+        expect(await countOf("account_deletion_requests")).toBeGreaterThan(0); // la eliminación no se toca
+      });
+    });
   });
 
   describe("permisos, retención y rollback", () => {

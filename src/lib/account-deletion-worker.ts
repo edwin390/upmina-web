@@ -1,5 +1,10 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { createHmac, timingSafeEqual } from "node:crypto";
+import {
+  buildAccountDeletionCompletedEmail,
+  type DeletionNoticeLocale,
+} from "./account-deletion-completed-mail.js";
+import { readMailConfig, type MailSender } from "./mfa-recovery-mail.js";
 
 // DEL-2: ejecutor de la limpieza de cuentas. NO es una segunda máquina de estados: solo recorre las etapas persistidas por DEL-1
 // (account_deletion_claim / step_start / step_finish / release) y ejecuta el trabajo de cada una. Todo el estado (lease, intentos,
@@ -84,6 +89,8 @@ export interface WorkerDeps {
   db: DeletionDb;
   authAdmin: AuthAdmin;
   workerId: string;
+  /** Aviso final (DEL-4). Sin remitente configurado no se envía nada y los avisos caducan sin enviarse (la limpieza no se ve afectada). */
+  notices?: { sender: MailSender };
   /** Reloj inyectable (solo para presupuestos de tiempo; los plazos los decide siempre la BD). */
   now?: () => number;
 }
@@ -99,6 +106,10 @@ export function defaultWorkerDeps(env: NodeJS.ProcessEnv = process.env): WorkerD
     db: client as unknown as DeletionDb,
     authAdmin: createAuthAdmin(client),
     workerId: `w-${Math.random().toString(36).slice(2, 10)}`,
+    notices: (() => {
+      const mail = readMailConfig(env);
+      return mail ? { sender: mail.sender } : undefined;
+    })(),
   };
 }
 
@@ -212,6 +223,7 @@ export async function runDeletionJob(
     failedStage: null,
     released: false,
   };
+  await captureCompletionNotice(deps, job.requestId);
   for (const stage of DELETION_STAGES) {
     if (deadlineMs !== undefined && now() >= deadlineMs) {
       // Sin tiempo: se devuelve a la cola SIN contar fallo (la barrera sigue activa).
@@ -261,6 +273,96 @@ export async function runDeletionJob(
   return summary;
 }
 
+/** DEL-4: copia el destinatario ANTES de que auth_delete borre la identidad. Es idempotente y NUNCA bloquea ni altera la limpieza. */
+async function captureCompletionNotice(
+  deps: WorkerDeps,
+  requestId: string,
+): Promise<void> {
+  try {
+    await deps.db.rpc("account_deletion_notice_capture", {
+      p_request_id: requestId,
+      p_worker: deps.workerId,
+    });
+  } catch {
+    /* un fallo aquí solo significa que no habrá aviso final */
+  }
+}
+
+const NOTICE_ERROR_CODES = [
+  "not_configured",
+  "rejected",
+  "rate_limited",
+  "provider_unavailable",
+  "timeout",
+  "invalid_response",
+] as const;
+
+/**
+ * DEL-4: envía los avisos finales de solicitudes COMPLETED (la BD lo exige al reclamar). Nunca lanza: un fallo de correo no afecta a la
+ * eliminación ya terminada. El Idempotency-Key del proveedor es el id de la solicitud.
+ */
+export async function runCompletionNotices(
+  deps: WorkerDeps,
+  limit = 3,
+): Promise<{ sent: number; failed: number }> {
+  const result = { sent: 0, failed: 0 };
+  try {
+    await deps.db.rpc("account_deletion_notice_purge");
+    const claimed = await deps.db.rpc("account_deletion_notice_claim", {
+      p_worker: deps.workerId,
+      p_limit: limit,
+    });
+    if (claimed.error || !Array.isArray(claimed.data)) return result;
+    for (const raw of claimed.data as Array<{
+      requestId?: unknown;
+      recipient?: unknown;
+      locale?: unknown;
+    }>) {
+      if (typeof raw.requestId !== "string" || typeof raw.recipient !== "string")
+        continue;
+      const locale = (
+        raw.locale === "es" || raw.locale === "de" ? raw.locale : "en"
+      ) as DeletionNoticeLocale;
+      let ok = false;
+      let code: string = "unexpected";
+      if (!deps.notices) {
+        code = "not_configured";
+      } else {
+        try {
+          const { subject, text, html } = buildAccountDeletionCompletedEmail(locale);
+          const sent = await deps.notices.sender.send({
+            to: raw.recipient,
+            subject,
+            text,
+            html,
+            idempotencyKey: `account-deletion-completed-${raw.requestId}`,
+          });
+          ok = sent.ok;
+          if (!ok)
+            code = (NOTICE_ERROR_CODES as readonly string[]).includes(
+              sent.errorClass ?? "",
+            )
+              ? (sent.errorClass as string)
+              : "unexpected";
+        } catch {
+          ok = false;
+        }
+      }
+      await deps.db.rpc("account_deletion_notice_finish", {
+        p_request_id: raw.requestId,
+        p_worker: deps.workerId,
+        p_ok: ok,
+        p_error_code: ok ? null : code,
+      });
+      if (ok) result.sent += 1;
+      else result.failed += 1;
+    }
+  } catch {
+    /* el aviso es accesorio */
+  }
+  return result;
+}
+
 export interface BatchSummary {
   claimed: number;
   completed: number;
@@ -281,7 +383,20 @@ export async function runAccountDeletionBatch(
   });
   const summary: BatchSummary = { claimed: 0, completed: 0, failed: 0, released: 0 };
   if (claimed.error || !Array.isArray(claimed.data)) return summary;
-  for (const raw of claimed.data as Array<{ requestId?: unknown; userId?: unknown }>) {
+  try {
+    return await processClaimed(deps, claimed.data, deadline, summary);
+  } finally {
+    await runCompletionNotices(deps);
+  }
+}
+
+async function processClaimed(
+  deps: WorkerDeps,
+  data: unknown[],
+  deadline: number,
+  summary: BatchSummary,
+): Promise<BatchSummary> {
+  for (const raw of data as Array<{ requestId?: unknown; userId?: unknown }>) {
     if (typeof raw.requestId !== "string" || typeof raw.userId !== "string") continue;
     summary.claimed += 1;
     const job = await runDeletionJob(
