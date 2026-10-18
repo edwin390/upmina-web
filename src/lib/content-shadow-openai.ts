@@ -17,7 +17,7 @@ type Environment = Readonly<Record<string, string | undefined>>;
 type Options = { environment?: () => Environment; http?: typeof fetch };
 export function assertOpenAIEnvironment(env: Environment): void {
   if (
-    typeof window !== "undefined" ||
+    "window" in globalThis || // Runtime Node/Vercel: nunca en navegador (sin depender de los tipos DOM).
     env.CONTENT_SHADOW_PROVIDER !== "openai" ||
     env.CONTENT_SHADOW_RUN_ENABLED !== "true" ||
     env.CONTENT_SHADOW_BUDGET_MODE !== "persistent_dev" ||
@@ -203,7 +203,6 @@ export class OpenAIModerationTransport implements ModerationTransport {
             method: "POST",
             redirect: "manual",
             credentials: "omit",
-            cache: "no-store",
             referrerPolicy: "no-referrer",
             headers: {
               "Content-Type": "application/json",

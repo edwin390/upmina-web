@@ -237,7 +237,6 @@ describe("bounded HTTP transport (no native network)", () => {
         method: "POST",
         redirect: "manual",
         credentials: "omit",
-        cache: "no-store",
       });
       expect(JSON.parse(init!.body as string)).toEqual(text);
       expect(init!.headers).toMatchObject({ Authorization: `Bearer ${secret}` });
