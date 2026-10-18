@@ -2513,6 +2513,283 @@ describe("DEL-1 · eliminación irreversible de cuentas", () => {
         expect(await backlog()).toBe(1);
         expect(await countOf("account_deletion_requests")).toBeGreaterThan(0); // la eliminación no se toca
       });
+
+      describe("DEL-4b · recuperación manual desde Developer (SQL real)", () => {
+        const RECOVERY = migration(
+          "20261128120000_account_deletion_developer_recovery.sql",
+        );
+        const RECOVERY_ROLLBACK = read(
+          "supabase/rollbacks/20261128120000_account_deletion_developer_recovery.rollback.sql",
+        );
+        beforeEach(async () => {
+          await db.exec(RECOVERY);
+        });
+        const retry = (actor: string, id: string) =>
+          one<Obj>("select account_deletion_developer_retry($1,$2) r", [actor, id]);
+        const noticeRetry = (actor: string, id: string) =>
+          one<Obj>("select account_deletion_notice_developer_retry($1,$2) r", [
+            actor,
+            id,
+          ]);
+        const noticeAlerts = (actor = DEL_DEV) =>
+          one<Obj[]>("select account_deletion_notice_alerts($1) r", [actor]);
+        /** created_at/access_blocked_at son identidad: solo se tocan con el trigger desactivado, dentro del test. */
+        async function backdate(id: string, set: string) {
+          await db.exec(
+            "alter table account_deletion_requests disable trigger account_deletion_requests_transitions",
+          );
+          await db.query(`update account_deletion_requests set ${set} where id=$1`, [id]);
+          await db.exec(
+            "alter table account_deletion_requests enable trigger account_deletion_requests_transitions",
+          );
+        }
+        const retryEvents = async (id: string) =>
+          (
+            await db.query<Obj>(
+              "select metadata, actor_kind from account_deletion_events where request_id=$1 and kind='developer_retry' order by created_at, id",
+              [id],
+            )
+          ).rows;
+        const noticeSender = (log: string[], ok = true) => ({
+          send: async (m: { idempotencyKey: string }) => {
+            log.push(m.idempotencyKey);
+            return ok ? { ok: true } : { ok: false, errorClass: "timeout" as const };
+          },
+        });
+
+        it("solo el rol developer puede usar las tres funciones (moderador, administrador y usuario sin rol son rechazados)", async () => {
+          const { requestId } = await confirmed();
+          await backdate(requestId, "access_blocked_at = now() - interval '1 hour'");
+          for (const actor of [MOD, DEL_ADMIN, PENDING_USER, uid(777)]) {
+            await fails(() => retry(actor, requestId), /actor_not_developer/);
+            await fails(() => noticeRetry(actor, requestId), /actor_not_developer/);
+            await fails(() => noticeAlerts(actor), /actor_not_developer/);
+          }
+          expect((await reqRow(requestId)).manual_retry_count).toBe(0);
+          expect(await retryEvents(requestId)).toEqual([]);
+        });
+
+        it("access_blocked: una recién bloqueada no es 'estancada'; pasados 15 min se reanuda SIN cambiar el estado, con auditoría, y el ejecutor la completa", async () => {
+          await clean();
+          const { requestId } = await confirmed();
+          await fails(() => retry(DEL_DEV, requestId), /not_stalled/);
+          await backdate(requestId, "access_blocked_at = now() - interval '16 minutes'");
+          const out = await retry(DEL_DEV, requestId);
+          expect(out).toMatchObject({ requestId, status: "access_blocked" });
+          expect(await reqRow(requestId)).toMatchObject({
+            status: "access_blocked",
+            manual_retry_count: 1,
+          });
+          expect((await gate()).blocked).toBe(true); // jamás restaura el acceso
+          expect(await retryEvents(requestId)).toEqual([
+            {
+              actor_kind: "human",
+              metadata: { stalled: true, fromStatus: "access_blocked" },
+            },
+          ]);
+          const { authAdmin, calls } = authFake();
+          expect(await runAccountDeletionBatch(worker(authAdmin, "w1"))).toMatchObject({
+            claimed: 1,
+            completed: 1,
+          });
+          expect(calls).toEqual(["ban", "delete"]);
+        });
+
+        it("cleanup_in_progress: con lease vigente NO se puede (ejecución en curso); con lease caducado se reanuda y no repite etapas hechas", async () => {
+          await clean();
+          const { requestId } = await confirmed();
+          await claimWork("w1");
+          await startStage(requestId, "w1", "auth_block");
+          await runStage(requestId, "w1", "auth_block");
+          await finishStage(requestId, "w1", "auth_block", true);
+          await startStage(requestId, "w1", "copyright_claims"); // quedó "running" con el worker caído
+          await fails(() => retry(DEL_DEV, requestId), /lease_active/);
+          expect((await reqRow(requestId)).manual_retry_count).toBe(0);
+          await db.query(
+            "update account_deletion_requests set lease_until = now() - interval '1 second' where id=$1",
+            [requestId],
+          );
+          expect(await retry(DEL_DEV, requestId)).toMatchObject({
+            status: "cleanup_in_progress",
+          });
+          expect((await reqRow(requestId)).manual_retry_count).toBe(1);
+          // Un segundo ejecutor la reclama: mientras tiene el lease, otro reintento es 'lease_active' (sin ejecuciones simultáneas).
+          await claimWork("w2");
+          await fails(() => retry(DEL_DEV, requestId), /lease_active/);
+          await db.query(
+            "update account_deletion_requests set lease_until = now() - interval '1 second' where id=$1",
+            [requestId],
+          );
+          const { authAdmin, calls } = authFake();
+          expect(await runAccountDeletionBatch(worker(authAdmin, "w3"))).toMatchObject({
+            completed: 1,
+          });
+          expect(calls).toEqual(["delete"]); // auth_block ya estaba hecha: no se repite el bloqueo
+          expect((await reqRow(requestId)).status).toBe("completed");
+        });
+
+        it("el comportamiento anterior se conserva: fallida reprograma; completada, inexistente y sin confirmar se rechazan", async () => {
+          await clean();
+          const { requestId } = await confirmed();
+          await claimWork("w1");
+          await startStage(requestId, "w1", "auth_block");
+          await finishStage(requestId, "w1", "auth_block", false, "timeout");
+          expect((await reqRow(requestId)).status).toBe("cleanup_retry_pending");
+          expect(await retry(DEL_DEV, requestId)).toMatchObject({
+            status: "cleanup_retry_pending",
+          });
+          expect(await reqRow(requestId)).toMatchObject({
+            status: "cleanup_retry_pending",
+            manual_retry_count: 1,
+            consecutive_failures: 0,
+          });
+          expect(await retryEvents(requestId)).toEqual([
+            { actor_kind: "human", metadata: {} },
+          ]);
+          // La reprogramada la completa el ejecutor; una completada ya no admite reintento.
+          const { authAdmin } = authFake();
+          expect(await runAccountDeletionBatch(worker(authAdmin, "w2"))).toMatchObject({
+            completed: 1,
+          });
+          await fails(() => retry(DEL_DEV, requestId), /already_completed/);
+          await fails(() => retry(DEL_DEV, uid(888)), /request_not_found/);
+          await fails(
+            () => retry(DEL_DEV, null as unknown as string),
+            /invalid_argument/,
+          );
+        });
+
+        it("aviso elegible: aparece en las alertas SIN correo ni identidad, el reintento lo adelanta, deja auditoría y el ejecutor real lo envía una sola vez", async () => {
+          const requestId = await completedWithNotice();
+          expect(await noticeAlerts()).toEqual([]); // sin error y sin vencer: no requiere intervención
+          await claimNotice("n1");
+          await finishNotice(requestId, "n1", false, "timeout");
+          const alerts = await noticeAlerts();
+          expect(alerts).toHaveLength(1);
+          expect(alerts[0]).toMatchObject({
+            requestId,
+            status: "pending",
+            attempts: 1,
+            errorCode: "timeout",
+            retryable: true,
+            blockedReason: null,
+          });
+          expect(JSON.stringify(alerts)).not.toContain(AUTHOR_EMAIL);
+          expect(Object.keys(alerts[0]!)).not.toContain("recipient");
+          expect(Object.keys(alerts[0]!)).not.toContain("userId");
+          expect(await claimNotice("n2")).toEqual([]); // aún no vence (backoff de 5 min)
+          expect(await noticeRetry(DEL_DEV, requestId)).toMatchObject({ requestId });
+          expect(await retryEvents(requestId)).toEqual([
+            { actor_kind: "human", metadata: { target: "completion_notice" } },
+          ]);
+          expect(await backlog()).toBe(1); // el despertador lo ve
+          const log: string[] = [];
+          const { authAdmin } = authFake();
+          await runAccountDeletionBatch({
+            ...worker(authAdmin, "w9"),
+            notices: { sender: noticeSender(log) },
+          });
+          expect(log).toEqual([`account-deletion-completed-${requestId}`]);
+          expect(await notice(requestId)).toMatchObject({
+            status: "sent",
+            recipient: null,
+            attempts: 2,
+          });
+          // Un envío ya hecho no se puede reabrir ni duplicar.
+          await fails(() => noticeRetry(DEL_DEV, requestId), /already_sent/);
+          await runAccountDeletionBatch({
+            ...worker(authAdmin, "w10"),
+            notices: { sender: noticeSender(log) },
+          });
+          expect(log).toHaveLength(1);
+          expect(await noticeAlerts()).toEqual([]);
+        });
+
+        it("avisos no elegibles: abandonado (correo ya borrado), lease activo, fuera de ventana, solicitud sin completar y sin aviso", async () => {
+          const requestId = await completedWithNotice();
+          // lease activo
+          await claimNotice("n1");
+          await fails(() => noticeRetry(DEL_DEV, requestId), /lease_active/);
+          // fuera de la ventana de idempotencia (23 h): el reintento y el reclamo lo rechazan
+          await finishNotice(requestId, "n1", false, "timeout");
+          await db.exec(
+            `update account_deletion_completion_notices set first_attempt_at = now() - interval '24 hours' where request_id='${requestId}'`,
+          );
+          await fails(() => noticeRetry(DEL_DEV, requestId), /window_expired/);
+          expect((await noticeAlerts())[0]).toMatchObject({
+            retryable: false,
+            blockedReason: "window_expired",
+          });
+          // abandonado: nunca se reactiva
+          await one<number>("select account_deletion_notice_purge() r");
+          expect(await notice(requestId)).toMatchObject({
+            status: "abandoned",
+            recipient: null,
+          });
+          await fails(() => noticeRetry(DEL_DEV, requestId), /notice_abandoned/);
+          expect((await noticeAlerts())[0]).toMatchObject({
+            status: "abandoned",
+            retryable: false,
+            blockedReason: "abandoned",
+          });
+          expect(await claimNotice("n3")).toEqual([]);
+          expect(await retryEvents(requestId)).toEqual([]); // los rechazos no dejan rastro de reintento
+          // solicitud sin completar (la fila existe pero la eliminación no terminó)
+          await clean();
+          const open = (await confirmed(PENDING_USER)).requestId;
+          await claimWork("w7");
+          await db.query(
+            "update auth.users set email = 'otra@example.invalid' where id=$1",
+            [PENDING_USER],
+          );
+          await captureNotice(open, "w7");
+          await fails(() => noticeRetry(DEL_DEV, open), /request_not_completed/);
+        });
+
+        it("histórica: una eliminación completada sin fila de aviso no tiene aviso que reintentar ni lo necesita", async () => {
+          await clean();
+          const { requestId } = await confirmed();
+          await runAll(requestId, "w1"); // completa SIN captura, como las anteriores a DEL-4
+          expect((await reqRow(requestId)).status).toBe("completed");
+          await fails(() => noticeRetry(DEL_DEV, requestId), /notice_not_found/);
+          expect(await noticeAlerts()).toEqual([]);
+        });
+
+        it("rollback: restaura developer_retry original (la estancada vuelve a rechazarse) y elimina las dos funciones nuevas", async () => {
+          await clean();
+          const { requestId } = await confirmed();
+          await backdate(requestId, "access_blocked_at = now() - interval '1 hour'");
+          await db.exec(RECOVERY_ROLLBACK);
+          await fails(() => retry(DEL_DEV, requestId), /retry_not_applicable/);
+          expect(
+            (
+              await db.query(
+                "select proname from pg_proc where proname in ('account_deletion_notice_alerts','account_deletion_notice_developer_retry')",
+              )
+            ).rows,
+          ).toEqual([]);
+          // los privilegios de la función restaurada siguen cerrados
+          const p = await db.query<{ a: boolean; s: boolean }>(
+            "select has_function_privilege('authenticated','public.account_deletion_developer_retry(uuid,uuid)','execute') a, has_function_privilege('service_role','public.account_deletion_developer_retry(uuid,uuid)','execute') s",
+          );
+          expect(p.rows[0]).toEqual({ a: false, s: true });
+        });
+
+        it("privilegios de las funciones nuevas: solo service_role, SECURITY DEFINER y search_path fijo", async () => {
+          const fns = await db.query<Obj>(
+            `select proname, prosecdef, proconfig::text cfg,
+                    has_function_privilege('anon', oid, 'execute') a,
+                    has_function_privilege('authenticated', oid, 'execute') u,
+                    has_function_privilege('service_role', oid, 'execute') s
+               from pg_proc where proname in ('account_deletion_notice_alerts','account_deletion_notice_developer_retry','account_deletion_developer_retry')`,
+          );
+          expect(fns.rows).toHaveLength(3);
+          for (const f of fns.rows) {
+            expect(f).toMatchObject({ prosecdef: true, a: false, u: false, s: true });
+            expect(String(f.cfg)).toContain("search_path=pg_catalog, public");
+          }
+        });
+      });
     });
   });
 

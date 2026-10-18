@@ -7,7 +7,9 @@ import {
   canRetry,
   fetchDeletionAlerts,
   retryAccountDeletion,
+  retryDeletionNotice,
   type DeletionAlert,
+  type DeletionNoticeAlert,
 } from "@/lib/account-deletion-client";
 
 // Eliminaciones de cuenta pendientes (DEL-3) para Developer. Presenta lo que devuelve GET /api/admin/account-deletion-alerts y permite
@@ -42,7 +44,22 @@ const ERROR_KEYS = [
 ] as const;
 type StageKey = (typeof STAGE_KEYS)[number];
 type ErrorKey = (typeof ERROR_KEYS)[number];
-type NoticeKey = "requested" | "forbidden" | "notApplicable" | "notFound" | "failed";
+type NoticeKey =
+  "requested" | "noticeRequested" | "forbidden" | "notApplicable" | "notFound" | "failed";
+const NOTICE_ERROR_KEYS = [
+  "not_configured",
+  "rejected",
+  "rate_limited",
+  "provider_unavailable",
+  "timeout",
+  "invalid_response",
+  "unexpected",
+] as const;
+type NoticeErrorKey = (typeof NOTICE_ERROR_KEYS)[number];
+const asNoticeError = (v: string | null): NoticeErrorKey | null =>
+  (NOTICE_ERROR_KEYS as readonly string[]).includes(v ?? "")
+    ? (v as NoticeErrorKey)
+    : null;
 const asStage = (v: string | null): StageKey | null =>
   (STAGE_KEYS as readonly string[]).includes(v ?? "") ? (v as StageKey) : null;
 const asError = (v: string | null): ErrorKey | null =>
@@ -54,6 +71,7 @@ function DeletionAlerts() {
   const headingId = useId();
   const reportFailure = usePrivilegedFailureReporter();
   const [items, setItems] = useState<DeletionAlert[] | null>(null);
+  const [notices, setNotices] = useState<DeletionNoticeAlert[]>([]);
   const [error, setError] = useState(false);
   const [loading, setLoading] = useState(false);
   const [confirming, setConfirming] = useState<string | null>(null);
@@ -80,6 +98,7 @@ function DeletionAlerts() {
     if (outcome.kind === "ok") {
       setError(false);
       setItems(outcome.alerts);
+      setNotices(outcome.notices ?? []);
       return;
     }
     if (outcome.kind === "failure") reportFailure(outcome.response);
@@ -101,18 +120,21 @@ function DeletionAlerts() {
         }).format(parsed);
   };
 
-  async function retry(requestId: string) {
+  async function retry(requestId: string, target: "cleanup" | "notice" = "cleanup") {
     if (sendingRef.current) return;
     sendingRef.current = true;
     setSending(requestId);
     setNotice(null);
-    const outcome = await retryAccountDeletion(requestId);
+    const outcome =
+      target === "notice"
+        ? await retryDeletionNotice(requestId)
+        : await retryAccountDeletion(requestId);
     sendingRef.current = false;
     if (!mounted.current) return;
     setSending(null);
     setConfirming(null);
     if (outcome.kind === "requested") {
-      setNotice({ ok: true, key: "requested" });
+      setNotice({ ok: true, key: target === "notice" ? "noticeRequested" : "requested" });
       void load();
       return;
     }
@@ -152,7 +174,9 @@ function DeletionAlerts() {
           role={notice.ok ? "status" : "alert"}
           className={`mt-3 text-sm ${notice.ok ? "text-text-secondary" : "text-accent-live"}`}
         >
-          {t(`retry.${notice.key}`)}
+          {notice.key === "noticeRequested"
+            ? t("notices.retry.requested")
+            : t(`retry.${notice.key}`)}
         </p>
       ) : null}
       {loading && items === null ? (
@@ -283,6 +307,109 @@ function DeletionAlerts() {
             );
           })}
         </ul>
+      ) : null}
+      {notices.length > 0 ? (
+        <div className="mt-8">
+          <h3 className="font-display text-lg text-text-primary">{t("notices.title")}</h3>
+          <p className="mt-2 text-sm text-text-secondary">{t("notices.intro")}</p>
+          <ul className="mt-4 space-y-3">
+            {notices.map((n, index) => {
+              const errorKey = asNoticeError(n.errorCode);
+              const key = `n:${n.requestId}`;
+              return (
+                <li
+                  key={n.requestId}
+                  className="rounded-md border border-border-subtle p-4"
+                >
+                  <p className="font-semibold text-text-primary">
+                    {t("notices.item")} #{index + 1}
+                  </p>
+                  <dl className="mt-2 space-y-1 text-sm text-text-secondary">
+                    <div>
+                      <dt className="inline text-text-muted">{t("notices.status")}: </dt>
+                      <dd className="inline">{t(`notices.statuses.${n.status}`)}</dd>
+                    </div>
+                    <div>
+                      <dt className="inline text-text-muted">
+                        {t("notices.attempts")}:{" "}
+                      </dt>
+                      <dd className="inline">{n.attempts}</dd>
+                    </div>
+                    <div>
+                      <dt className="inline text-text-muted">{t("notices.error")}: </dt>
+                      <dd className="inline">
+                        {errorKey ? t(`notices.errors.${errorKey}`) : t("notices.none")}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt className="inline text-text-muted">
+                        {t("notices.nextAttempt")}:{" "}
+                      </dt>
+                      <dd className="inline">{date(n.nextAttemptAt)}</dd>
+                    </div>
+                    <div>
+                      <dt className="inline text-text-muted">{t("notices.purgeBy")}: </dt>
+                      <dd className="inline">{date(n.purgeBy)}</dd>
+                    </div>
+                  </dl>
+                  {n.blockedReason ? (
+                    <p className="mt-2 text-sm text-text-secondary">
+                      {t(`notices.blocked.${n.blockedReason}`)}
+                    </p>
+                  ) : null}
+                  {n.retryable ? (
+                    confirming === key ? (
+                      <div
+                        role="group"
+                        aria-label={t("notices.retry.confirmTitle")}
+                        className="mt-3"
+                      >
+                        <p className="text-sm font-semibold">
+                          {t("notices.retry.confirmTitle")}
+                        </p>
+                        <p className="mt-1 text-sm text-text-secondary">
+                          {t("notices.retry.confirmBody")}
+                        </p>
+                        <div className="mt-2 flex flex-wrap gap-3">
+                          <button
+                            type="button"
+                            className={SECONDARY}
+                            disabled={sending !== null}
+                            onClick={() => void retry(n.requestId, "notice")}
+                          >
+                            {sending === n.requestId
+                              ? t("retry.sending")
+                              : t("retry.confirm")}
+                          </button>
+                          <button
+                            type="button"
+                            className={SECONDARY}
+                            disabled={sending !== null}
+                            onClick={() => setConfirming(null)}
+                          >
+                            {t("retry.cancel")}
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <button
+                        type="button"
+                        className={`mt-3 ${SECONDARY}`}
+                        disabled={sending !== null}
+                        onClick={() => {
+                          setNotice(null);
+                          setConfirming(key);
+                        }}
+                      >
+                        {t("notices.retry.button")}
+                      </button>
+                    )
+                  ) : null}
+                </li>
+              );
+            })}
+          </ul>
+        </div>
       ) : null}
     </section>
   );

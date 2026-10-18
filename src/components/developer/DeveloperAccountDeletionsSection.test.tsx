@@ -2,12 +2,17 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-libra
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { DeletionAlert } from "@/lib/account-deletion-client";
 
-const client = vi.hoisted(() => ({ alerts: vi.fn(), retry: vi.fn() }));
+const client = vi.hoisted(() => ({
+  alerts: vi.fn(),
+  retry: vi.fn(),
+  noticeRetry: vi.fn(),
+}));
 const failure = vi.hoisted(() => ({ report: vi.fn() }));
 vi.mock("@/lib/account-deletion-client", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/account-deletion-client")>()),
   fetchDeletionAlerts: client.alerts,
   retryAccountDeletion: client.retry,
+  retryDeletionNotice: client.noticeRetry,
 }));
 vi.mock("@/hooks/privileged-failure", () => ({
   usePrivilegedFailureReporter: () => failure.report,
@@ -115,7 +120,7 @@ describe("lista de alertas", () => {
 });
 
 describe("reintento", () => {
-  it("solo aparece cuando corresponde (no para en curso ni estancadas sin fallo)", async () => {
+  it("solo aparece cuando corresponde: no para una limpieza en curso normal; sí para la REALMENTE estancada", async () => {
     client.alerts.mockResolvedValue({
       kind: "ok",
       alerts: [
@@ -125,6 +130,20 @@ describe("reintento", () => {
     });
     render(<DeveloperAccountDeletionsSection />);
     await screen.findByText("Estancada");
+    expect(screen.getAllByRole("button", { name: "Reintentar limpieza" })).toHaveLength(
+      1,
+    );
+  });
+
+  it("una en curso sin estancar no ofrece reintento", async () => {
+    client.alerts.mockResolvedValue({
+      kind: "ok",
+      alerts: [
+        alert({ status: "cleanup_in_progress", failedStage: null, errorCode: null }),
+      ],
+    });
+    render(<DeveloperAccountDeletionsSection />);
+    await screen.findByText("En curso");
     expect(screen.queryByRole("button", { name: "Reintentar limpieza" })).toBeNull();
   });
 
@@ -198,5 +217,72 @@ describe("idiomas", () => {
     render(<DeveloperAccountDeletionsSection />);
     expect(await screen.findByRole("heading", { name: title })).toBeTruthy();
     expect(await screen.findByRole("button", { name: retry })).toBeTruthy();
+  });
+});
+
+describe("DEL-4b · avisos finales", () => {
+  const NID = "44444444-4444-4444-8444-444444444441";
+  const NID2 = "44444444-4444-4444-8444-444444444442";
+  const notice = (over: Record<string, unknown> = {}) => ({
+    requestId: NID,
+    status: "pending" as const,
+    attempts: 2,
+    errorCode: "provider_unavailable",
+    nextAttemptAt: "2026-11-14T10:05:00.000Z",
+    createdAt: "2026-11-14T10:00:00.000Z",
+    purgeBy: "2026-11-28T10:00:00.000Z",
+    retryable: true,
+    blockedReason: null,
+    ...over,
+  });
+  beforeEach(() => {
+    client.noticeRetry.mockReset();
+  });
+
+  it("muestra estado, intentos y error traducidos, sin direcciones ni ids; ofrece reintento solo si es elegible", async () => {
+    client.alerts.mockResolvedValue({
+      kind: "ok",
+      alerts: [],
+      notices: [
+        notice(),
+        notice({
+          requestId: NID2,
+          status: "abandoned",
+          errorCode: "rejected",
+          retryable: false,
+          blockedReason: "abandoned",
+        }),
+      ],
+    });
+    const { container } = render(<DeveloperAccountDeletionsSection />);
+    await screen.findByText("Avisos finales de eliminación que requieren atención");
+    expect(screen.getByText("Pendiente de reintento")).toBeTruthy();
+    expect(screen.getByText("Abandonado")).toBeTruthy();
+    expect(screen.getByText("Proveedor no disponible")).toBeTruthy();
+    expect(screen.getByText(/la dirección ya se borró/)).toBeTruthy();
+    expect(screen.getAllByRole("button", { name: "Reintentar aviso" })).toHaveLength(1);
+    expect(container.textContent).not.toMatch(/@|4444444/);
+  });
+
+  it("pide confirmación, llama a su propia acción y no afirma que se envió", async () => {
+    client.alerts.mockResolvedValue({ kind: "ok", alerts: [], notices: [notice()] });
+    client.noticeRetry.mockResolvedValue({ kind: "requested" });
+    render(<DeveloperAccountDeletionsSection />);
+    fireEvent.click(await screen.findByRole("button", { name: "Reintentar aviso" }));
+    expect(client.noticeRetry).not.toHaveBeenCalled();
+    expect(screen.getByText("¿Reintentar este aviso final?")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Sí, reintentar" }));
+    await waitFor(() => expect(client.noticeRetry).toHaveBeenCalledWith(NID));
+    expect(client.retry).not.toHaveBeenCalled(); // no confunde con el reintento de limpieza
+    expect(await screen.findByText(/no significa que ya se haya enviado/)).toBeTruthy();
+  });
+
+  it("sin avisos no se pinta la sección", async () => {
+    client.alerts.mockResolvedValue({ kind: "ok", alerts: [alert()], notices: [] });
+    render(<DeveloperAccountDeletionsSection />);
+    await screen.findByText("En reintento");
+    expect(
+      screen.queryByText("Avisos finales de eliminación que requieren atención"),
+    ).toBeNull();
   });
 });

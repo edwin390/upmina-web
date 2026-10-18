@@ -196,6 +196,64 @@ export function parseDeletionAlerts(value: unknown): DeletionAlert[] | null {
   return out;
 }
 
+// ---- Avisos finales (DEL-4b) -------------------------------------------------------------------------------------------------------
+
+/** Aviso final que requiere intervención. El backend NO envía correo ni id de cuenta; el id de solicitud solo sirve para la acción. */
+export interface DeletionNoticeAlert {
+  requestId: string;
+  status: "pending" | "sending" | "abandoned";
+  attempts: number;
+  errorCode: string | null;
+  nextAttemptAt: string | null;
+  createdAt: string | null;
+  purgeBy: string | null;
+  retryable: boolean;
+  blockedReason:
+    "abandoned" | "lease_active" | "attempts_exhausted" | "window_expired" | null;
+}
+
+const NOTICE_STATUSES = ["pending", "sending", "abandoned"];
+const NOTICE_REASONS = [
+  "abandoned",
+  "lease_active",
+  "attempts_exhausted",
+  "window_expired",
+];
+
+/** Parser estricto e independiente del de limpieza: un aviso incoherente descarta solo la lista de avisos. Sin `notices` ⇒ []. */
+export function parseDeletionNotices(value: unknown): DeletionNoticeAlert[] {
+  const list = (value as { notices?: unknown } | null)?.notices;
+  if (!Array.isArray(list)) return [];
+  const out: DeletionNoticeAlert[] = [];
+  for (const raw of list as Array<Record<string, unknown>>) {
+    if (
+      !raw ||
+      typeof raw.requestId !== "string" ||
+      !UUID.test(raw.requestId) ||
+      typeof raw.status !== "string" ||
+      !NOTICE_STATUSES.includes(raw.status) ||
+      typeof raw.attempts !== "number" ||
+      typeof raw.retryable !== "boolean" ||
+      (raw.blockedReason !== null &&
+        raw.blockedReason !== undefined &&
+        !NOTICE_REASONS.includes(String(raw.blockedReason)))
+    )
+      return [];
+    out.push({
+      requestId: raw.requestId,
+      status: raw.status as DeletionNoticeAlert["status"],
+      attempts: raw.attempts,
+      errorCode: optString(raw.errorCode),
+      nextAttemptAt: optString(raw.nextAttemptAt),
+      createdAt: optString(raw.createdAt),
+      purgeBy: optString(raw.purgeBy),
+      retryable: raw.retryable,
+      blockedReason: (raw.blockedReason ?? null) as DeletionNoticeAlert["blockedReason"],
+    });
+  }
+  return out;
+}
+
 export type AlertKind = "manual" | "retry" | "stalled" | "running";
 export function alertKind(a: DeletionAlert): AlertKind {
   if (a.manualRequired || a.status === "cleanup_manual_required") return "manual";
@@ -203,13 +261,18 @@ export function alertKind(a: DeletionAlert): AlertKind {
   if (a.status === "cleanup_retry_pending") return "retry";
   return "running";
 }
-/** El reintento solo tiene sentido cuando el backend lo admite: fallo en espera de reintento o intervención manual. */
+/** El reintento solo tiene sentido cuando el backend lo admite: fallo en espera de reintento, intervención manual o estancada. */
 export function canRetry(a: DeletionAlert): boolean {
-  return a.status === "cleanup_retry_pending" || a.status === "cleanup_manual_required";
+  return (
+    a.status === "cleanup_retry_pending" ||
+    a.status === "cleanup_manual_required" ||
+    // Estancada = bloqueada sin empezar > 15 min o limpieza con el lease caducado: el backend la reanuda (no restaura nada).
+    (a.stalled && (a.status === "access_blocked" || a.status === "cleanup_in_progress"))
+  );
 }
 
 export type AlertsOutcome =
-  | { kind: "ok"; alerts: DeletionAlert[] }
+  | { kind: "ok"; alerts: DeletionAlert[]; notices: DeletionNoticeAlert[] }
   | { kind: "failure"; response: Response }
   | { kind: "error" };
 
@@ -223,8 +286,11 @@ export async function fetchDeletionAlerts(signal?: AbortSignal): Promise<AlertsO
       signal,
     });
     if (!response.ok) return { kind: "failure", response };
-    const alerts = parseDeletionAlerts(await response.json().catch(() => null));
-    return alerts ? { kind: "ok", alerts } : { kind: "error" };
+    const body: unknown = await response.json().catch(() => null);
+    const alerts = parseDeletionAlerts(body);
+    return alerts
+      ? { kind: "ok", alerts, notices: parseDeletionNotices(body) }
+      : { kind: "error" };
   } catch {
     return { kind: "error" };
   }
@@ -238,11 +304,17 @@ export type RetryOutcome =
   | { kind: "failure"; response: Response }
   | { kind: "error" };
 
-export async function retryAccountDeletion(requestId: string): Promise<RetryOutcome> {
+export const retryAccountDeletion = (requestId: string) =>
+  postRetry("account-deletion-retry", requestId);
+/** DEL-4b: adelanta un aviso final elegible (el ejecutor lo envía; aquí no se envía nada). */
+export const retryDeletionNotice = (requestId: string) =>
+  postRetry("account-deletion-notice-retry", requestId);
+
+async function postRetry(action: string, requestId: string): Promise<RetryOutcome> {
   const token = await bearer();
   if (!token) return { kind: "error" };
   try {
-    const response = await fetch(`${BASE}account-deletion-retry`, {
+    const response = await fetch(`${BASE}${action}`, {
       method: "POST",
       headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
       body: JSON.stringify({ requestId }),

@@ -20,7 +20,9 @@ import {
   parseDeletionAlerts,
   previewAccountDeletion,
   requestAccountDeletion,
+  parseDeletionNotices,
   retryAccountDeletion,
+  retryDeletionNotice,
   type DeletionAlert,
 } from "./account-deletion-client";
 import {
@@ -208,7 +210,10 @@ describe("alertas y reintento de Developer", () => {
     expect(canRetry(make({}))).toBe(true);
     expect(canRetry(make({ status: "cleanup_manual_required" }))).toBe(true);
     expect(canRetry(make({ status: "cleanup_in_progress" }))).toBe(false);
-    expect(canRetry(make({ status: "access_blocked", stalled: true }))).toBe(false);
+    // Solo las REALMENTE estancadas (el backend las reanuda); en curso normal o recién bloqueadas, no.
+    expect(canRetry(make({ status: "access_blocked", stalled: true }))).toBe(true);
+    expect(canRetry(make({ status: "cleanup_in_progress", stalled: true }))).toBe(true);
+    expect(canRetry(make({ status: "access_blocked", stalled: false }))).toBe(false);
   });
 
   it("GET con Bearer; error HTTP devuelve la respuesta para clasificar 401/403/MFA; forma inválida → error", async () => {
@@ -288,5 +293,77 @@ describe("token en memoria (pending-deletion-token)", () => {
       "",
     );
     expect(client).not.toMatch(/localStorage|sessionStorage|document\.cookie|console\./);
+  });
+});
+
+describe("DEL-4b · avisos finales en Developer (cliente)", () => {
+  const alert = () => ({
+    requestId: "22222222-2222-4222-8222-222222222222",
+    status: "cleanup_retry_pending",
+    failedStage: null,
+    errorCode: null,
+    totalAttempts: 1,
+    consecutiveFailures: 0,
+    manualRequired: false,
+    stalled: false,
+    pendingStages: [],
+  });
+  const NOTICE = {
+    requestId: "11111111-1111-4111-8111-111111111111",
+    status: "pending",
+    attempts: 2,
+    errorCode: "provider_unavailable",
+    nextAttemptAt: "2026-10-18T20:00:00Z",
+    createdAt: "2026-10-18T19:00:00Z",
+    purgeBy: "2026-11-01T19:00:00Z",
+    retryable: true,
+    blockedReason: null,
+    recipient: "person@example.invalid", // un backend defectuoso no debe poder colar la dirección
+  };
+  it("parsea solo campos conocidos (nunca la dirección) y degrada a [] si algo es incoherente o falta", () => {
+    const [n] = parseDeletionNotices({ notices: [NOTICE] });
+    expect(n).toMatchObject({
+      requestId: NOTICE.requestId,
+      retryable: true,
+      attempts: 2,
+    });
+    expect(JSON.stringify(n)).not.toContain("person@example");
+    expect(parseDeletionNotices({})).toEqual([]);
+    expect(parseDeletionNotices({ notices: [{ ...NOTICE, status: "sent" }] })).toEqual(
+      [],
+    );
+    expect(
+      parseDeletionNotices({ notices: [{ ...NOTICE, blockedReason: "x" }] }),
+    ).toEqual([]);
+    expect(
+      parseDeletionNotices({ notices: [{ ...NOTICE, requestId: "no-uuid" }] }),
+    ).toEqual([]);
+  });
+  it("fetchDeletionAlerts entrega los avisos y un fallo en ellos no invalida las alertas de limpieza", async () => {
+    fetchMock.mockResolvedValue(res(200, { alerts: [alert()], notices: [NOTICE] }));
+    const ok = await fetchDeletionAlerts();
+    expect(ok.kind === "ok" && ok.notices).toHaveLength(1);
+    fetchMock.mockResolvedValue(res(200, { alerts: [alert()], notices: [{ bad: 1 }] }));
+    const degraded = await fetchDeletionAlerts();
+    expect(degraded.kind === "ok" && degraded.notices).toEqual([]);
+    expect(degraded.kind).toBe("ok");
+  });
+  it("retryDeletionNotice usa su propia acción, solo envía el id y clasifica 409/404/403", async () => {
+    fetchMock.mockResolvedValue(res(200, {}));
+    expect(await retryDeletionNotice(NOTICE.requestId)).toEqual({ kind: "requested" });
+    expect(fetchMock.mock.calls.at(-1)![0]).toBe(
+      "/api/admin/account-deletion-notice-retry",
+    );
+    expect(
+      JSON.parse(String((fetchMock.mock.calls.at(-1)![1] as RequestInit).body)),
+    ).toEqual({
+      requestId: NOTICE.requestId,
+    });
+    fetchMock.mockResolvedValue(res(409, { code: "notice_abandoned" }));
+    expect((await retryDeletionNotice(NOTICE.requestId)).kind).toBe("not_applicable");
+    fetchMock.mockResolvedValue(res(404, {}));
+    expect((await retryDeletionNotice(NOTICE.requestId)).kind).toBe("not_found");
+    fetchMock.mockResolvedValue(res(403, {}));
+    expect((await retryDeletionNotice(NOTICE.requestId)).kind).toBe("forbidden");
   });
 });

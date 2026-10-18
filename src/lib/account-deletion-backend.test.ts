@@ -14,6 +14,7 @@ import {
   handleAccountDeletionConfirm,
   handleAccountDeletionPreview,
   handleAccountDeletionRequest,
+  handleAccountDeletionNoticeRetry,
   handleAccountDeletionRetry,
   handleAccountDeletionRun,
   hashDeletionToken,
@@ -504,6 +505,119 @@ describe("Developer: alertas y reintento", () => {
       await handleAccountDeletionRetry(request("POST", { requestId: REQ_ID }), r, f.deps);
       expect(out.status, message).toBe(status);
       expect(f.kick).not.toHaveBeenCalled();
+    }
+  });
+});
+
+describe("DEL-4b · Developer: recuperación de estancadas y avisos finales", () => {
+  it("alertas: añade los avisos (sin correo) y, si esa función falla o no existe, entrega igualmente las alertas de limpieza", async () => {
+    const notices = [{ requestId: REQ_ID, status: "pending", retryable: true }];
+    const ok = fakeDeps({
+      account_deletion_alerts: () => ({ data: [] }),
+      account_deletion_notice_alerts: () => ({ data: notices }),
+    });
+    const a = res();
+    await handleAccountDeletionAlerts(request("GET"), a.r, ok.deps);
+    expect(a.out).toMatchObject({ status: 200, body: { alerts: [], notices } });
+    expect(ok.calls.find((c) => c.fn === "account_deletion_notice_alerts")!.args).toEqual(
+      { p_actor_user_id: DEV },
+    );
+    const degraded = fakeDeps({
+      account_deletion_alerts: () => ({ data: [] }),
+      account_deletion_notice_alerts: () => ({
+        error: { message: "function does not exist" },
+      }),
+    });
+    const b = res();
+    await handleAccountDeletionAlerts(request("GET"), b.r, degraded.deps);
+    expect(b.out).toMatchObject({ status: 200, body: { alerts: [], notices: [] } });
+  });
+
+  it("reintento de limpieza: lease_active y not_stalled son 409 con su código", async () => {
+    for (const message of ["lease_active", "not_stalled"]) {
+      const f = fakeDeps({
+        account_deletion_developer_retry: () => ({ error: { message } }),
+      });
+      const { out, r } = res();
+      await handleAccountDeletionRetry(request("POST", { requestId: REQ_ID }), r, f.deps);
+      expect(out).toMatchObject({ status: 409, body: { code: message } });
+      expect(f.kick).not.toHaveBeenCalled();
+    }
+  });
+
+  it("reintento de aviso: exige developer_panel, valida el cuerpo, mapea errores y solo despierta al ejecutor si hubo éxito", async () => {
+    auth.capability.mockRejectedValueOnce(new AdminAuthError("No autorizado", 403));
+    const denied = fakeDeps({
+      account_deletion_notice_developer_retry: () => ({ data: {} }),
+    });
+    const d = res();
+    await handleAccountDeletionNoticeRetry(
+      request("POST", { requestId: REQ_ID }),
+      d.r,
+      denied.deps,
+    );
+    expect(d.out.status).toBe(403);
+    expect(denied.calls).toEqual([]);
+    expect(auth.capability).toHaveBeenCalledWith(expect.anything(), "developer_panel");
+
+    const f = fakeDeps({
+      account_deletion_notice_developer_retry: () => ({
+        data: { requestId: REQ_ID, status: "pending" },
+      }),
+    });
+    for (const body of [
+      { requestId: "no-uuid" },
+      { requestId: REQ_ID, to: "x@y.invalid" },
+      {},
+    ]) {
+      const bad = res();
+      await handleAccountDeletionNoticeRetry(request("POST", body), bad.r, f.deps);
+      expect(bad.out.status).toBe(400);
+    }
+    expect(f.calls).toEqual([]);
+    const ok = res();
+    await handleAccountDeletionNoticeRetry(
+      request("POST", { requestId: REQ_ID }),
+      ok.r,
+      f.deps,
+    );
+    expect(ok.out.status).toBe(200);
+    expect(f.calls).toEqual([
+      {
+        fn: "account_deletion_notice_developer_retry",
+        args: { p_actor_user_id: DEV, p_request_id: REQ_ID },
+      },
+    ]);
+    expect(f.kick).toHaveBeenCalledTimes(1);
+    const wrongMethod = res();
+    await handleAccountDeletionNoticeRetry(request("GET"), wrongMethod.r, f.deps);
+    expect(wrongMethod.out.status).toBe(405);
+
+    for (const [message, status, code] of [
+      ["request_not_found", 404, undefined],
+      ["notice_not_found", 404, undefined],
+      ["already_sent", 409, "already_sent"],
+      ["notice_abandoned", 409, "notice_abandoned"],
+      ["lease_active", 409, "lease_active"],
+      ["attempts_exhausted", 409, "attempts_exhausted"],
+      ["window_expired", 409, "window_expired"],
+      ["request_not_completed", 409, "request_not_completed"],
+      ["actor_not_developer", 403, undefined],
+      ["otro", 500, undefined],
+    ] as const) {
+      const g = fakeDeps({
+        account_deletion_notice_developer_retry: () => ({ error: { message } }),
+      });
+      const { out, r } = res();
+      await handleAccountDeletionNoticeRetry(
+        request("POST", { requestId: REQ_ID }),
+        r,
+        g.deps,
+      );
+      expect(out.status, message).toBe(status);
+      if (code) expect(out.body).toMatchObject({ code });
+      expect(JSON.stringify(out.body)).not.toContain("@");
+      expect(g.kick).not.toHaveBeenCalled();
     }
   });
 });

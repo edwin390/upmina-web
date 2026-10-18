@@ -30,6 +30,7 @@ import type { MailConfig } from "./mfa-recovery-mail.js";
 //   POST /api/admin/account-deletion-confirm   sesión + {token, confirm:true} → consume el token y bloquea la cuenta (RPC atómica).
 //   POST /api/admin/account-deletion-run       interno, firmado por el despertador de la BD (HMAC de dominio propio, cuerpo vacío).
 //   GET  /api/admin/account-deletion-alerts    Developer (developer_panel + MFA reciente) → alertas persistentes.
+//   POST /api/admin/account-deletion-notice-retry  Developer → adelanta un aviso final elegible (DEL-4b)
 //   POST /api/admin/account-deletion-retry     Developer → reprograma una solicitud fallida/pendiente ({requestId}).
 //
 // Reglas comunes: la identidad sale SOLO del JWT verificado (el cuerpo nunca aporta usuario); respuestas sin caché y sin Referer; el
@@ -321,7 +322,18 @@ export async function handleAccountDeletionAlerts(
         : res.status(500).json(GENERIC_ERROR);
     }
     if (!Array.isArray(data)) return res.status(500).json(GENERIC_ERROR);
-    return res.status(200).json({ alerts: data });
+    // DEL-4b: avisos finales que requieren intervención (sin correo ni identidad). Si la función aún no existe (migración sin aplicar) o
+    // falla, las alertas de limpieza se siguen entregando: los avisos son accesorios.
+    let notices: unknown[] = [];
+    try {
+      const n = await callRpc(deps.db(), "account_deletion_notice_alerts", {
+        p_actor_user_id: userId,
+      });
+      if (!n.error && Array.isArray(n.data)) notices = n.data;
+    } catch {
+      /* accesorio */
+    }
+    return res.status(200).json({ alerts: data, notices });
   } catch (err) {
     return failure(res, err);
   }
@@ -348,16 +360,61 @@ export async function handleAccountDeletionRetry(
         return res.status(403).json({ error: "No autorizado" });
       if (m.includes("request_not_found"))
         return res.status(404).json({ error: "No encontrado" });
-      if (m.includes("already_completed") || m.includes("retry_not_applicable"))
+      const conflict = ["already_completed", "lease_active", "not_stalled"].find((c) =>
+        m.includes(c),
+      );
+      if (conflict || m.includes("retry_not_applicable"))
         return res.status(409).json({
           error: "Operación no permitida",
-          code: m.includes("already_completed")
-            ? "already_completed"
-            : "retry_not_applicable",
+          code: conflict ?? "retry_not_applicable",
         });
       return res.status(500).json(GENERIC_ERROR);
     }
     // El reintento solo reprograma; el ejecutor (mismo código que el automático) lo recoge. Aquí se intenta despertarlo ya.
+    await deps.kick();
+    return res.status(200).json(data ?? { ok: true });
+  } catch (err) {
+    return failure(res, err);
+  }
+}
+
+const NOTICE_CONFLICTS = [
+  "already_sent",
+  "notice_abandoned",
+  "lease_active",
+  "attempts_exhausted",
+  "window_expired",
+  "request_not_completed",
+] as const;
+
+/** DEL-4b: adelanta un aviso final elegible. No envía nada: el ejecutor lo reclama (atómico, con lease) en el `kick` posterior. */
+export async function handleAccountDeletionNoticeRetry(
+  req: VercelRequest,
+  res: VercelResponse,
+  deps: DeletionHandlerDeps = defaultDeletionDeps(),
+): Promise<VercelResponse> {
+  if (!prepare(req, res, "POST")) return res;
+  try {
+    const { userId } = await requireCapability(req, "developer_panel");
+    const body = parseBody(req);
+    if (!body || !isUuid(body.requestId) || Object.keys(body).length !== 1)
+      return res.status(400).json({ error: "Solicitud inválida" });
+    const { data, error } = await callRpc(
+      deps.db(),
+      "account_deletion_notice_developer_retry",
+      { p_actor_user_id: userId, p_request_id: body.requestId },
+    );
+    if (error) {
+      const m = messageOf(error);
+      if (m.includes("actor_not_developer"))
+        return res.status(403).json({ error: "No autorizado" });
+      if (m.includes("request_not_found") || m.includes("notice_not_found"))
+        return res.status(404).json({ error: "No encontrado" });
+      const conflict = NOTICE_CONFLICTS.find((c) => m.includes(c));
+      if (conflict)
+        return res.status(409).json({ error: "Operación no permitida", code: conflict });
+      return res.status(500).json(GENERIC_ERROR);
+    }
     await deps.kick();
     return res.status(200).json(data ?? { ok: true });
   } catch (err) {

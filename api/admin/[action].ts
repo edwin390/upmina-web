@@ -3,6 +3,7 @@ import {
   handleAccountDeletionConfirm,
   handleAccountDeletionPreview,
   handleAccountDeletionRequest,
+  handleAccountDeletionNoticeRetry,
   handleAccountDeletionRetry,
   handleAccountDeletionRun,
 } from "../../src/lib/account-deletion-handlers.js";
@@ -182,6 +183,8 @@ export default function handler(req: VercelRequest, res: VercelResponse) {
       return handleAccountDeletionAlerts(req, res);
     case "account-deletion-retry":
       return handleAccountDeletionRetry(req, res);
+    case "account-deletion-notice-retry":
+      return handleAccountDeletionNoticeRetry(req, res);
     case "community-author-post":
       return handleCommunityAuthorPosts(req, res);
     case "community-author-notice-ack":
