@@ -101,6 +101,7 @@ function harness(): Harness {
     MEDIA_CAP_AUDIENCE: AUD,
     MEDIA_CHECK_URL: CHECK_URL,
     MEDIA_CHECK_SHARED_SECRET: SECRET,
+    COSPLAY_PUBLIC: "true",
   };
   const clock = { now: T0 };
   const checkCalls: Request[] = [];
@@ -471,6 +472,40 @@ describe("Cosplay passthrough", () => {
   it("a Cosplay key is built from the Cosplay prefix only", async () => {
     await h.request(`/cosplay/${OTHER}/w960.webp`);
     expect(h.bucketCalls).toEqual([`head:cosplay/${OTHER}/w960.webp`]);
+  });
+});
+
+describe("Cosplay restringido (COSPLAY_PUBLIC)", () => {
+  const COS = `/cosplay/${ASSET}/w960.webp`;
+  it.each([undefined, "", "false", "TRUE", "1", " true"])(
+    "COSPLAY_PUBLIC=%j → 404 no-store sin tocar el bucket ni el backend",
+    async (v) => {
+      h.env.COSPLAY_PUBLIC = v;
+      const res = await h.request(COS);
+      expect(res.status).toBe(404);
+      expect(res.headers.get("Cache-Control")).toBe("no-store");
+      expect(h.bucketCalls).toEqual([]);
+      expect(h.checkCalls).toHaveLength(0);
+    },
+  );
+  it("con la variable en true vuelve a servirse y Community no cambia en ningún caso", async () => {
+    h.env.COSPLAY_PUBLIC = "true";
+    expect((await h.request(COS)).status).toBe(200);
+    h.env.COSPLAY_PUBLIC = undefined;
+    h.setCheck("public");
+    expect((await h.request(PATH)).status).toBe(200);
+  });
+  it("variantes de ruta no evaden el bloqueo", async () => {
+    h.env.COSPLAY_PUBLIC = undefined;
+    for (const p of [
+      `/cosplay/${ASSET}/w960.webp?x=1`,
+      `/Cosplay/${ASSET}/w960.webp`,
+      `//cosplay/${ASSET}/w960.webp`,
+      `/cosplay/${ASSET}/../${ASSET}/w960.webp`,
+      `/cosplay/%2e%2e/${ASSET}/w960.webp`,
+    ])
+      expect((await h.request(p)).status).toBe(404);
+    expect(h.bucketCalls).toEqual([]);
   });
 });
 

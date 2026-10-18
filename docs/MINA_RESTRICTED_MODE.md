@@ -70,3 +70,26 @@ copyright, strikes y auditoría. Solo se dejan de servir o de poder modificar.
 - La interfaz usa un valor fijado en la compilación; una discrepancia con el servidor nunca abre nada (manda el servidor).
 - La migración del interruptor no se ha aplicado en ningún entorno y solo se ha probado en PGlite.
 - No hay revisión visual en navegador de las pantallas ocultas.
+
+## 8. Privacidad de los medios de Cosplay (comprobado en DEV, sin cambios aplicados)
+
+- Siguen públicos. Una imagen de Cosplay (`cosplay/<uuid>/w<N>.webp`) responde 200 sin sesión ni capability por el Worker de entrega
+  (`upmina-media-delivery-dev…workers.dev`), con `Cache-Control: public, max-age=31536000, immutable`. Vale también para archivos sin
+  publicar. La URL directa del bucket (`r2.dev`) está cerrada (401): el único camino de lectura es el Worker.
+- Dependencias: el Worker sirve Community y Cosplay con el mismo código (`workers/media-delivery/src/handler.ts`: Cosplay es
+  «passthrough público»). Las URLs de Cosplay solo las emiten `cosplay-list` y `cosplay-post` (hoy bloqueadas) y el editor de
+  administración. Las imágenes ya servidas pueden seguir en cachés del navegador o del borde durante hasta un año (`immutable`).
+- Solución preparada en local (NO desplegada): `workers/media-delivery/src/handler.ts` lee la variable opcional `COSPLAY_PUBLIC`.
+  Solo el valor exacto `true` sirve `/cosplay/*`; ausente o cualquier otro valor responde 404 `no-store` antes de tocar el bucket o el
+  backend. Community no cambia. Archivos, código y datos intactos. Probado en `handler.test.ts` (variantes de ruta incluidas).
+- Preparado ≠ desplegado: el Worker `upmina-media-delivery-dev` (bucket `upmina-media-dev-public`, backend
+  `upmina-testing-backend.vercel.app`) sigue sirviendo Cosplay hasta que se despliegue. El Worker de Production
+  (`upmina-media-delivery-prod`, bucket `upmina-media-prod-public`) es otro script con la misma fuente: al desplegarlo también
+  quedaría restringido por defecto; requiere autorización específica y poner `COSPLAY_PUBLIC=true` antes si no se quiere.
+- Despliegue en DEV (lo ejecuta el propietario con sus credenciales de Cloudflare): `wrangler deploy` con `wrangler.jsonc`, nunca con
+  `wrangler.prod.jsonc`. Después comprobar que `/cosplay/<uuid>/w960.webp` responde 404 y que Community sigue igual.
+- Reactivar: `COSPLAY_PUBLIC=true` en el Worker (más `cosplay` en `MINA_FEATURES_ENABLED`). Sin migraciones ni copias.
+- Riesgos residuales: copias ya guardadas en navegadores (`immutable`, hasta un año); no se purga la caché global; Production
+  sin cambios y aún público hasta su propio despliegue.
+- Comprobaciones autenticadas pendientes: con sesión no privilegiada, `cosplay-post-delete`, listado admin, `social-disconnect` y
+  `content-shadow-run` responden 403 (llegan a la autorización, no al 503 de la función). No verificadas con sesión developer/admin.

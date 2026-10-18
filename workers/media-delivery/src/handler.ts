@@ -40,6 +40,8 @@ export interface MediaEnv {
   MEDIA_CAP_AUDIENCE: string;
   MEDIA_CHECK_URL: string;
   MEDIA_CHECK_SHARED_SECRET: string;
+  /** Solo el valor exacto "true" sirve los medios de Cosplay; ausente o cualquier otro = 404 (modo restringido). */
+  COSPLAY_PUBLIC?: string;
 }
 
 export const POSITIVE_TTL_MS = 30_000;
@@ -287,6 +289,7 @@ export async function handleMediaRequest(
   const media = parseMediaPath(url.pathname);
   if (!media) return notFound();
 
+  if (media.domain === "cosplay" && env.COSPLAY_PUBLIC !== "true") return notFound();
   if (media.domain === "cosplay")
     return serveObject(request, env, media, COSPLAY_CACHE_CONTROL, false);
 
