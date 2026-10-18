@@ -33,7 +33,7 @@ export default function LiveBadge({ status, viewerCount }: LiveBadgeProps) {
         )}
       />
       {/* Solo el texto de estado se anuncia; el conteo de viewers cambia
-          cada refetch (60s) y no debe generar anuncios repetidos. */}
+          cada refetch (30s) y no debe generar anuncios repetidos. */}
       <span role="status" aria-live="polite">
         {t(status)}
       </span>
