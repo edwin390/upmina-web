@@ -96,7 +96,7 @@ export default function CosplayInlineMfa({ isCurrent, onVerified, onCancel }: Pr
       <button
         type="button"
         onClick={onCancel}
-        className="min-h-11 self-center rounded-md border border-border-subtle px-4 py-2"
+        className="min-h-11 self-start rounded-md border border-border-subtle px-4 py-2"
       >
         {t("cancel")}
       </button>

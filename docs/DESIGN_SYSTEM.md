@@ -97,6 +97,18 @@ Base de 4px. Escala de Tailwind estándar:
 | `Tabs` | Navegación dentro de secciones |
 | `Tooltip` | Información contextual |
 
+### Botones secundarios de cancelación
+
+Regla contextual: **compactos por defecto, centrados solo si la composición lo justifica**.
+
+1. Son compactos: ancho proporcional al contenido (`inline-flex`/`px-4`), nunca estirados por accidente.
+2. Un `flex-col` sin `items-*` estira a sus hijos: en ese caso se fija la alineación del botón (`self-start` o `self-center`).
+3. Se centran (`self-center`) únicamente en formularios pequeños cuya acción principal ocupa todo el ancho (p. ej. `ResetPasswordPage`).
+4. En modales, diálogos y paneles ADMIN/DEVELOPER van en el grupo de acciones (`flex flex-wrap gap-2|3`), junto a la acción principal; si están solos en un contenedor alineado a la izquierda (p. ej. `CosplayInlineMfa`) usan `self-start`.
+5. Ancho completo (`w-full`) solo cuando sea intencional, sobre todo en móvil; no se aplica `self-center` ni `w-full` de forma universal ni con una regla CSS global.
+6. Altura táctil de 44 px (`min-h-11`); los controles compactos de 36 px (`min-h-9`) de los diálogos de borrado de Community/Cosplay son una excepción pendiente de revisión.
+7. Conservan el estilo secundario (borde `border-subtle`, texto secundario), con hover, `focus-visible` y `disabled` iguales a los de los demás secundarios; nunca adoptan el color de la acción principal ni el de peligro.
+
 ---
 
 ## 📱 Breakpoints
