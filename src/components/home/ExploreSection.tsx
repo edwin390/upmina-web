@@ -1,5 +1,7 @@
 import { Link } from "react-router-dom";
 import { useTranslations } from "use-intl";
+import { MINA_FEATURES, type MinaFeature } from "@/lib/mina-features";
+import { isMinaFeatureEnabled } from "@/lib/mina-features-client";
 import PlatformIcon, { type Platform } from "./PlatformIcon";
 import SectionHeading from "./SectionHeading";
 
@@ -13,6 +15,14 @@ const DESTINATIONS: { platform: Platform; to: string; label?: string; key: strin
   { platform: "comunidad", to: "/community", key: "community" },
 ];
 
+// Instagram, TikTok y Cosplays dependen de la autorización de Mina: solo se muestran si MINA_FEATURES_ENABLED las incluye.
+const visibleDestinations = () =>
+  DESTINATIONS.filter(
+    (item) =>
+      !(MINA_FEATURES as readonly string[]).includes(item.key) ||
+      isMinaFeatureEnabled(item.key as MinaFeature),
+  );
+
 // Solo enlaces: no consulta ninguna API (Instagram/TikTok siguen sin backend listo).
 export default function ExploreSection() {
   const t = useTranslations("site.explore");
@@ -20,7 +30,7 @@ export default function ExploreSection() {
     <section aria-labelledby="explora" className="mx-auto max-w-6xl px-4 py-10">
       <SectionHeading id="explora" title={t("title")} />
       <ul className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 lg:gap-4">
-        {DESTINATIONS.map((item) => (
+        {visibleDestinations().map((item) => (
           <li key={item.to}>
             <Link
               to={item.to}

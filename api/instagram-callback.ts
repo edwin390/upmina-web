@@ -1,4 +1,5 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
+import { requireMinaFeature } from "../src/lib/mina-feature-guard.js";
 import {
   INSTAGRAM_PAGE_HEADERS,
   InstagramOAuthError,
@@ -61,6 +62,8 @@ function page(res: VercelResponse, status: number, title: string, message: strin
 // fuera de Production por el mismo motivo que api/instagram-auth.ts. Los tokens NO se
 // muestran, registran ni salen en ninguna respuesta.
 export default async function handler(req: VercelRequest, res: VercelResponse) {
+  // Conexión OAuth de Instagram: parte de una función dependiente de Mina (desactivada por defecto; docs/MINA_RESTRICTED_MODE.md).
+  if (!requireMinaFeature("instagram", res)) return res;
   if (req.method !== "GET") {
     res.setHeader("Allow", "GET");
     return res.status(405).json({ error: "Método no permitido" });

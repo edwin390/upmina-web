@@ -180,5 +180,10 @@
     "playerTitle": "Reproductor de TikTok",
     "playerTitleNamed": "Reproductor de TikTok: {title}",
     "playerError": "No se pudo cargar el reproductor. Puedes verlo en TikTok."
+  },
+  "featureUnavailable": {
+    "title": "Sección no disponible",
+    "body": "Esta sección no está disponible por ahora.",
+    "home": "Volver al inicio"
   }
 }

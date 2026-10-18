@@ -47,6 +47,7 @@ import {
   type CompletedPart,
 } from "./r2-client.js";
 import { processImage, ProcessingFailure } from "./media-processing.js";
+import { FEATURE_UNAVAILABLE_BODY, minaFeatureEnabled } from "./mina-feature-guard.js";
 import { attemptMediaAssetCleanup } from "./cosplay-media-lifecycle.js";
 import {
   cosplayPublicMediaUrl,
@@ -127,6 +128,9 @@ function getServiceRoleClient(): SupabaseClient | null {
 async function authorize(
   req: VercelRequest,
 ): Promise<{ userId: string } | { status: number; body: unknown }> {
+  // Subir/gestionar medios de Cosplay depende de la autorización de Mina (desactivado por defecto; docs/MINA_RESTRICTED_MODE.md).
+  if (!minaFeatureEnabled("cosplay"))
+    return { status: 503, body: FEATURE_UNAVAILABLE_BODY };
   try {
     const identity = await requireCapability(req, "cosplay_admin");
     return { userId: identity.userId };

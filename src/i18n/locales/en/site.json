@@ -180,5 +180,10 @@
     "playerTitle": "TikTok player",
     "playerTitleNamed": "TikTok player: {title}",
     "playerError": "Couldn't load the player. You can watch it on TikTok."
+  },
+  "featureUnavailable": {
+    "title": "Section unavailable",
+    "body": "This section isn't available right now.",
+    "home": "Back to home"
   }
 }

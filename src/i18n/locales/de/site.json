@@ -180,5 +180,10 @@
     "playerTitle": "TikTok-Player",
     "playerTitleNamed": "TikTok-Player: {title}",
     "playerError": "Der Player konnte nicht geladen werden. Du kannst ihn auf TikTok ansehen."
+  },
+  "featureUnavailable": {
+    "title": "Bereich nicht verfügbar",
+    "body": "Dieser Bereich ist derzeit nicht verfügbar.",
+    "home": "Zur Startseite"
   }
 }

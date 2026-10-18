@@ -34,6 +34,7 @@ import {
   handleCommunityAuthorNoticeAck,
 } from "../../src/lib/community-author-handlers.js";
 import type { VercelRequest, VercelResponse } from "@vercel/node";
+import { requireMinaFeature } from "../../src/lib/mina-feature-guard.js";
 import { handleModerationCases } from "../../src/lib/moderation-case-handlers.js";
 import {
   handleContentReviewDecision,
@@ -241,13 +242,18 @@ export default function handler(req: VercelRequest, res: VercelResponse) {
       return handleDeveloperMfaCleanups(req, res);
     case "developer-mfa-recoveries":
       return handleDeveloperMfaRecoveries(req, res);
+    // Cosplays depende de la autorización de Mina: las ESCRITURAS (guardar/publicar, desadjuntar, reordenar) se bloquean mientras
+    // MINA_FEATURES_ENABLED no incluya "cosplay". Borrar y las lecturas ADMIN siguen disponibles (retirada y revisión de lo existente).
     case "cosplay-post-save":
+      if (!requireMinaFeature("cosplay", res)) return res;
       return handleCosplayPostSave(req, res);
     case "cosplay-post-delete":
       return handleCosplayPostDelete(req, res);
     case "cosplay-media-detach":
+      if (!requireMinaFeature("cosplay", res)) return res;
       return handleCosplayMediaDetach(req, res);
     case "cosplay-post-reorder":
+      if (!requireMinaFeature("cosplay", res)) return res;
       return handleCosplayPostReorder(req, res);
     case "cosplay-post-list-admin":
       return handleCosplayPostListAdmin(req, res);

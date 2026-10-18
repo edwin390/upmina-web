@@ -6,6 +6,10 @@ import { ensureNamespaces, NAMESPACES } from "./i18n/messages";
 // o el proveedor sin rutas, así que se precargan todos los espacios en español (el idioma de sus textos esperados).
 await ensureNamespaces("es", NAMESPACES);
 
+// Funciones dependientes de Mina: en producción están desactivadas por defecto; las suites existentes las ejercitan, así que se activan aquí.
+// Las pruebas del modo restringido las desactivan explícitamente (vi.stubEnv).
+process.env.MINA_FEATURES_ENABLED = "instagram,tiktok,cosplay";
+
 // DEL-2: requireAuthenticated consulta la barrera de eliminación de cuentas. Las pruebas de los demás handlers parten de una cuenta
 // ACTIVA sin necesitar esa RPC en sus dobles de Supabase; admin-auth.test.ts y account-deletion-*.test.ts ejercitan la función real.
 vi.mock("./lib/account-deletion-gate", async (importOriginal) => ({

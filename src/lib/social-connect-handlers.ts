@@ -1,5 +1,6 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { AdminAuthError, authErrorBody, requireCapability } from "./admin-auth.js";
+import { FEATURE_UNAVAILABLE_BODY, minaFeatureEnabled } from "./mina-feature-guard.js";
 import {
   INSTAGRAM_AUTHORIZE_URL,
   instagramRedirectUri,
@@ -158,6 +159,9 @@ export async function handleAdminSocialConnect(
 
   const provider = parseProvider(req);
   if (!provider) return res.status(400).json(BAD_REQUEST_BODY);
+  // Conectar Instagram/TikTok depende de la autorización de Mina (desactivado por defecto; docs/MINA_RESTRICTED_MODE.md).
+  if (!minaFeatureEnabled(provider))
+    return res.status(503).json(FEATURE_UNAVAILABLE_BODY);
 
   if (!isProductionEnvironment()) {
     return res.status(403).json({ error: "No disponible en este entorno" });

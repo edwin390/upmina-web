@@ -1,4 +1,5 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
+import { requireMinaFeature } from "../../src/lib/mina-feature-guard.js";
 import {
   handleTikTokCallback,
   handleTikTokVideos,
@@ -15,6 +16,8 @@ import {
 // (copia exacta de lo que era cada api/tiktok-*.ts). Este archivo es solo el
 // despachador según el segmento dinámico `resource`.
 export default function handler(req: VercelRequest, res: VercelResponse) {
+  // Función dependiente de la autorización de Mina: desactivada salvo MINA_FEATURES_ENABLED=…tiktok… (ver docs/MINA_RESTRICTED_MODE.md).
+  if (!requireMinaFeature("tiktok", res)) return res;
   switch (req.query.resource) {
     case "callback":
       return handleTikTokCallback(req, res);

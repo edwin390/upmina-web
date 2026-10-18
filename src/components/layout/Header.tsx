@@ -6,6 +6,8 @@ import { useOwnProfile } from "@/hooks/useOwnProfile";
 import { useTranslations } from "use-intl";
 import LanguageSwitcher from "./LanguageSwitcher";
 import ThemeSwitcher from "./ThemeSwitcher";
+import { MINA_FEATURES, type MinaFeature } from "@/lib/mina-features";
+import { isMinaFeatureEnabled } from "@/lib/mina-features-client";
 
 // Orden de la navegación: Inicio, Twitch, YouTube, Instagram, TikTok, Cosplays, Comunidad (Comunidad al final).
 const NAV_LINKS = [
@@ -17,6 +19,15 @@ const NAV_LINKS = [
   { to: "/cosplay", key: "cosplay" },
   { to: "/community", key: "community" },
 ] as const;
+
+// Instagram, TikTok y Cosplays dependen de la autorización de Mina: solo se enlazan si MINA_FEATURES_ENABLED las incluye (solo
+// presentación: el servidor y las rutas repiten el control).
+const visibleNavLinks = () =>
+  NAV_LINKS.filter(
+    (link) =>
+      !(MINA_FEATURES as readonly string[]).includes(link.key) ||
+      isMinaFeatureEnabled(link.key as MinaFeature),
+  );
 
 // Estado de sesión en la navegación (Bloques 6B/6C/6E; renombrado a "Perfil" en 9J-2B.1): el
 // perfil público /@username es ahora la experiencia social/de cuenta PRIMARIA — visitante ->
@@ -141,7 +152,7 @@ export default function Header({ onLogoDoubleClick }: HeaderProps) {
         </div>
 
         <nav className="hidden gap-6 md:flex">
-          {NAV_LINKS.map((link) => (
+          {visibleNavLinks().map((link) => (
             <NavLink
               key={link.to}
               to={link.to}
@@ -215,7 +226,7 @@ export default function Header({ onLogoDoubleClick }: HeaderProps) {
           id="mobile-nav"
           className="flex flex-col gap-1 border-t border-border-subtle/60 bg-bg-base/95 px-4 py-3 backdrop-blur-xl md:hidden"
         >
-          {NAV_LINKS.map((link) => (
+          {visibleNavLinks().map((link) => (
             <NavLink
               key={link.to}
               to={link.to}

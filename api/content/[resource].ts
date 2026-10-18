@@ -1,4 +1,5 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
+import { requireMinaFeature } from "../../src/lib/mina-feature-guard.js";
 import { handleCosplayList, handleCosplayPost } from "../../src/lib/cosplay-handlers.js";
 import { handleCommunityFeed } from "../../src/lib/community-feed-handlers.js";
 import { handleCommunityProfile } from "../../src/lib/community-profile-handlers.js";
@@ -26,9 +27,12 @@ import { handleCommunityPostDetail } from "../../src/lib/community-post-detail-h
 // siempre 404, igual que el resto de despachadores del proyecto.
 export default function handler(req: VercelRequest, res: VercelResponse) {
   switch (req.query.resource) {
+    // Cosplays depende de la autorización de Mina: desactivado salvo MINA_FEATURES_ENABLED=…cosplay… (docs/MINA_RESTRICTED_MODE.md).
     case "cosplay-list":
+      if (!requireMinaFeature("cosplay", res)) return res;
       return handleCosplayList(req, res);
     case "cosplay-post":
+      if (!requireMinaFeature("cosplay", res)) return res;
       return handleCosplayPost(req, res);
     case "community-feed":
       return handleCommunityFeed(req, res);

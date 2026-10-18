@@ -2,6 +2,8 @@ import { lazy, Suspense, useEffect, useState } from "react";
 import { lazyPage } from "./i18n/lazyPage";
 import { Navigate, Route, Routes, useLocation } from "react-router-dom";
 import RouteErrorBoundary from "./components/RouteErrorBoundary";
+import FeatureUnavailable from "./components/ui/FeatureUnavailable";
+import { isMinaFeatureEnabled } from "./lib/mina-features-client";
 import Header from "./components/layout/Header";
 import Footer from "./components/layout/Footer";
 import HomePage from "./pages/HomePage";
@@ -173,39 +175,76 @@ function AppShell() {
       <Header onLogoDoubleClick={activateSukunaMode} />
       <main className="flex-1">
         <RouteErrorBoundary key={location.pathname}>
-        <Suspense fallback={<SectionFallback />}>
-          <Routes>
-            <Route path="/" element={<HomePage />} />
-            <Route path="/twitch" element={<TwitchSection />} />
-            <Route path="/youtube" element={<YouTubeSection />} />
-            <Route path="/instagram" element={<InstagramSection />} />
-            <Route path="/tiktok" element={<TikTokSection />} />
-            <Route path="/community" element={<CommunitySection />} />
-            <Route path="/comunidad" element={<Navigate to="/community" replace />} />
-            <Route path="/community/post/:postId" element={<PostDetailPage />} />
-            <Route path="/cosplay" element={<CosplayPage />} />
-            <Route path="/cosplay/:slug" element={<CosplayDetailPage />} />
-            {MediaHarnessPage && (
-              <Route path="/dev/media-harness" element={<MediaHarnessPage />} />
-            )}
-            <Route path="/terms" element={<TermsPage />} />
-            <Route path="/privacy" element={<PrivacyPage />} />
-            {isSignupLegalConsentEnabled() || isLegalDocsEnabled() ? (
-              <Route path="/community-rules" element={<CommunityRulesPage />} />
-            ) : null}
-            {isLegalDocsEnabled() ? (
-              <Route path="/legal" element={<LegalNoticePage />} />
-            ) : null}
-            <Route path="/copyright" element={<CopyrightClaimPage />} />
-            <Route path="/copyright/appeal" element={<CopyrightAppealPage />} />
-            <Route path="/login" element={<LoginPage />} />
-            <Route path="/signup" element={<SignupPage />} />
-            <Route path="/forgot-password" element={<ForgotPasswordPage />} />
-            <Route path="/reset-password" element={<ResetPasswordPage />} />
-            <Route path="/account" element={<AccountPage />} />
-            {/* DEL-3: debe ir ANTES de /:usernameParam (que solo casa un segmento, pero así la ruta queda explícita). */}
-            <Route path="/account/delete" element={<AccountDeletionPage />} />
-            {/* /@username (Fase 9J-2B): React Router v6 no admite mezclar texto literal ("@") y
+          <Suspense fallback={<SectionFallback />}>
+            <Routes>
+              <Route path="/" element={<HomePage />} />
+              <Route path="/twitch" element={<TwitchSection />} />
+              <Route path="/youtube" element={<YouTubeSection />} />
+              {/* Instagram, TikTok y Cosplays dependen de la autorización de Mina: sin MINA_FEATURES_ENABLED muestran un estado neutral. */}
+              <Route
+                path="/instagram"
+                element={
+                  isMinaFeatureEnabled("instagram") ? (
+                    <InstagramSection />
+                  ) : (
+                    <FeatureUnavailable />
+                  )
+                }
+              />
+              <Route
+                path="/tiktok"
+                element={
+                  isMinaFeatureEnabled("tiktok") ? (
+                    <TikTokSection />
+                  ) : (
+                    <FeatureUnavailable />
+                  )
+                }
+              />
+              <Route path="/community" element={<CommunitySection />} />
+              <Route path="/comunidad" element={<Navigate to="/community" replace />} />
+              <Route path="/community/post/:postId" element={<PostDetailPage />} />
+              <Route
+                path="/cosplay"
+                element={
+                  isMinaFeatureEnabled("cosplay") ? (
+                    <CosplayPage />
+                  ) : (
+                    <FeatureUnavailable />
+                  )
+                }
+              />
+              <Route
+                path="/cosplay/:slug"
+                element={
+                  isMinaFeatureEnabled("cosplay") ? (
+                    <CosplayDetailPage />
+                  ) : (
+                    <FeatureUnavailable />
+                  )
+                }
+              />
+              {MediaHarnessPage && (
+                <Route path="/dev/media-harness" element={<MediaHarnessPage />} />
+              )}
+              <Route path="/terms" element={<TermsPage />} />
+              <Route path="/privacy" element={<PrivacyPage />} />
+              {isSignupLegalConsentEnabled() || isLegalDocsEnabled() ? (
+                <Route path="/community-rules" element={<CommunityRulesPage />} />
+              ) : null}
+              {isLegalDocsEnabled() ? (
+                <Route path="/legal" element={<LegalNoticePage />} />
+              ) : null}
+              <Route path="/copyright" element={<CopyrightClaimPage />} />
+              <Route path="/copyright/appeal" element={<CopyrightAppealPage />} />
+              <Route path="/login" element={<LoginPage />} />
+              <Route path="/signup" element={<SignupPage />} />
+              <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+              <Route path="/reset-password" element={<ResetPasswordPage />} />
+              <Route path="/account" element={<AccountPage />} />
+              {/* DEL-3: debe ir ANTES de /:usernameParam (que solo casa un segmento, pero así la ruta queda explícita). */}
+              <Route path="/account/delete" element={<AccountDeletionPage />} />
+              {/* /@username (Fase 9J-2B): React Router v6 no admite mezclar texto literal ("@") y
                 un segmento dinámico dentro del MISMO segmento de ruta (matchPath("/@:username",
                 "/@edwin1") devuelve null, verificado) — solo admite segmentos ENTERAMENTE
                 literales o ENTERAMENTE dinámicos. Por eso la ruta real es "/:usernameParam" (todo
@@ -214,24 +253,24 @@ function AppShell() {
                 SIEMPRE pierde frente a cualquier ruta literal en el ranking de v6 (static > dynamic
                 > splat, sin importar el orden de declaración), así que esto nunca le quita
                 prioridad a /community, /account, etc. */}
-            <Route path="/:usernameParam" element={<ProfilePage />} />
-            <Route element={<AdminAuthLayout />}>
-              <Route path="/admin" element={<AdminDashboardPage />} />
-              <Route path="/admin/developer" element={<DeveloperPage />} />
-              <Route path="/admin/moderation" element={<AdminModerationPage />} />
-              <Route path="/admin/login" element={<AdminLoginPage />} />
-              <Route path="/admin/signup" element={<AdminSignupPage />} />
-              <Route path="/admin/mfa" element={<AdminMfaPage />} />
-              <Route path="/admin/mfa/recovery" element={<AdminMfaRecoveryPage />} />
-              <Route
-                path="/admin/mfa/recovery/cancel"
-                element={<AdminMfaRecoveryCancelPage />}
-              />
-              <Route path="/admin/activate" element={<AdminActivatePage />} />
-            </Route>
-            <Route path="*" element={<Navigate to="/" replace />} />
-          </Routes>
-        </Suspense>
+              <Route path="/:usernameParam" element={<ProfilePage />} />
+              <Route element={<AdminAuthLayout />}>
+                <Route path="/admin" element={<AdminDashboardPage />} />
+                <Route path="/admin/developer" element={<DeveloperPage />} />
+                <Route path="/admin/moderation" element={<AdminModerationPage />} />
+                <Route path="/admin/login" element={<AdminLoginPage />} />
+                <Route path="/admin/signup" element={<AdminSignupPage />} />
+                <Route path="/admin/mfa" element={<AdminMfaPage />} />
+                <Route path="/admin/mfa/recovery" element={<AdminMfaRecoveryPage />} />
+                <Route
+                  path="/admin/mfa/recovery/cancel"
+                  element={<AdminMfaRecoveryCancelPage />}
+                />
+                <Route path="/admin/activate" element={<AdminActivatePage />} />
+              </Route>
+              <Route path="*" element={<Navigate to="/" replace />} />
+            </Routes>
+          </Suspense>
         </RouteErrorBoundary>
       </main>
       <Footer />
