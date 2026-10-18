@@ -1,3 +1,4 @@
+import { renderBrandedEmailHtml, type EmailBlock } from "./mail-html.js";
 import {
   readMailConfig,
   type MailConfig,
@@ -22,13 +23,6 @@ export function buildAccountDeletionLink(appUrl: string, token: string): string 
   return `${appUrl.replace(/\/+$/, "")}/account/delete#t=${token}`;
 }
 
-const escapeHtml = (s: string) =>
-  s
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
-
 export function buildAccountDeletionEmail(input: {
   link: string;
   expiresInMinutes: number;
@@ -47,11 +41,11 @@ export function buildAccountDeletionEmail(input: {
     "If you did not request this, ignore this email: your account stays as it is. Nobody on the team will ever ask you for your password.";
   const subject = "Upmina Community - Confirm the deletion of your account";
   const text = [...paragraphs, `Confirmation link: ${input.link}`, closing].join("\n\n");
-  const html = [
-    ...paragraphs.map((p) => `<p>${escapeHtml(p)}</p>`),
-    `<p><a href="${escapeHtml(input.link)}">Review and confirm the deletion</a></p>`,
-    `<p>${escapeHtml(closing)}</p>`,
-  ].join("\n");
+  const html = renderBrandedEmailHtml(subject, [
+    ...paragraphs.map((p): EmailBlock => ({ type: "text", text: p })),
+    { type: "link", href: input.link, label: "Review and confirm the deletion" },
+    { type: "text", text: closing },
+  ]);
   return { subject, text, html };
 }
 

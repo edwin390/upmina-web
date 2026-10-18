@@ -7,33 +7,32 @@ coherencia estética con la marca UPMINA.
 
 ## 🎨 Paleta de colores
 
-### Colores base
-| Token | Valor | Uso |
-|---|---|---|
-| `bg-base` | `#0a0a0a` | Fondo principal |
-| `bg-surface` | `#141414` | Tarjetas, secciones |
-| `bg-elevated` | `#1e1e1e` | Modales, dropdowns |
-| `border-subtle` | `#2a2a2a` | Bordes suaves |
-| `border-strong` | `#3a3a3a` | Bordes marcados |
+Fuente de verdad: variables CSS `--c-*` (canales RGB) en `src/styles/globals.css`, expuestas como colores de Tailwind en
+`tailwind.config.js` (`rgb(var(--c-…) / <alpha-value>)`). La identidad actual es **azul y rosa sobre azul noche**; la anterior
+(fucsia `#ff2d95` + cian `#00f0ff` sobre `#0a0a0a`) **está retirada** y no debe reutilizarse.
 
-### Colores de acento
-| Token | Valor | Uso |
-|---|---|---|
-| `accent-primary` | `#ff2d95` | Fucsia neón (CTA, links) |
-| `accent-secondary` | `#00f0ff` | Cian eléctrico (highlights) |
-| `accent-live` | `#ff0033` | Rojo para estado EN VIVO |
-| `accent-success` | `#00ff88` | Confirmaciones |
-| `accent-warning` | `#ffb800` | Advertencias |
+### Tema oscuro (por defecto, `:root`)
+| Token | Canales RGB | Valor | Uso |
+|---|---|---|---|
+| `bg-base` | `11 13 19` | `#0b0d13` | Fondo principal (también `theme-color` en `index.html`) |
+| `bg-surface` | `23 31 48` | `#171f30` | Tarjetas, secciones |
+| `bg-elevated` | `33 44 66` | `#212c42` | Modales, menús |
+| `border-subtle` / `border-strong` | `40 52 76` / `58 72 102` | `#28344c` / `#3a4866` | Bordes |
+| `accent-primary` | `116 184 244` | `#74b8f4` | Azul de acento (CTA, enlaces) |
+| `accent-secondary` | `168 212 250` | `#a8d4fa` | Azul claro (resaltes) |
+| `accent-pink` | `255 77 166` | `#ff4da6` | Rosa de acento |
+| `accent-live` | `255 0 51` | `#ff0033` | Estado EN VIVO / error |
+| `accent-success` | `0 255 136` | `#00ff88` | Confirmaciones |
+| `accent-warning` | `255 184 0` | `#ffb800` | Advertencias |
+| `text-primary` / `secondary` / `muted` | `231 240 252` / `169 184 206` / `124 140 166` | `#e7f0fc` / `#a9b8ce` / `#7c8ca6` | Texto |
+| `text-inverse` | `11 13 19` | `#0b0d13` | Texto sobre acentos claros |
 
-### Colores de texto
-| Token | Valor | Uso |
-|---|---|---|
-| `text-primary` | `#f5f5f5` | Texto principal |
-| `text-secondary` | `#a0a0a0` | Texto secundario |
-| `text-muted` | `#666666` | Texto deshabilitado |
-| `text-inverse` | `#0a0a0a` | Texto sobre fondos claros |
-
----
+### Tema claro (`:root[data-theme="light"]`)
+Fondo `234 242 252`, superficie `248 251 255`, elevado `221 233 247`; acento primario `79 115 159`, secundario `56 94 143`,
+rosa `190 70 135`, live `207 0 41`, éxito `11 133 80`, aviso `150 98 0`; texto `37 59 86` / `66 92 123` / `84 108 138`;
+`text-inverse` blanco. Los acentos del tema claro son más oscuros para mantener el contraste. El tema se alterna con el
+atributo `data-theme` (ver `src/theme/theme.ts`); los corazones decorativos tienen variante oscura y clara
+(`public/images/hearts-*.svg`).
 
 ## 🔤 Tipografía
 
@@ -78,8 +77,8 @@ Base de 4px. Escala de Tailwind estándar:
 
 ## 🌟 Efectos visuales
 
-- **Glow neón**: `box-shadow: 0 0 20px rgba(255, 45, 149, 0.5)` para CTAs.
-- **Gradientes**: lineales de fucsia a cian para hovers destacados.
+- **Glow**: sombras `shadow-glow-primary` (azul) y `shadow-glow-secondary` (rosa) con opacidad `--glow-alpha` (0.5 oscuro, 0.22 claro).
+- **Gradientes y fondo ambiental**: variables `--amb-*` (azules) y rejilla `--amb-grid`; respetan `prefers-reduced-motion`.
 - **Ruido sutil**: textura de grano al 3% de opacidad en fondos.
 - **Backdrop blur**: `backdrop-blur-md` en headers sticky y modales.
 
@@ -119,6 +118,29 @@ Base de 4px. Escala de Tailwind estándar:
 - Navegación completa por teclado.
 - `aria-label` en todos los iconos sin texto.
 - Respeto por `prefers-reduced-motion`.
+
+---
+
+## 🧱 Páginas HTML autónomas (callbacks OAuth)
+
+`src/lib/social-oauth-page.ts` genera HTML sin React ni Tailwind y con una CSP estricta (`default-src 'none'`, solo estilos en
+línea y un script fijado por hash). Reglas: variables CSS propias con los mismos valores de los tokens (oscuro por defecto,
+claro con `prefers-color-scheme: light`), marca como **texto** `UPMINAA` (sin imágenes ni fuentes remotas, que la CSP bloquearía),
+botón primario azul con texto `text-inverse`, rosa para foco y hover, y estados semánticos (éxito/error/aviso) con los tokens
+`accent-success`, `accent-live` y `accent-warning`. No cambiar la CSP para añadir recursos externos sin una decisión de seguridad.
+
+## ✉️ Correos electrónicos
+
+Solo código en el repositorio: `src/lib/mfa-recovery-mail.ts` (vía Resend). Reglas: tablas (`role="presentation"`) y CSS en línea,
+sin JavaScript, sin CSS externo, sin imágenes remotas (cabecera de texto `UPMINAA WEB`), colores del **tema oscuro** de arriba
+(`#0b0d13` fondo, `#171f30` tarjeta, `#74b8f4` acento), enlaces con botón (igual que el botón primario de la web: azul `#74b8f4`; hover y foco `#a8d4fa`, nunca rosa) y dirección visible como alternativa, ancho máximo 560 px,
+texto plano siempre presente y HTML solo ASCII. Los correos de Supabase Auth se gestionan en el panel de Supabase y aún no se han revisado ni adaptado a esta identidad.
+
+## ♿ Compatibilidad y responsive
+
+Diseño móvil primero; breakpoints de Tailwind más `short` (`max-height: 520px`, móvil apaisado). Contraste: el texto primario y los
+acentos se han elegido para AA sobre sus fondos en ambos temas; no usar `text-muted` para información esencial. Respetar
+`prefers-reduced-motion`.
 
 ---
 

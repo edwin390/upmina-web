@@ -33,4 +33,22 @@ describe("pantalla de resultado OAuth", () => {
     expect(socialPageKind(403, "x")).toBe("unavailable");
     expect(socialPageKind(502, "x")).toBe("unavailable");
   });
+
+  it("usa la identidad visual actual (tokens azul/rosa, tema claro) y ninguno de los colores antiguos", () => {
+    const kinds = ["success", "error", "cancelled", "expired", "unavailable"] as const;
+    for (const kind of kinds) {
+      const html = renderSocialOAuthPage("t", "m", kind);
+      for (const old of ["#0a0a0a", "#141414", "#ff2d95", "#00f0ff", "#f5f5f5"])
+        expect(html.toLowerCase()).not.toContain(old);
+      expect(html).toContain("--bg:rgb(11 13 19)");
+      expect(html).toContain("--accent:rgb(116 184 244)");
+      expect(html).toContain("--pink:rgb(255 77 166)");
+      expect(html).toContain("prefers-color-scheme:light");
+      expect(html).toContain(
+        '<p class="brand" aria-hidden="true">UPMINA<span>A</span></p>',
+      );
+      // Sin recursos externos: la CSP (default-src 'none') no admite imágenes ni fuentes remotas.
+      expect(html).not.toMatch(/<img|@import|url\(|https?:\/\//);
+    }
+  });
 });

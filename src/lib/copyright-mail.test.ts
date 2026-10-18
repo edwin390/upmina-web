@@ -34,7 +34,7 @@ describe("plantillas", () => {
     expect(mail.text).toContain("do not need to upload files or identity documents");
     expect(ASCII.test(mail.subject)).toBe(true);
     expect(ASCII.test(mail.text)).toBe(true);
-    expect(mail.html).toContain(`<a href="${link}">`);
+    expect(mail.html).toContain(`<a href="${link}" `);
   });
 
   it("el token va en el fragmento (#t=), nunca en la ruta ni en la consulta", () => {

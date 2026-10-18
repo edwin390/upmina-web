@@ -80,7 +80,7 @@ describe("contenido del correo (inglés, mismo generador)", () => {
     expect(text).toContain(
       "Nobody on the team will ever ask you for a password or an identity document.",
     );
-    expect(html).toContain("<p>");
+    expect(html).toContain("<p ");
   });
 
   it("nivel 3: restricción permanente y sin fecha inventada", () => {

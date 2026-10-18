@@ -1,3 +1,4 @@
+import { renderBrandedEmailHtml, type EmailBlock } from "./mail-html.js";
 import type { MailConfig, MailErrorClass } from "./mfa-recovery-mail.js";
 import type {
   CopyrightNoticeErrorClass,
@@ -26,13 +27,6 @@ export interface CopyrightMailInput {
   /** Solo en el aviso de strike: nivel y duración de la sanción que ya calculó la BD. En ese aviso `reason` es el motivo del strike. */
   strike?: { level: 1 | 2 | 3; permanent: boolean; endsAt: string | null };
 }
-
-const escapeHtml = (s: string) =>
-  s
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
 
 /** «1 hour», «24 hours», «90 minutes». */
 export function describeWindow(minutes: number): string {
@@ -129,13 +123,14 @@ export function buildCopyrightEmail(input: CopyrightMailInput): {
   }
   const kept = lines.filter((l) => l !== "");
   const text = kept.join("\n\n");
-  const html = kept
-    .map((l) =>
+  const html = renderBrandedEmailHtml(
+    subject,
+    kept.map((l): EmailBlock =>
       /^https:\/\/\S+$/.test(l)
-        ? `<p><a href="${escapeHtml(l)}">${escapeHtml(l)}</a></p>`
-        : `<p>${escapeHtml(l)}</p>`,
-    )
-    .join("");
+        ? { type: "link", href: l, label: "Open link" }
+        : { type: "text", text: l },
+    ),
+  );
   return { subject, text, html };
 }
 

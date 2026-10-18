@@ -1,3 +1,4 @@
+import { renderBrandedEmailHtml, type EmailBlock } from "./mail-html.js";
 import { createHmac, timingSafeEqual } from "node:crypto";
 
 // MFA fase 2 — envío de correos transaccionales (SOLO servidor).
@@ -137,13 +138,6 @@ export type RecoveryMailKind =
   // Recordatorio del aviso de aprobación ya entregado: NO lleva enlace de cancelación (el original sigue vigente).
   | { kind: "reminder"; waitMinutes: number; recoveryPageUrl: string };
 
-const escapeHtml = (s: string) =>
-  s
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
-
 const CLOSED_TEXT: Record<"denied" | "cancelled" | "expired", string> = {
   denied: "An administrator rejected the request.",
   cancelled: "The request was cancelled.",
@@ -210,13 +204,15 @@ export function buildRecoveryEmail(spec: RecoveryMailKind): {
       break;
   }
   const text = lines.join("\n\n");
-  const html = lines
-    .map((l) =>
+  const html = renderBrandedEmailHtml(
+    subject,
+    lines.map((l): EmailBlock =>
       /^https:\/\//.test(l)
-        ? `<p><a href="${escapeHtml(l)}">${escapeHtml(l)}</a></p>`
-        : `<p>${escapeHtml(l)}</p>`,
-    )
-    .join("");
+        ? { type: "link", href: l, label: "Open link" }
+        : { type: "text", text: l },
+    ),
+    "Automatic security notice from Upminaa Web. Please do not reply to this message.",
+  );
   return { subject, text, html };
 }
 

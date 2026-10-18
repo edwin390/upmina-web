@@ -750,7 +750,7 @@ describe("correo de confirmación", () => {
     expect(text).toContain("expires in 30 minutes");
     expect(text.split(TOKEN).length - 1).toBe(1);
     expect(text).not.toMatch(/strike|copyright|appeal|claim|CPY-/i);
-    expect(html).toContain("<p>");
+    expect(html).toContain("<p ");
   });
 
   it("la configuración propia (ACCOUNT_DELETION_APP_URL) solo acepta https y falla cerrada; sin configuración base no hay envío", async () => {

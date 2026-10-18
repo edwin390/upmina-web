@@ -128,6 +128,22 @@ describe("adaptador de Resend", () => {
 });
 
 describe("plantillas", () => {
+  it("el HTML usa la identidad actual (tablas, CSS en línea, sin recursos remotos) y conserva el texto plano", () => {
+    const e = buildRecoveryEmail({
+      kind: "challenge",
+      link: "https://dev.example.test/admin/mfa/recovery#c=TOKEN",
+      expiresMinutes: 15,
+    });
+    expect(e.html).toContain("<table");
+    expect(e.html).toContain("UPMINAA");
+    expect(e.html).toContain("#0b0d13");
+    expect(e.html).toContain("#74b8f4");
+    expect(e.html).not.toMatch(/<script|<img|<link|@import|url\(/i);
+    expect(e.html).toContain("it expires in 15 minutes");
+    expect(e.html).toContain("No authenticator has been removed yet.");
+    expect(e.text.startsWith("Someone (hopefully you)")).toBe(true);
+    expect(e.text).not.toContain("<");
+  });
   it("el desafío incluye el enlace con fragmento y NO promete que ya se eliminó nada", () => {
     const e = buildRecoveryEmail({
       kind: "challenge",
