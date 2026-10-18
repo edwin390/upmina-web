@@ -276,7 +276,7 @@ function Content() {
             type="button"
             disabled={busy}
             onClick={() => void handleCancel()}
-            className={SECONDARY}
+            className={`${SECONDARY} self-center`}
           >
             {t("cancel")}
           </button>
@@ -319,7 +319,7 @@ function Content() {
           type="button"
           disabled={busy}
           onClick={() => void handleCancel()}
-          className={SECONDARY}
+          className={`${SECONDARY} self-center`}
         >
           {t("cancel")}
         </button>

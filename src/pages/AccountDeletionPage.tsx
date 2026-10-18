@@ -457,7 +457,7 @@ function AccountDeletion() {
           </h2>
           <p className="text-sm text-text-secondary">{t("deleting.body")}</p>
           <p className="text-sm text-text-secondary">{t("deleting.retained")}</p>
-          <Link to="/" className={`${SECONDARY} no-underline`}>
+          <Link to="/" className={`${SECONDARY} self-start no-underline`}>
             {t("deleting.home")}
           </Link>
         </div>

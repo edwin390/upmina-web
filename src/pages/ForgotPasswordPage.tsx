@@ -228,7 +228,7 @@ function Content() {
             <Link
               to="/signup"
               state={{ email: checkedEmail }}
-              className={`${SECONDARY} break-all`}
+              className={`${SECONDARY} self-start break-all`}
             >
               {t("createAccountWith", { email: checkedEmail })}
             </Link>
